@@ -195,13 +195,18 @@ renderHeader('Dashboard');
     <div class="col-md-6 col-xl-4">
         <div class="card athlete-card border-0 shadow-sm h-100">
             <div class="card-body">
-                <?php if ($a['photo']): ?>
                 <div class="text-center mb-3">
+                    <?php if ($a['photo']): ?>
                     <img src="<?= h(photoUrl($a['photo'], 'athletes')) ?>" alt="Fotografie"
                          class="rounded-circle"
                          style="width:100px;height:100px;object-fit:cover;border:3px solid #ffc107;">
+                    <?php else: ?>
+                    <?php $initials = strtoupper(mb_substr($a['first_name'], 0, 1, 'UTF-8') . mb_substr($a['last_name'], 0, 1, 'UTF-8')); ?>
+                    <div class="avatar-initials" title="<?= h($a['first_name'] . ' ' . $a['last_name']) ?>">
+                        <?= $initials ?>
+                    </div>
+                    <?php endif; ?>
                 </div>
-                <?php endif; ?>
                 <div class="d-flex justify-content-between align-items-start mb-2">
                     <div>
                         <h5 class="card-title mb-0 fw-bold">

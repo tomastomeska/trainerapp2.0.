@@ -63,6 +63,7 @@ $showFormOnLoad = $_SERVER['REQUEST_METHOD'] === 'POST';
 ?>
 <!DOCTYPE html>
 <html lang="cs">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -299,16 +300,17 @@ $showFormOnLoad = $_SERVER['REQUEST_METHOD'] === 'POST';
         }
     </style>
 </head>
+
 <body class="<?= $showFormOnLoad ? 'show-form' : '' ?>">
     <div class="login-wrap">
         <div class="brand">
             <?php if ($logoUrl): ?>
                 <div class="brand-stage">
                     <img src="<?= h($logoUrl) ?>"
-                         alt="<?= h(APP_NAME) ?>"
-                         id="brandLogo"
-                         class="brand-logo"
-                         title="Dvojklik pro administraci">
+                        alt="<?= h(APP_NAME) ?>"
+                        id="brandLogo"
+                        class="brand-logo"
+                        title="Dvojklik pro administraci">
                 </div>
             <?php else: ?>
                 <h1 id="brandLogo" class="brand-fallback" title="Dvojklik pro administraci"><?= h(APP_NAME) ?></h1>
@@ -321,8 +323,8 @@ $showFormOnLoad = $_SERVER['REQUEST_METHOD'] === 'POST';
 
         <div class="card login-card">
             <div class="card-body">
-                <h2 class="login-title">Přihlásit se</h2>
-                <p class="login-sub">Vítejte zpět v tréninkovém rozhraní</p>
+                <h2 class="login-title">Přihlášení</h2>
+                <p class="login-sub">Přihlášení pro trenéry</p>
 
                 <?php if ($error): ?>
                     <div class="alert alert-danger py-2 mb-3"><?= h($error) ?></div>
@@ -333,14 +335,14 @@ $showFormOnLoad = $_SERVER['REQUEST_METHOD'] === 'POST';
                     <div class="mb-3">
                         <label class="form-label" for="username">Uživatelské jméno</label>
                         <input id="username" type="text" name="username" class="form-control"
-                               value="<?= h($_POST['username'] ?? '') ?>"
-                               autofocus autocomplete="username" required>
+                            value="<?= h($_POST['username'] ?? '') ?>"
+                            autofocus autocomplete="username" required>
                     </div>
 
                     <div class="mb-4">
                         <label class="form-label" for="password">Heslo</label>
                         <input id="password" type="password" name="password" class="form-control"
-                               autocomplete="current-password" required>
+                            autocomplete="current-password" required>
                     </div>
 
                     <button type="submit" class="btn btn-login w-100">Přihlásit se</button>
@@ -351,32 +353,33 @@ $showFormOnLoad = $_SERVER['REQUEST_METHOD'] === 'POST';
         <div class="footer-meta">
             <div class="mb-1">verze <?= h(getAppSetting('app_version', defined('APP_VERSION') ? APP_VERSION : '—')) ?></div>
             <div>
-                Vytvořil <strong>Tomáš Tomeška</strong>
+                Vytvořil <strong>WebNexGen</strong>
                 &nbsp;·&nbsp;
-                <a href="mailto:tomas.tomeska@seznam.cz">tomas.tomeska@seznam.cz</a>
+                <a href="mailto:tomas.tomeska@seznam.cz">Kontaktujte nás</a>
             </div>
         </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-    const brandLogo = document.getElementById('brandLogo');
-    if (brandLogo) {
-        brandLogo.addEventListener('dblclick', function () {
-            window.location.href = '<?= BASE_URL ?>/login_admin.php';
-        });
-    }
+        const brandLogo = document.getElementById('brandLogo');
+        if (brandLogo) {
+            brandLogo.addEventListener('dblclick', function() {
+                window.location.href = '<?= BASE_URL ?>/login_admin.php';
+            });
+        }
 
-    const btnShowLogin = document.getElementById('btnShowLogin');
-    if (btnShowLogin) {
-        btnShowLogin.addEventListener('click', function () {
-            document.body.classList.add('show-form');
-            setTimeout(function () {
-                const username = document.getElementById('username');
-                if (username) username.focus();
-            }, 260);
-        });
-    }
+        const btnShowLogin = document.getElementById('btnShowLogin');
+        if (btnShowLogin) {
+            btnShowLogin.addEventListener('click', function() {
+                document.body.classList.add('show-form');
+                setTimeout(function() {
+                    const username = document.getElementById('username');
+                    if (username) username.focus();
+                }, 260);
+            });
+        }
     </script>
 </body>
+
 </html>

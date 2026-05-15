@@ -47,6 +47,11 @@ function renderHeader(string $title = '', bool $withCharts = false): void {
                         <i class="fas fa-layer-group me-1"></i>Sady
                     </a>
                 </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="<?= BASE_URL ?>/calendar.php">
+                        <i class="fas fa-calendar-alt me-1"></i>Kalendář
+                    </a>
+                </li>
             </ul>
             <?php if ($coach): ?>
             <div class="navbar-nav">

@@ -95,6 +95,96 @@ foreach ($activeSessions as $session) {
     $activeIndividualSessions[] = $session;
 }
 
+// Dnešní plán z kalendáře (neproběhlé + právě probíhající)
+$todayCalendarStmt = $pdo->prepare(
+    'SELECT e.id,
+            e.custom_title,
+            e.location,
+            e.starts_at,
+            e.ends_at,
+            a.first_name,
+            a.last_name
+     FROM coach_calendar_events e
+     LEFT JOIN athletes a ON a.id = e.athlete_id
+     WHERE e.coach_id = ?
+       AND e.starts_at >= CURDATE()
+       AND e.starts_at < DATE_ADD(CURDATE(), INTERVAL 1 DAY)
+       AND e.ends_at > NOW()
+     ORDER BY e.starts_at ASC, e.id ASC'
+);
+$todayCalendarStmt->execute([$coachId]);
+$todayPlannedEvents = $todayCalendarStmt->fetchAll();
+
+$now = new DateTimeImmutable('now');
+
+$formatCalendarEventPerson = static function (array $event): string {
+    if (!empty($event['first_name']) || !empty($event['last_name'])) {
+        return trim((string)($event['first_name'] ?? '') . ' ' . (string)($event['last_name'] ?? ''));
+    }
+    if (!empty($event['custom_title'])) {
+        return (string)$event['custom_title'];
+    }
+    return 'Trénink bez názvu';
+};
+
+$ongoingTodayEvents = [];
+$nextTodayEvent = null;
+
+foreach ($todayPlannedEvents as $event) {
+    $eventStart = new DateTimeImmutable($event['starts_at']);
+    $eventEnd = new DateTimeImmutable($event['ends_at']);
+
+    if ($eventStart <= $now && $eventEnd > $now) {
+        $ongoingTodayEvents[] = $event;
+        continue;
+    }
+
+    if ($eventStart > $now && $nextTodayEvent === null) {
+        $nextTodayEvent = $event;
+    }
+}
+
+$todayPendingCount = count($todayPlannedEvents);
+
+$minutesToNextTodayEvent = null;
+if ($nextTodayEvent !== null) {
+    $nextStart = new DateTimeImmutable($nextTodayEvent['starts_at']);
+    $minutesToNextTodayEvent = (int)max(0, ceil(($nextStart->getTimestamp() - $now->getTimestamp()) / 60));
+}
+
+// Zítřejší plán z kalendáře
+$tomorrowStart = $now->modify('tomorrow')->setTime(0, 0, 0);
+$tomorrowEnd = $tomorrowStart->modify('+1 day');
+
+$tomorrowCalendarStmt = $pdo->prepare(
+    'SELECT e.id,
+            e.custom_title,
+            e.location,
+            e.starts_at,
+            e.ends_at,
+            a.first_name,
+            a.last_name
+     FROM coach_calendar_events e
+     LEFT JOIN athletes a ON a.id = e.athlete_id
+     WHERE e.coach_id = ?
+       AND e.starts_at >= ?
+       AND e.starts_at < ?
+     ORDER BY e.starts_at ASC, e.id ASC'
+);
+$tomorrowCalendarStmt->execute([
+    $coachId,
+    $tomorrowStart->format('Y-m-d H:i:s'),
+    $tomorrowEnd->format('Y-m-d H:i:s'),
+]);
+$tomorrowPlannedEvents = $tomorrowCalendarStmt->fetchAll();
+
+$tomorrowCount = count($tomorrowPlannedEvents);
+$firstTomorrowEvent = $tomorrowPlannedEvents[0] ?? null;
+$firstTomorrowTime = null;
+if ($firstTomorrowEvent) {
+    $firstTomorrowTime = (new DateTimeImmutable($firstTomorrowEvent['starts_at']))->format('H:i');
+}
+
 // Kontrola a zobrazení obrázku sportovce
 $athletePhotoPath = BASE_URL . '/uploads/athletes/' . ($athlete['photo'] ?? 'default.jpg');
 if (!file_exists(__DIR__ . '/../uploads/athletes/' . ($athlete['photo'] ?? 'default.jpg'))) {
@@ -103,6 +193,65 @@ if (!file_exists(__DIR__ . '/../uploads/athletes/' . ($athlete['photo'] ?? 'defa
 
 renderHeader('Dashboard');
 ?>
+
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-body py-3">
+        <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
+            <div>
+                <div class="text-muted small text-uppercase fw-semibold">Dnešní plán z kalendáře</div>
+                <div class="fw-bold fs-4"><?= (int)$todayPendingCount ?> neproběhlých tréninků</div>
+            </div>
+
+            <div class="d-flex flex-wrap gap-2 align-items-stretch">
+                <?php if (!empty($ongoingTodayEvents)): ?>
+                    <?php $current = $ongoingTodayEvents[0]; ?>
+                    <div class="border rounded-3 bg-success-subtle text-success-emphasis px-4 py-3 text-start fw-semibold" style="max-width: 420px; font-size: 1.08rem; line-height: 1.4;">
+                        <i class="fas fa-circle-play me-1"></i>
+                        Probíhá:
+                        <strong><?= h($formatCalendarEventPerson($current)) ?></strong>
+                        <?php if (!empty($current['location'])): ?>
+                            · <?= h($current['location']) ?>
+                        <?php endif; ?>
+                        <?php if (count($ongoingTodayEvents) > 1): ?>
+                            <span class="d-block mt-1">+ další <?= count($ongoingTodayEvents) - 1 ?></span>
+                        <?php endif; ?>
+                    </div>
+                <?php else: ?>
+                    <div class="border rounded-3 bg-light text-muted px-4 py-3 fw-semibold" style="font-size: 1.08rem; line-height: 1.4;">Aktuálně nic neprobíhá</div>
+                <?php endif; ?>
+
+                <?php if ($nextTodayEvent !== null && $minutesToNextTodayEvent !== null): ?>
+                <div class="border rounded-3 bg-warning-subtle text-dark px-4 py-3 text-start fw-semibold" style="max-width: 460px; font-size: 1.08rem; line-height: 1.4;">
+                    <i class="fas fa-clock me-1"></i>
+                    Za <?= (int)$minutesToNextTodayEvent ?> min:
+                    <strong><?= h($formatCalendarEventPerson($nextTodayEvent)) ?></strong>
+                    <?php if (!empty($nextTodayEvent['location'])): ?>
+                        · <?= h($nextTodayEvent['location']) ?>
+                    <?php endif; ?>
+                </div>
+                <?php else: ?>
+                <div class="border rounded-3 bg-light text-muted px-4 py-3 fw-semibold" style="font-size: 1.08rem; line-height: 1.4;">Dnes už další trénink nezačíná</div>
+                <?php endif; ?>
+
+                <div class="border rounded-3 bg-info-subtle text-dark px-4 py-3 text-start fw-semibold" style="max-width: 500px; font-size: 1.08rem; line-height: 1.4;">
+                    <i class="fas fa-calendar-day me-1"></i>
+                    Zítra naplánováno: <strong><?= (int)$tomorrowCount ?></strong>
+                    <?php if ($firstTomorrowEvent): ?>
+                        <span class="d-block mt-1">
+                            První: <strong><?= h($formatCalendarEventPerson($firstTomorrowEvent)) ?></strong>
+                            v <?= h((string)$firstTomorrowTime) ?>
+                            <?php if (!empty($firstTomorrowEvent['location'])): ?>
+                                · <?= h($firstTomorrowEvent['location']) ?>
+                            <?php endif; ?>
+                        </span>
+                    <?php else: ?>
+                        <span class="d-block mt-1">Bez naplánovaného tréninku</span>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
 
 <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
     <h2 class="mb-0"><i class="fas fa-users me-2 text-warning"></i>Moji sportovci</h2>
@@ -195,13 +344,18 @@ renderHeader('Dashboard');
     <div class="col-md-6 col-xl-4">
         <div class="card athlete-card border-0 shadow-sm h-100">
             <div class="card-body">
-                <?php if ($a['photo']): ?>
                 <div class="text-center mb-3">
+                    <?php if ($a['photo']): ?>
                     <img src="<?= h(photoUrl($a['photo'], 'athletes')) ?>" alt="Fotografie"
                          class="rounded-circle"
                          style="width:100px;height:100px;object-fit:cover;border:3px solid #ffc107;">
+                    <?php else: ?>
+                    <?php $initials = strtoupper(mb_substr($a['first_name'], 0, 1, 'UTF-8') . mb_substr($a['last_name'], 0, 1, 'UTF-8')); ?>
+                    <div class="avatar-initials" title="<?= h($a['first_name'] . ' ' . $a['last_name']) ?>">
+                        <?= $initials ?>
+                    </div>
+                    <?php endif; ?>
                 </div>
-                <?php endif; ?>
                 <div class="d-flex justify-content-between align-items-start mb-2">
                     <div>
                         <h5 class="card-title mb-0 fw-bold">

@@ -52,6 +52,23 @@ body {
     padding: 1.25rem;
 }
 
+/* Avatar with initials */
+.avatar-initials {
+    width: 100px;
+    height: 100px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    border: 3px solid #ffc107;
+    background: #1f2937;
+    color: white;
+    font-size: 32px;
+    font-weight: bold;
+    margin: 0 auto;
+    flex-shrink: 0;
+}
+
 /* Tlačítka */
 .btn {
     border-radius: 8px;
@@ -632,6 +649,116 @@ canvas {
         font-size: 0.95rem;
         padding: 0.5rem 1rem;
     }
+}
+
+/* ================================================================
+   ADMIN PANEL RESPONSIVE
+   ================================================================ */
+
+/* Sidebar – skrý na mobilu */
+@media (max-width: 767.98px) {
+    .sidebar-wrapper {
+        position: fixed;
+        top: 60px;
+        left: 0;
+        width: 220px !important;
+        height: calc(100vh - 60px);
+        background: #1e1e2e;
+        z-index: 1000;
+        transform: translateX(-100%);
+        transition: transform 0.3s ease;
+        overflow-y: auto;
+        box-shadow: 2px 0 8px rgba(0,0,0,0.3);
+    }
+
+    .sidebar-wrapper.sidebar-open {
+        transform: translateX(0);
+    }
+
+    .sidebar-wrapper + .col {
+        margin-left: 0 !important;
+    }
+
+    #adminLayout {
+        flex-wrap: wrap;
+    }
+
+    /* Content area – plná šířka na mobilu */
+    #adminLayout > .col {
+        flex: 0 0 100%;
+        width: 100%;
+    }
+}
+
+/* Mobile – úpravy pro malé obrazovky */
+@media (max-width: 575.98px) {
+    .navbar-brand {
+        font-size: 1.1rem;
+    }
+
+    .navbar .btn-outline-danger {
+        padding: 0.35rem 0.5rem;
+        font-size: 0.8rem;
+    }
+
+    #adminLayout .col {
+        padding: 0.75rem !important;
+    }
+
+    /* Tabulky – stacked na mobilu */
+    .table-responsive .table {
+        font-size: 0.75rem;
+    }
+
+    .table thead {
+        font-size: 0.7rem;
+    }
+
+    .table th, .table td {
+        padding: 0.35rem 0.25rem;
+    }
+
+    /* Karty se statistikami – 1 na řádek */
+    .col-sm-6.col-xl-3 {
+        flex: 0 0 100%;
+        width: 100%;
+    }
+
+    /* Tlačítka v hlavičce */
+    .d-flex.justify-content-between.align-items-center {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.75rem;
+    }
+
+    .d-flex.justify-content-between.align-items-center .btn {
+        width: 100%;
+    }
+
+    /* Moderka */
+    .modal-dialog {
+        margin: 0.5rem;
+    }
+
+    /* Formuláře */
+    .row.g-3 {
+        gap: 0.5rem !important;
+    }
+
+    .col-md-6 {
+        flex: 0 0 100%;
+        width: 100%;
+    }
+
+    /* Badges – menší na mobilu */
+    .badge {
+        font-size: 0.7rem;
+        padding: 0.35rem 0.5rem !important;
+    }
+
+    /* Typography */
+    h4 { font-size: 1.1rem; }
+    .fs-1 { font-size: 1.75rem !important; }
 }
 
 /* Print styly */

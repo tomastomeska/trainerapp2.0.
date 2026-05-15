@@ -1519,3 +1519,235 @@ function processBirthdayNotifications(): array {
 
     return $results;
 }
+
+/**
+ * Vrátí plánované kalendářové tréninky trenéra v daném intervalu.
+ *
+ * @return array[]
+ */
+function getCoachCalendarEventsInRange(int $coachId, DateTimeInterface $from, DateTimeInterface $to): array {
+  $pdo = getDB();
+  $stmt = $pdo->prepare(
+    'SELECT e.id,
+        e.starts_at,
+        e.ends_at,
+        e.location,
+        e.custom_title,
+        a.first_name,
+        a.last_name
+     FROM coach_calendar_events e
+     LEFT JOIN athletes a ON a.id = e.athlete_id
+     WHERE e.coach_id = ?
+       AND e.starts_at >= ?
+       AND e.starts_at < ?
+     ORDER BY e.starts_at ASC, e.id ASC'
+  );
+  $stmt->execute([
+    $coachId,
+    $from->format('Y-m-d H:i:s'),
+    $to->format('Y-m-d H:i:s'),
+  ]);
+
+  return $stmt->fetchAll();
+}
+
+/**
+ * Odešle trenérovi e-mail s přehledem tréninků z kalendáře.
+ */
+function sendCoachCalendarDigestEmail(
+  string $toEmail,
+  string $coachName,
+  string $subject,
+  string $periodLabel,
+  array $events
+): bool {
+  $phpmailerSrc = dirname(__DIR__) . '/vendor/phpmailer/phpmailer/src';
+  if (!file_exists($phpmailerSrc . '/PHPMailer.php')) {
+    error_log('sendCoachCalendarDigestEmail: PHPMailer not found at ' . $phpmailerSrc);
+    return false;
+  }
+
+  require_once $phpmailerSrc . '/Exception.php';
+  require_once $phpmailerSrc . '/PHPMailer.php';
+  require_once $phpmailerSrc . '/SMTP.php';
+
+  $h = static fn(?string $s): string => htmlspecialchars($s ?? '', ENT_QUOTES, 'UTF-8');
+
+  $rowsHtml = '';
+  $rowsPlain = '';
+  foreach ($events as $event) {
+    $person = trim((string)($event['last_name'] ?? '') . ' ' . (string)($event['first_name'] ?? ''));
+    if ($person === '') {
+      $person = (string)($event['custom_title'] ?? 'Trénink bez názvu');
+    }
+
+    $start = formatDateTime($event['starts_at'] ?? null);
+    $end = formatDateTime($event['ends_at'] ?? null);
+    $location = trim((string)($event['location'] ?? ''));
+    $locationText = $location !== '' ? $location : 'Bez místa';
+
+    $rowsHtml .= '<tr>'
+      . '<td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;white-space:nowrap;">' . $h($start) . '</td>'
+      . '<td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;white-space:nowrap;">' . $h($end) . '</td>'
+      . '<td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;font-weight:600;">' . $h($person) . '</td>'
+      . '<td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;">' . $h($locationText) . '</td>'
+      . '</tr>';
+
+    $rowsPlain .= '- ' . $start . ' - ' . $end . ' | ' . $person . ' | ' . $locationText . "\n";
+  }
+
+  if ($rowsHtml === '') {
+    $rowsHtml = '<tr><td colspan="4" style="padding:12px;color:#6b7280;">V daném období nemáte žádný naplánovaný trénink.</td></tr>';
+    $rowsPlain = "- V daném období nemáte žádný naplánovaný trénink.\n";
+  }
+
+  $htmlBody = '<!DOCTYPE html><html lang="cs"><head><meta charset="UTF-8"></head><body style="font-family:Arial,Helvetica,sans-serif;background:#f4f4f7;padding:20px;">'
+    . '<table width="100%" cellpadding="0" cellspacing="0" style="max-width:700px;margin:0 auto;background:#fff;border-radius:10px;border:1px solid #e5e7eb;">'
+    . '<tr><td style="padding:20px 24px;background:#111827;color:#fff;border-radius:10px 10px 0 0;">'
+    . '<h2 style="margin:0;font-size:20px;">Přehled tréninků</h2>'
+    . '<p style="margin:6px 0 0;color:#d1d5db;">' . $h($periodLabel) . '</p>'
+    . '</td></tr>'
+    . '<tr><td style="padding:16px 24px;color:#374151;">Dobrý den, <strong>' . $h($coachName) . '</strong>, posíláme přehled naplánovaných tréninků.</td></tr>'
+    . '<tr><td style="padding:0 24px 24px;">'
+    . '<table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">'
+    . '<thead><tr style="background:#f9fafb;color:#374151;">'
+    . '<th align="left" style="padding:10px 12px;">Začátek</th>'
+    . '<th align="left" style="padding:10px 12px;">Konec</th>'
+    . '<th align="left" style="padding:10px 12px;">Sportovec / název</th>'
+    . '<th align="left" style="padding:10px 12px;">Místo</th>'
+    . '</tr></thead><tbody>' . $rowsHtml . '</tbody></table>'
+    . '</td></tr>'
+    . '</table></body></html>';
+
+  $altBody = "Dobrý den, {$coachName},\n\n"
+    . "přehled tréninků ({$periodLabel}):\n"
+    . $rowsPlain
+    . "\nTrainerApp\n";
+
+  $mail = new PHPMailer\PHPMailer\PHPMailer(true);
+  try {
+    _configureMail($mail);
+    $mail->addAddress($toEmail);
+    $mail->isHTML(true);
+    $mail->Subject = $subject;
+    $mail->Body = $htmlBody;
+    $mail->AltBody = $altBody;
+    $mail->send();
+    return true;
+  } catch (\Exception $e) {
+    error_log('sendCoachCalendarDigestEmail error: ' . $mail->ErrorInfo . ' | ' . $e->getMessage());
+    return false;
+  }
+}
+
+/**
+ * Zpracuje kalendářové digest e-maily trenérům.
+ * - každý den po 18:00: přehled zítřejších tréninků
+ * - pátek odpoledne: přehled příštího týdne (Po-Ne)
+ *
+ * @return array[]
+ */
+function processCoachCalendarDigestNotifications(?DateTimeImmutable $now = null): array {
+  $pdo = getDB();
+  $results = [];
+  $now = $now ?? new DateTimeImmutable('now');
+
+  $shouldSendDaily = (int)$now->format('G') >= 18;
+  $shouldSendWeekly = ((int)$now->format('N') === 5) && ((int)$now->format('G') >= 12);
+
+  if (!$shouldSendDaily && !$shouldSendWeekly) {
+    return $results;
+  }
+
+  $coaches = $pdo->query(
+    "SELECT id, name, username, email
+     FROM coaches
+     WHERE is_active = 1
+       AND email IS NOT NULL
+       AND email <> ''"
+  )->fetchAll();
+
+  $checkSentStmt = $pdo->prepare(
+    'SELECT id
+     FROM coach_calendar_digest_notifications
+     WHERE coach_id = ?
+       AND digest_type = ?
+       AND digest_date = ?
+     LIMIT 1'
+  );
+
+  $insertSentStmt = $pdo->prepare(
+    'INSERT INTO coach_calendar_digest_notifications (coach_id, digest_type, digest_date, sent_at)
+     VALUES (?, ?, ?, NOW())'
+  );
+
+  foreach ($coaches as $coach) {
+    $coachId = (int)$coach['id'];
+    $coachName = (string)($coach['name'] ?: $coach['username']);
+    $coachEmail = (string)$coach['email'];
+
+    if ($shouldSendDaily) {
+      $tomorrowStart = $now->modify('tomorrow')->setTime(0, 0, 0);
+      $tomorrowEnd = $tomorrowStart->modify('+1 day');
+      $digestDate = $tomorrowStart->format('Y-m-d');
+
+      $checkSentStmt->execute([$coachId, 'daily_tomorrow', $digestDate]);
+      if (!$checkSentStmt->fetch()) {
+        $events = getCoachCalendarEventsInRange($coachId, $tomorrowStart, $tomorrowEnd);
+        $sent = sendCoachCalendarDigestEmail(
+          $coachEmail,
+          $coachName,
+          'Zítřejší přehled tréninků',
+          'Zítra: ' . $tomorrowStart->format('d.m.Y'),
+          $events
+        );
+
+        if ($sent) {
+          $insertSentStmt->execute([$coachId, 'daily_tomorrow', $digestDate]);
+        }
+
+        $results[] = [
+          'type' => 'daily_tomorrow',
+          'coach_id' => $coachId,
+          'coach_email' => $coachEmail,
+          'digest_date' => $digestDate,
+          'events_count' => count($events),
+          'sent' => $sent,
+        ];
+      }
+    }
+
+    if ($shouldSendWeekly) {
+      $nextWeekMonday = $now->modify('next monday')->setTime(0, 0, 0);
+      $nextWeekEnd = $nextWeekMonday->modify('+7 days');
+      $digestDate = $nextWeekMonday->format('Y-m-d');
+
+      $checkSentStmt->execute([$coachId, 'weekly_next_week', $digestDate]);
+      if (!$checkSentStmt->fetch()) {
+        $events = getCoachCalendarEventsInRange($coachId, $nextWeekMonday, $nextWeekEnd);
+        $sent = sendCoachCalendarDigestEmail(
+          $coachEmail,
+          $coachName,
+          'Přehled tréninků na příští týden',
+          'Příští týden: ' . $nextWeekMonday->format('d.m.Y') . ' - ' . $nextWeekEnd->modify('-1 day')->format('d.m.Y'),
+          $events
+        );
+
+        if ($sent) {
+          $insertSentStmt->execute([$coachId, 'weekly_next_week', $digestDate]);
+        }
+
+        $results[] = [
+          'type' => 'weekly_next_week',
+          'coach_id' => $coachId,
+          'coach_email' => $coachEmail,
+          'digest_date' => $digestDate,
+          'events_count' => count($events),
+          'sent' => $sent,
+        ];
+      }
+    }
+  }
+
+  return $results;
+}

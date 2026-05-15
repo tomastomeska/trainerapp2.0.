@@ -27,20 +27,23 @@ function renderAdminHeader(string $title = ''): void {
 <body>
 
 <nav class="navbar navbar-dark shadow-sm sticky-top" style="background:#1e1e2e">
-	<div class="container-fluid px-4">
+	<div class="container-fluid px-3 px-md-4">
+		<button class="btn btn-outline-secondary btn-sm me-2 d-md-none" id="sidebarToggle" style="color:#a78bfa;border-color:#a78bfa">
+			<i class="fas fa-bars"></i>
+		</button>
 		<a class="navbar-brand fw-bold" href="<?= BASE_URL ?>/admin/dashboard.php">
 			<i class="fas fa-shield-halved me-2 text-violet" style="color:#a78bfa"></i>
 			<span style="color:#a78bfa">Super</span><span class="text-white">Admin</span>
-			<span class="badge ms-2 px-2 py-1 small admin-badge">TrainerApp</span>
+			<span class="badge ms-2 px-2 py-1 small admin-badge d-none d-sm-inline-block">TrainerApp</span>
 		</a>
 		<?php if ($admin): ?>
-		<div class="d-flex align-items-center gap-3">
-			<span class="text-secondary small">
+		<div class="d-flex align-items-center gap-2 gap-md-3 ms-auto">
+			<span class="text-secondary small d-none d-sm-inline">
 				<i class="fas fa-user-shield me-1" style="color:#a78bfa"></i>
 				<?= h($admin['name'] ?: $admin['username']) ?>
 			</span>
 			<a href="<?= BASE_URL ?>/logout_admin.php" class="btn btn-sm btn-outline-danger">
-				<i class="fas fa-sign-out-alt me-1"></i>Odhlásit
+				<i class="fas fa-sign-out-alt me-1"></i><span class="d-none d-sm-inline">Odhlásit</span>
 			</a>
 		</div>
 		<?php endif; ?>
@@ -48,9 +51,9 @@ function renderAdminHeader(string $title = ''): void {
 </nav>
 
 <div class="container-fluid">
-<div class="row flex-nowrap">
+<div class="row" id="adminLayout" style="min-height: calc(100vh - 60px);">
 	<!-- Sidebar -->
-	<div class="col-auto p-0" style="width:220px">
+	<div class="col-auto p-0 sidebar-wrapper" style="width:220px">
 		<div class="sidebar p-3">
 			<div class="nav flex-column">
 				<a href="<?= BASE_URL ?>/admin/dashboard.php"
@@ -102,7 +105,7 @@ function renderAdminHeader(string $title = ''): void {
 	</div>
 
 	<!-- Hlavní obsah -->
-	<div class="col p-4" style="min-width:0;">
+	<div class="col p-3 p-md-4 flex-grow-1" style="min-width:0;">
 <?php if ($flash): ?>
 <div class="alert alert-<?= h($flash['type']) ?> alert-dismissible fade show" role="alert">
 	<?= $flash['message'] ?>
@@ -119,6 +122,48 @@ function renderAdminFooter(): void {
 </div><!-- /container-fluid -->
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+// Admin Sidebar Mobile Toggle
+document.addEventListener('DOMContentLoaded', function() {
+	const sidebarToggle = document.getElementById('sidebarToggle');
+	const sidebarWrapper = document.querySelector('.sidebar-wrapper');
+	let sidebarOpen = false;
+
+	if (sidebarToggle && sidebarWrapper) {
+		sidebarToggle.addEventListener('click', function() {
+			sidebarOpen = !sidebarOpen;
+			if (sidebarOpen) {
+				sidebarWrapper.classList.add('sidebar-open');
+				sidebarToggle.innerHTML = '<i class="fas fa-times"></i>';
+			} else {
+				sidebarWrapper.classList.remove('sidebar-open');
+				sidebarToggle.innerHTML = '<i class="fas fa-bars"></i>';
+			}
+		});
+
+		// Zavřít sidebar při kliknutí na odkaz na mobilu
+		const navLinks = sidebarWrapper.querySelectorAll('.nav-link');
+		navLinks.forEach(link => {
+			link.addEventListener('click', function() {
+				if (window.innerWidth < 768) {
+					sidebarOpen = false;
+					sidebarWrapper.classList.remove('sidebar-open');
+					sidebarToggle.innerHTML = '<i class="fas fa-bars"></i>';
+				}
+			});
+		});
+
+		// Zavřít sidebar při změně velikosti okna (z mobilu na desktop)
+		window.addEventListener('resize', function() {
+			if (window.innerWidth >= 768 && sidebarOpen) {
+				sidebarOpen = false;
+				sidebarWrapper.classList.remove('sidebar-open');
+				sidebarToggle.innerHTML = '<i class="fas fa-bars"></i>';
+			}
+		});
+	}
+});
+</script>
 </body>
 </html>
 <?php

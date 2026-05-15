@@ -105,12 +105,17 @@ renderHeader(h($athlete['first_name'] . ' ' . $athlete['last_name']));
             </div>
             <div class="card-body">
                 <?php $athletePhoto = photoUrl($athlete['photo'] ?? null, 'athletes'); ?>
-                <?php if ($athletePhoto): ?>
                 <div class="text-center mb-3">
+                    <?php if ($athlete['photo']): ?>
                     <img src="<?= h($athletePhoto) ?>" alt="<?= h($athlete['first_name']) ?>"
                          class="rounded-circle" style="width:100px;height:100px;object-fit:cover;border:3px solid #ffc107;">
+                    <?php else: ?>
+                    <?php $initials = strtoupper(mb_substr($athlete['first_name'], 0, 1, 'UTF-8') . mb_substr($athlete['last_name'], 0, 1, 'UTF-8')); ?>
+                    <div class="avatar-initials" title="<?= h($athlete['first_name'] . ' ' . $athlete['last_name']) ?>">
+                        <?= $initials ?>
+                    </div>
+                    <?php endif; ?>
                 </div>
-                <?php endif; ?>
                 <table class="table table-sm table-borderless mb-0">
                     <tr>
                         <td class="text-muted fw-semibold" style="width:40%">Věk</td>
