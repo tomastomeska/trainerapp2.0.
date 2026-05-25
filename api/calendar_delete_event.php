@@ -41,9 +41,18 @@ if ($eventId <= 0) {
 $pdo = getDB();
 
 $eventStmt = $pdo->prepare(
-    'SELECT id, series_id, starts_at
-     FROM coach_calendar_events
-     WHERE id = ? AND coach_id = ?
+    'SELECT e.id,
+            e.series_id,
+            e.starts_at,
+            e.athlete_id,
+        e.requested_by_athlete_id,
+        e.approval_status,
+            a.email AS athlete_email,
+            a.first_name,
+            a.last_name
+    FROM coach_calendar_events e
+     LEFT JOIN athletes a ON a.id = e.athlete_id
+     WHERE e.id = ? AND e.coach_id = ?
      LIMIT 1'
 );
 $eventStmt->execute([$eventId, $coachId]);
@@ -75,6 +84,27 @@ if ($deleteScope === 'future') {
 if ($del->rowCount() === 0) {
     echo json_encode(['success' => false, 'error' => 'Událost nenalezena']);
     exit;
+}
+
+if (!empty($event['athlete_id'])) {
+    $athleteId = (int)$event['athlete_id'];
+    $athleteName = trim((string)$event['first_name'] . ' ' . (string)$event['last_name']);
+    $isPendingRequest = (($event['approval_status'] ?? 'approved') === 'pending') && !empty($event['requested_by_athlete_id']);
+    if ($isPendingRequest) {
+        $subject = 'Požadavek termínu byl zamítnut';
+        $body = 'Trenér zamítl váš požadavek na termín ' . date('d.m.Y H:i', strtotime((string)$event['starts_at'])) . '.';
+    } elseif ($deleteScope === 'future') {
+        $subject = 'Zrušení série tréninků';
+        $body = 'Trenér zrušil navazující termíny od ' . date('d.m.Y H:i', strtotime((string)$event['starts_at'])) . '.';
+    } else {
+        $subject = 'Zrušení tréninku';
+        $body = 'Trenér zrušil trénink naplánovaný na ' . date('d.m.Y H:i', strtotime((string)$event['starts_at'])) . '.';
+    }
+
+    createAthleteNotification($athleteId, $subject, $body);
+    if (!empty($event['athlete_email'])) {
+        sendAthleteCalendarNotificationEmail((string)$event['athlete_email'], $athleteName, $subject, $body);
+    }
 }
 
 echo json_encode(['success' => true, 'deleted_count' => $del->rowCount(), 'scope' => $deleteScope]);

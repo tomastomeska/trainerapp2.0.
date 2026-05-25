@@ -22,6 +22,35 @@ function renderHeader(string $title = '', bool $withCharts = false): void {
 </head>
 <body>
 
+<?php
+$unreadMsgCount = 0;
+$pendingCalendarCount = 0;
+if ($coach) {
+    try {
+        $pdo = getDB();
+        $unreadStmt = $pdo->prepare("
+            SELECT COUNT(*) FROM admin_message_recipients
+            WHERE coach_id = ? AND read_at IS NULL
+        ");
+        $unreadStmt->execute([$coach['id']]);
+        $unreadMsgCount = (int)$unreadStmt->fetchColumn();
+
+        $pendingCalendarStmt = $pdo->prepare("
+            SELECT COUNT(*)
+            FROM coach_calendar_events
+            WHERE coach_id = ?
+              AND approval_status = 'pending'
+              AND requested_by_athlete_id IS NOT NULL
+        ");
+        $pendingCalendarStmt->execute([$coach['id']]);
+        $pendingCalendarCount = (int)$pendingCalendarStmt->fetchColumn();
+    } catch (Throwable $e) {
+        $unreadMsgCount = 0;
+        $pendingCalendarCount = 0;
+    }
+}
+?>
+
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm sticky-top">
     <div class="container-fluid px-4">
         <a class="navbar-brand fw-bold text-warning" href="<?= BASE_URL ?>/dashboard.php">
@@ -48,27 +77,24 @@ function renderHeader(string $title = '', bool $withCharts = false): void {
                     </a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link" href="<?= BASE_URL ?>/calendar.php">
+                    <a class="nav-link position-relative" href="<?= BASE_URL ?>/calendar.php">
                         <i class="fas fa-calendar-alt me-1"></i>Kalendář
+                        <?php if ($pendingCalendarCount > 0): ?>
+                        <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-warning text-dark"
+                              style="font-size:.65rem">
+                            <?= $pendingCalendarCount ?>
+                        </span>
+                        <?php endif; ?>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="<?= BASE_URL ?>/payments.php">
+                        <i class="fas fa-wallet me-1"></i>Platby
                     </a>
                 </li>
             </ul>
             <?php if ($coach): ?>
             <div class="navbar-nav">
-                <?php
-                // Počet nepřečtených zpráv pro badge
-                try {
-                    $pdo = getDB();
-                    $unreadStmt = $pdo->prepare("
-                        SELECT COUNT(*) FROM admin_message_recipients
-                        WHERE coach_id = ? AND read_at IS NULL
-                    ");
-                    $unreadStmt->execute([$coach['id']]);
-                    $unreadMsgCount = (int)$unreadStmt->fetchColumn();
-                } catch (Throwable $e) {
-                    $unreadMsgCount = 0;
-                }
-                ?>
                 <a class="nav-link position-relative" href="<?= BASE_URL ?>/zpravy.php" title="Zprávy">
                     <i class="fas fa-envelope me-1"></i>
                     <?php if ($unreadMsgCount > 0): ?>
@@ -107,7 +133,7 @@ function renderHeader(string $title = '', bool $withCharts = false): void {
 <div class="container-fluid px-3 px-md-4 py-3 py-md-4">
 <?php if ($flash): ?>
 <div class="alert alert-<?= h($flash['type']) ?> alert-dismissible fade show" role="alert">
-    <?= h($flash['message']) ?>
+    <?= !empty($flash['html']) ? $flash['message'] : h($flash['message']) ?>
     <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
 </div>
 <?php endif; ?>

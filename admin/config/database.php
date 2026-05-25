@@ -121,10 +121,21 @@ function ensureSchemaUpgrades(PDO $pdo): void {
         $pdo->exec('ALTER TABLE athletes ADD COLUMN phone_contact VARCHAR(20) NULL AFTER birth_date');
     }
 
+    $stmtTrainingRate = $pdo->query("SHOW COLUMNS FROM athletes LIKE 'training_rate'");
+    if (!$stmtTrainingRate->fetch()) {
+        $pdo->exec('ALTER TABLE athletes ADD COLUMN training_rate DECIMAL(10,2) NULL AFTER email');
+    }
+
     // Poslední přihlášení trenéra
     $stmtLogin = $pdo->query("SHOW COLUMNS FROM coaches LIKE 'last_login'");
     if (!$stmtLogin->fetch()) {
         $pdo->exec('ALTER TABLE coaches ADD COLUMN last_login DATETIME NULL');
+    }
+
+    // Číslo účtu trenéra pro QR platby
+    $stmtCoachBank = $pdo->query("SHOW COLUMNS FROM coaches LIKE 'bank_account'");
+    if (!$stmtCoachBank->fetch()) {
+        $pdo->exec('ALTER TABLE coaches ADD COLUMN bank_account VARCHAR(64) NULL AFTER email');
     }
 
     // Tabulka superadminu
@@ -185,6 +196,9 @@ function ensureSchemaUpgrades(PDO $pdo): void {
             `id`           INT AUTO_INCREMENT PRIMARY KEY,
             `coach_id`     INT NOT NULL,
             `athlete_id`   INT NULL,
+            `requested_by_athlete_id` INT NULL,
+            `approval_status` ENUM('pending','approved') NOT NULL DEFAULT 'approved',
+            `coach_modified_at` DATETIME NULL,
             `series_id`    CHAR(36) NULL,
             `color_key`    VARCHAR(20) NOT NULL DEFAULT 'blue',
             `custom_title` VARCHAR(140) NULL,
@@ -196,6 +210,8 @@ function ensureSchemaUpgrades(PDO $pdo): void {
             KEY `idx_calendar_events_series_start` (`coach_id`, `series_id`, `starts_at`),
             KEY `idx_calendar_events_coach_start` (`coach_id`, `starts_at`),
             KEY `idx_calendar_events_coach_end` (`coach_id`, `ends_at`),
+            KEY `idx_calendar_events_requested_by_athlete` (`requested_by_athlete_id`),
+            KEY `idx_calendar_events_approval_status` (`coach_id`, `approval_status`, `starts_at`),
             CONSTRAINT `fk_calendar_events_coach`
                 FOREIGN KEY (`coach_id`) REFERENCES `coaches`(`id`) ON DELETE CASCADE,
             CONSTRAINT `fk_calendar_events_athlete`
@@ -234,6 +250,77 @@ function ensureSchemaUpgrades(PDO $pdo): void {
     if (!$stmtColorKey->fetch()) {
         $pdo->exec("ALTER TABLE coach_calendar_events ADD COLUMN color_key VARCHAR(20) NOT NULL DEFAULT 'blue' AFTER series_id");
     }
+
+    $stmtRequestedByAthlete = $pdo->query("SHOW COLUMNS FROM coach_calendar_events LIKE 'requested_by_athlete_id'");
+    if (!$stmtRequestedByAthlete->fetch()) {
+        $pdo->exec('ALTER TABLE coach_calendar_events ADD COLUMN requested_by_athlete_id INT NULL AFTER athlete_id');
+    }
+
+    $stmtReqIdx = $pdo->query("SHOW INDEX FROM coach_calendar_events WHERE Key_name = 'idx_calendar_events_requested_by_athlete'");
+    if (!$stmtReqIdx->fetch()) {
+        $pdo->exec('CREATE INDEX idx_calendar_events_requested_by_athlete ON coach_calendar_events (requested_by_athlete_id)');
+    }
+
+    $stmtApprovalStatus = $pdo->query("SHOW COLUMNS FROM coach_calendar_events LIKE 'approval_status'");
+    if (!$stmtApprovalStatus->fetch()) {
+        $pdo->exec("ALTER TABLE coach_calendar_events ADD COLUMN approval_status ENUM('pending','approved') NOT NULL DEFAULT 'approved' AFTER requested_by_athlete_id");
+        $pdo->exec("UPDATE coach_calendar_events SET approval_status = CASE WHEN requested_by_athlete_id IS NULL THEN 'approved' ELSE 'pending' END WHERE approval_status = 'approved'");
+    }
+
+    $stmtApprovalIdx = $pdo->query("SHOW INDEX FROM coach_calendar_events WHERE Key_name = 'idx_calendar_events_approval_status'");
+    if (!$stmtApprovalIdx->fetch()) {
+        $pdo->exec('CREATE INDEX idx_calendar_events_approval_status ON coach_calendar_events (coach_id, approval_status, starts_at)');
+    }
+
+    $stmtCoachModifiedAt = $pdo->query("SHOW COLUMNS FROM coach_calendar_events LIKE 'coach_modified_at'");
+    if (!$stmtCoachModifiedAt->fetch()) {
+        $pdo->exec('ALTER TABLE coach_calendar_events ADD COLUMN coach_modified_at DATETIME NULL AFTER approval_status');
+    }
+
+    $stmtIsMakeupSession = $pdo->query("SHOW COLUMNS FROM coach_calendar_events LIKE 'is_makeup_session'");
+    if (!$stmtIsMakeupSession->fetch()) {
+        $pdo->exec('ALTER TABLE coach_calendar_events ADD COLUMN is_makeup_session TINYINT(1) NOT NULL DEFAULT 0 AFTER coach_modified_at');
+    }
+
+    $stmtBillingMonth = $pdo->query("SHOW COLUMNS FROM coach_calendar_events LIKE 'billing_month'");
+    if (!$stmtBillingMonth->fetch()) {
+        $pdo->exec('ALTER TABLE coach_calendar_events ADD COLUMN billing_month DATE NULL AFTER is_makeup_session');
+        $pdo->exec("UPDATE coach_calendar_events SET billing_month = DATE_FORMAT(starts_at, '%Y-%m-01') WHERE billing_month IS NULL");
+    }
+
+    $stmtBillingIdx = $pdo->query("SHOW INDEX FROM coach_calendar_events WHERE Key_name = 'idx_calendar_events_billing'");
+    if (!$stmtBillingIdx->fetch()) {
+        $pdo->exec('CREATE INDEX idx_calendar_events_billing ON coach_calendar_events (coach_id, billing_month, approval_status, athlete_id)');
+    }
+
+    try {
+        $pdo->exec('ALTER TABLE coach_calendar_events ADD CONSTRAINT fk_calendar_events_requested_by_athlete FOREIGN KEY (requested_by_athlete_id) REFERENCES athletes(id) ON DELETE SET NULL');
+    } catch (Throwable $e) {
+        // constraint uz existuje nebo ji nelze doplnit kvuli starsim datum
+    }
+
+    $pdo->exec(" 
+        CREATE TABLE IF NOT EXISTS `athlete_monthly_payments` (
+            `id`               INT AUTO_INCREMENT PRIMARY KEY,
+            `coach_id`         INT NOT NULL,
+            `athlete_id`       INT NOT NULL,
+            `billing_month`    DATE NOT NULL,
+            `session_rate`     DECIMAL(10,2) NULL,
+            `planned_sessions` INT NOT NULL DEFAULT 0,
+            `billed_amount`    DECIMAL(10,2) NOT NULL DEFAULT 0,
+            `status`           ENUM('pending','paid') NOT NULL DEFAULT 'pending',
+            `paid_at`          DATETIME NULL,
+            `note`             TEXT NULL,
+            `created_at`       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            `updated_at`       TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            UNIQUE KEY `uq_athlete_monthly_payment` (`coach_id`, `athlete_id`, `billing_month`),
+            KEY `idx_athlete_monthly_payment_month` (`coach_id`, `billing_month`, `status`),
+            CONSTRAINT `fk_athlete_monthly_payment_coach`
+                FOREIGN KEY (`coach_id`) REFERENCES `coaches`(`id`) ON DELETE CASCADE,
+            CONSTRAINT `fk_athlete_monthly_payment_athlete`
+                FOREIGN KEY (`athlete_id`) REFERENCES `athletes`(`id`) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
 
     // Výchozí verze z konstanty – pouze pokud záznam ještě neexistuje
     $pdo->exec("

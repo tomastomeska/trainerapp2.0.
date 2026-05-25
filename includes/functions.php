@@ -863,6 +863,109 @@ HTML;
 }
 
 /**
+ * Odešle sportovci e-mailovou výzvu k platbě včetně QR kódu.
+ */
+function sendPaymentRequestEmail(string $toEmail, array $data): bool {
+    $phpmailerSrc = dirname(__DIR__) . '/vendor/phpmailer/phpmailer/src';
+    if (!file_exists($phpmailerSrc . '/PHPMailer.php')) {
+        error_log('sendPaymentRequestEmail: PHPMailer not found at ' . $phpmailerSrc);
+        return false;
+    }
+
+    require_once $phpmailerSrc . '/Exception.php';
+    require_once $phpmailerSrc . '/PHPMailer.php';
+    require_once $phpmailerSrc . '/SMTP.php';
+
+    $h = fn(?string $s): string => htmlspecialchars($s ?? '', ENT_QUOTES, 'UTF-8');
+
+    $athleteName = (string)($data['athlete_name'] ?? 'Sportovec');
+    $coachName = (string)($data['coach_name'] ?? 'Váš trenér');
+    $monthLabel = (string)($data['month_label'] ?? '');
+    $amountText = (string)($data['amount_text'] ?? '');
+    $account = (string)($data['account'] ?? '');
+    $note = (string)($data['note'] ?? '');
+    $qrUrl = (string)($data['qr_url'] ?? '');
+
+    $htmlBody = <<<HTML
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Výzva k platbě</title>
+</head>
+<body style="margin:0;padding:0;background:#f4f4f7;font-family:Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f7;padding:28px 0;">
+    <tr><td align="center">
+      <table width="100%" style="max-width:560px;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.08);">
+        <tr>
+          <td style="background:linear-gradient(135deg,#7c3aed,#a78bfa);padding:32px 36px;text-align:center;">
+            <div style="font-size:34px;margin-bottom:8px;">💳</div>
+            <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:700;">Výzva k platbě</h1>
+            <p style="margin:8px 0 0;color:#e9d5ff;font-size:13px;">Tréninky za období {$h($monthLabel)}</p>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:28px 34px;">
+            <p style="margin:0 0 14px;color:#374151;font-size:15px;">Dobrý den, {$h($athleteName)},</p>
+            <p style="margin:0 0 20px;color:#374151;font-size:15px;line-height:1.6;">
+              zasílám výzvu k platbě za tréninky za období <strong>{$h($monthLabel)}</strong>.
+            </p>
+
+            <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;margin-bottom:20px;">
+              <tr>
+                <td style="padding:16px 18px;">
+                  <div style="font-size:13px;color:#6b7280;margin-bottom:6px;">Částka</div>
+                  <div style="font-size:24px;font-weight:800;color:#111827;">{$h($amountText)}</div>
+                  <div style="margin-top:10px;font-size:13px;color:#374151;"><strong>Účet:</strong> {$h($account)}</div>
+                  <div style="margin-top:6px;font-size:13px;color:#374151;"><strong>Poznámka:</strong> {$h($note)}</div>
+                </td>
+              </tr>
+            </table>
+
+            <div style="text-align:center;margin-bottom:16px;">
+              <img src="{$h($qrUrl)}" alt="QR platba" width="220" height="220" style="display:inline-block;border:1px solid #e5e7eb;border-radius:10px;padding:10px;background:#ffffff;">
+            </div>
+
+            <p style="margin:0;color:#6b7280;font-size:13px;line-height:1.5;">Pokud se obrázek QR nezobrazil, můžete použít tento odkaz:</p>
+            <p style="margin:6px 0 0;font-size:12px;word-break:break-all;"><a href="{$h($qrUrl)}">{$h($qrUrl)}</a></p>
+
+            <p style="margin:20px 0 0;color:#374151;font-size:14px;">S pozdravem,<br><strong>{$h($coachName)}</strong></p>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>
+HTML;
+
+    $altBody =
+        "Výzva k platbě za tréninky {$monthLabel}\n\n"
+        . "Sportovec: {$athleteName}\n"
+        . "Částka: {$amountText}\n"
+        . "Účet: {$account}\n"
+        . "Poznámka: {$note}\n"
+        . "QR: {$qrUrl}\n\n"
+        . "S pozdravem\n{$coachName}\n";
+
+    $mail = new PHPMailer\PHPMailer\PHPMailer(true);
+    try {
+        _configureMail($mail);
+        $mail->addAddress($toEmail);
+        $mail->isHTML(true);
+        $mail->Subject = 'Výzva k platbě - ' . $monthLabel;
+        $mail->Body = $htmlBody;
+        $mail->AltBody = $altBody;
+        $mail->send();
+        return true;
+    } catch (\Exception $e) {
+        error_log('sendPaymentRequestEmail error: ' . $mail->ErrorInfo . ' | Exception: ' . $e->getMessage());
+        return false;
+    }
+}
+
+/**
  * Odešle uvítací e-mail trenérovi s přihlašovacími údaji přes SMTP (PHPMailer).
  * Vrátí true při úspěchu, false při chybě.
  */
@@ -1283,6 +1386,139 @@ function sendMessageNotificationEmail(string $toEmail, string $coachName, string
     }
 }
 
+function generateRandomPassword(int $length = 12): string {
+  $alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%';
+  $max = strlen($alphabet) - 1;
+  $password = '';
+  for ($i = 0; $i < max(8, $length); $i++) {
+    $password .= $alphabet[random_int(0, $max)];
+  }
+  return $password;
+}
+
+function sendAthleteWelcomeEmail(string $toEmail, string $athleteName, string $password, string $loginUrl): bool {
+  $phpmailerSrc = dirname(__DIR__) . '/vendor/phpmailer/phpmailer/src';
+  if (!file_exists($phpmailerSrc . '/PHPMailer.php')) {
+    return false;
+  }
+  require_once $phpmailerSrc . '/Exception.php';
+  require_once $phpmailerSrc . '/PHPMailer.php';
+  require_once $phpmailerSrc . '/SMTP.php';
+
+  $safeName = htmlspecialchars($athleteName, ENT_QUOTES, 'UTF-8');
+  $safeLoginUrl = htmlspecialchars($loginUrl, ENT_QUOTES, 'UTF-8');
+
+  $htmlBody = "<p>Ahoj <strong>{$safeName}</strong>,</p>"
+    . "<p>trenér ti vytvořil přístup do aplikace TrainerApp.</p>"
+    . "<p><strong>Přihlašovací jméno:</strong> " . htmlspecialchars($toEmail, ENT_QUOTES, 'UTF-8') . "<br>"
+    . "<strong>Dočasné heslo:</strong> " . htmlspecialchars($password, ENT_QUOTES, 'UTF-8') . "</p>"
+    . "<p>Po prvním přihlášení bude vyžadována změna hesla.</p>"
+    . "<p><a href=\"{$safeLoginUrl}\" style=\"background:#0d6efd;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none;display:inline-block\">"
+    . "Přihlásit se</a></p>"
+    . "<hr><p style=\"color:#777;font-size:.9em\">TrainerApp</p>";
+
+  $altBody = "Ahoj {$athleteName},\n\n"
+    . "trenér ti vytvořil přístup do aplikace TrainerApp.\n"
+    . "Přihlašovací jméno: {$toEmail}\n"
+    . "Dočasné heslo: {$password}\n\n"
+    . "Po prvním přihlášení bude vyžadována změna hesla.\n"
+    . "Přihlášení: {$loginUrl}\n\n"
+    . "TrainerApp";
+
+  $mail = new PHPMailer\PHPMailer\PHPMailer(true);
+  try {
+    _configureMail($mail);
+    $mail->addAddress($toEmail);
+    $mail->isHTML(true);
+    $mail->Subject = 'Přístup do TrainerApp';
+    $mail->Body = $htmlBody;
+    $mail->AltBody = $altBody;
+    $mail->send();
+    return true;
+  } catch (\Exception $e) {
+    error_log('sendAthleteWelcomeEmail error: ' . $mail->ErrorInfo . ' | ' . $e->getMessage());
+    return false;
+  }
+}
+
+function sendAthleteCalendarNotificationEmail(string $toEmail, string $athleteName, string $subject, string $message): bool {
+  $phpmailerSrc = dirname(__DIR__) . '/vendor/phpmailer/phpmailer/src';
+  if (!file_exists($phpmailerSrc . '/PHPMailer.php')) {
+    return false;
+  }
+  require_once $phpmailerSrc . '/Exception.php';
+  require_once $phpmailerSrc . '/PHPMailer.php';
+  require_once $phpmailerSrc . '/SMTP.php';
+
+  $safeName = htmlspecialchars($athleteName, ENT_QUOTES, 'UTF-8');
+  $safeMessage = nl2br(htmlspecialchars($message, ENT_QUOTES, 'UTF-8'));
+
+  $htmlBody = "<p>Ahoj <strong>{$safeName}</strong>,</p>"
+    . "<p>{$safeMessage}</p>"
+    . "<p>Detail najdeš po přihlášení do TrainerApp.</p>"
+    . "<hr><p style=\"color:#777;font-size:.9em\">TrainerApp – kalendář</p>";
+
+  $mail = new PHPMailer\PHPMailer\PHPMailer(true);
+  try {
+    _configureMail($mail);
+    $mail->addAddress($toEmail);
+    $mail->isHTML(true);
+    $mail->Subject = $subject;
+    $mail->Body = $htmlBody;
+    $mail->AltBody = "Ahoj {$athleteName},\n\n{$message}\n\nTrainerApp";
+    $mail->send();
+    return true;
+  } catch (\Exception $e) {
+    error_log('sendAthleteCalendarNotificationEmail error: ' . $mail->ErrorInfo . ' | ' . $e->getMessage());
+    return false;
+  }
+}
+
+function createCoachSystemMessage(int $coachId, string $subject, string $body, bool $sendEmail = true): ?int {
+  $pdo = getDB();
+  $ins = $pdo->prepare('INSERT INTO admin_messages (subject, body, sent_at) VALUES (?, ?, NOW())');
+  $ins->execute([$subject, $body]);
+  $messageId = (int)$pdo->lastInsertId();
+
+  $recipient = $pdo->prepare("INSERT IGNORE INTO admin_message_recipients (message_id, coach_id, status) VALUES (?, ?, 'inbox')");
+  $recipient->execute([$messageId, $coachId]);
+
+  if ($sendEmail) {
+    $coachStmt = $pdo->prepare('SELECT name, username, email FROM coaches WHERE id = ?');
+    $coachStmt->execute([$coachId]);
+    $coach = $coachStmt->fetch();
+    if ($coach && !empty($coach['email'])) {
+      $coachName = ($coach['name'] ?? '') !== '' ? (string)$coach['name'] : (string)($coach['username'] ?? 'trenér');
+      sendMessageNotificationEmail((string)$coach['email'], $coachName, $subject, $messageId);
+    }
+  }
+
+  return $messageId;
+}
+
+function createAthleteNotification(int $athleteId, string $subject, string $body): int {
+  $pdo = getDB();
+  $stmt = $pdo->prepare('INSERT INTO athlete_notifications (athlete_id, subject, body) VALUES (?, ?, ?)');
+  $stmt->execute([$athleteId, $subject, $body]);
+  return (int)$pdo->lastInsertId();
+}
+
+/**
+ * Sportovec pošle zprávu trenérovi. Uloží do admin_messages (trenér ji uvidí v zprávy.php),
+ * zároveň nastaví from_athlete_id pro detekci odpovědi.
+ */
+function createAthleteToCoachMessage(int $athleteId, int $coachId, string $subject, string $body): int {
+  $pdo = getDB();
+  $ins = $pdo->prepare('INSERT INTO admin_messages (subject, body, from_athlete_id, sent_at) VALUES (?, ?, ?, NOW())');
+  $ins->execute([$subject, $body, $athleteId]);
+  $messageId = (int)$pdo->lastInsertId();
+
+  $pdo->prepare("INSERT IGNORE INTO admin_message_recipients (message_id, coach_id, status) VALUES (?, ?, 'inbox')")
+      ->execute([$messageId, $coachId]);
+
+  return $messageId;
+}
+
   /**
    * Odešle sportovci výzvu k zadání aktuální tělesné hmotnosti přes bezpečný odkaz.
    */
@@ -1528,7 +1764,7 @@ function processBirthdayNotifications(): array {
 function getCoachCalendarEventsInRange(int $coachId, DateTimeInterface $from, DateTimeInterface $to): array {
   $pdo = getDB();
   $stmt = $pdo->prepare(
-    'SELECT e.id,
+    "SELECT e.id,
         e.starts_at,
         e.ends_at,
         e.location,
@@ -1538,9 +1774,10 @@ function getCoachCalendarEventsInRange(int $coachId, DateTimeInterface $from, Da
      FROM coach_calendar_events e
      LEFT JOIN athletes a ON a.id = e.athlete_id
      WHERE e.coach_id = ?
+       AND e.approval_status = 'approved'
        AND e.starts_at >= ?
        AND e.starts_at < ?
-     ORDER BY e.starts_at ASC, e.id ASC'
+     ORDER BY e.starts_at ASC, e.id ASC"
   );
   $stmt->execute([
     $coachId,

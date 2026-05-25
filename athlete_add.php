@@ -17,22 +17,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $birthDate = trim($_POST['birth_date'] ?? '');
         $phone     = trim($_POST['phone_contact'] ?? '');
         $email     = trim($_POST['email'] ?? '');
+        $trainingRateRaw = trim($_POST['training_rate'] ?? '');
         $notes     = trim($_POST['notes'] ?? '');
+        $trainingRate = null;
 
-        if ($firstName === '' || $lastName === '') {
+        if ($trainingRateRaw !== '') {
+            $normalizedRate = str_replace(',', '.', $trainingRateRaw);
+            if (!is_numeric($normalizedRate) || (float)$normalizedRate < 0) {
+                $error = 'Zadejte platnou sazbu za trénink.';
+            } else {
+                $trainingRate = number_format((float)$normalizedRate, 2, '.', '');
+            }
+        }
+
+        if ($error === null && ($firstName === '' || $lastName === '')) {
             $error = 'Vyplňte jméno a příjmení.';
-        } elseif ($birthDate === '') {
+        } elseif ($error === null && $birthDate === '') {
             $error = 'Zadejte datum narození.';
-        } elseif (!DateTime::createFromFormat('Y-m-d', $birthDate)) {
+        } elseif ($error === null && !DateTime::createFromFormat('Y-m-d', $birthDate)) {
             $error = 'Zadejte platné datum narození.';
-        } elseif ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        } elseif ($error === null && $email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
             $error = 'Zadejte platnou e-mailovou adresu.';
         } else {
             $pdo  = getDB();
             $photo = saveUploadedPhoto('photo', 'athletes');
             $stmt = $pdo->prepare(
-                'INSERT INTO athletes (coach_id, first_name, last_name, birth_date, phone_contact, email, notes, photo)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+                'INSERT INTO athletes (coach_id, first_name, last_name, birth_date, phone_contact, email, training_rate, notes, photo)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
             );
             $stmt->execute([
                 $coachId,
@@ -41,6 +52,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $birthDate,
                 $phone ?: null,
                 $email ?: null,
+                $trainingRate,
                 $notes ?: null,
                 $photo,
             ]);
@@ -101,6 +113,16 @@ renderHeader('Přidat sportovce');
                                    value="<?= h($_POST['email'] ?? '') ?>"
                                    placeholder="sportovec@example.com">
                         </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Sazba za trénink</label>
+                        <div class="input-group">
+                            <input type="number" name="training_rate" class="form-control"
+                                   value="<?= h($_POST['training_rate'] ?? '') ?>"
+                                   min="0" step="0.01" placeholder="Např. 750">
+                            <span class="input-group-text">Kč</span>
+                        </div>
+                        <div class="form-text">Každý sportovec může mít vlastní cenu za 1 trénink.</div>
                     </div>
                     <div class="mb-4">
                         <label class="form-label fw-semibold">Poznámky</label>

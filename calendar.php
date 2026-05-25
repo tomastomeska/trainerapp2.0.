@@ -103,6 +103,43 @@ renderHeader('Kalendář');
     font-weight: 700;
 }
 
+.slot-event.pending {
+    background: #f97316;
+    color: #ffffff;
+    border: 2px solid #fff7ed;
+    animation: pendingPulse .72s ease-in-out infinite alternate;
+}
+
+.slot-event.updated {
+    box-shadow: inset 0 0 0 2px rgba(255,255,255,.45);
+}
+
+#daypilotCalendar .coach-calendar-pending {
+    animation: pendingPulse .72s ease-in-out infinite alternate;
+}
+
+@keyframes pendingPulse {
+    0% {
+        opacity: 1;
+        transform: scale(1);
+        filter: saturate(1) brightness(1);
+        box-shadow: 0 0 0 0 rgba(249, 115, 22, .0);
+    }
+    100% {
+        opacity: .9;
+        transform: scale(1.03);
+        filter: saturate(1.35) brightness(1.08);
+        box-shadow: 0 0 0 6px rgba(249, 115, 22, .45);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .slot-event.pending,
+    #daypilotCalendar .coach-calendar-pending {
+        animation: none;
+    }
+}
+
 .slot-event .time {
     font-weight: 600;
     font-size: .75rem;
@@ -137,6 +174,15 @@ renderHeader('Kalendář');
     border: 1px solid #e5e7eb;
     border-radius: 8px;
     padding: .55rem .6rem;
+}
+
+.request-banner {
+    border-radius: 10px;
+    padding: .65rem .8rem;
+    background: #fff7ed;
+    border: 1px solid #fdba74;
+    color: #9a3412;
+    font-size: .9rem;
 }
 
 @media (max-width: 991.98px) {
@@ -209,6 +255,7 @@ renderHeader('Kalendář');
         </div>
         <div class="d-flex align-items-center gap-2 small flex-wrap">
             <span class="badge text-bg-info">Trénink</span>
+            <span class="badge" style="background:#f97316;color:#fff">Ke schválení</span>
             <span class="lock-chip">Uzamčeno</span>
         </div>
     </div>
@@ -330,6 +377,20 @@ renderHeader('Kalendář');
 
                     <div class="small text-muted mt-1" id="eventRepeatHint"></div>
 
+                    <div class="mt-3">
+                        <div class="form-check form-switch mb-2">
+                            <input class="form-check-input" type="checkbox" role="switch" id="eventIsMakeup">
+                            <label class="form-check-label fw-semibold" for="eventIsMakeup">Náhradní termín</label>
+                        </div>
+                        <div class="small text-muted">Náhradní termín se může započítat do jiného hrazeného měsíce.</div>
+                    </div>
+
+                    <div class="mt-2 d-none" id="eventBillingMonthWrap">
+                        <label for="eventBillingMonth" class="form-label fw-semibold">Hrazený měsíc</label>
+                        <input type="month" id="eventBillingMonth" class="form-control">
+                        <div class="form-text">Použije se pro stránku Platby. Pokud je to náhrada za dříve zaplacený měsíc, vyberte ten původní.</div>
+                    </div>
+
                     </div>
 
                     <div id="lockFields" class="d-none">
@@ -404,10 +465,14 @@ renderHeader('Kalendář');
                     </div>
 
                     <div id="eventError" class="alert alert-danger py-2 px-3 mt-3 mb-0 d-none"></div>
+                    <div id="requestInfo" class="request-banner mt-3 d-none"></div>
                 </div>
                 <div class="modal-footer d-flex justify-content-between">
                     <button type="button" class="btn btn-outline-danger me-auto d-none" id="deleteEventBtn">
                         <i class="fas fa-trash me-1"></i>Smazat
+                    </button>
+                    <button type="button" class="btn btn-success d-none" id="approveEventBtn">
+                        <i class="fas fa-check me-1"></i>Schválit
                     </button>
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Zrušit</button>
                     <button type="submit" class="btn btn-warning fw-bold">
@@ -450,6 +515,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const eventRepeatUntilWrap = document.getElementById('eventRepeatUntilWrap');
     const eventRepeatUntilInput = document.getElementById('eventRepeatUntil');
     const eventRepeatHint = document.getElementById('eventRepeatHint');
+    const eventIsMakeupInput = document.getElementById('eventIsMakeup');
+    const eventBillingMonthWrap = document.getElementById('eventBillingMonthWrap');
+    const eventBillingMonthInput = document.getElementById('eventBillingMonth');
     const lockUnlockModeInput = document.getElementById('lockUnlockMode');
     const lockNoteInlineInput = document.getElementById('lockNoteInline');
     const lockStartDateInput = document.getElementById('lockStartDate');
@@ -465,7 +533,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const lockRepeatUntilInput = document.getElementById('lockRepeatUntil');
     const lockRepeatHint = document.getElementById('lockRepeatHint');
     const eventError = document.getElementById('eventError');
+    const requestInfo = document.getElementById('requestInfo');
     const deleteEventBtn = document.getElementById('deleteEventBtn');
+    const approveEventBtn = document.getElementById('approveEventBtn');
     const daypilotCalendarEl = document.getElementById('daypilotCalendar');
     const daypilotCard = document.getElementById('daypilotCard');
 
@@ -495,7 +565,32 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function getEventColorScheme(event) {
+        if ((event.approval_status || 'approved') === 'pending') {
+            return { backColor: '#f97316', barColor: '#ea580c', fontColor: '#ffffff' };
+        }
+
         return eventColorSchemes[normalizeColorKey(event.color_key)];
+    }
+
+    function getEventStatusMeta(event) {
+        if ((event.approval_status || 'approved') === 'pending') {
+            return {
+                label: 'Ke schválení',
+                className: 'pending',
+            };
+        }
+
+        if (event.coach_modified_at) {
+            return {
+                label: 'Upraveno trenérem',
+                className: 'updated',
+            };
+        }
+
+        return {
+            label: '',
+            className: '',
+        };
     }
 
     function getMonday(date) {
@@ -518,6 +613,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const m = String(date.getMonth() + 1).padStart(2, '0');
         const d = String(date.getDate()).padStart(2, '0');
         return `${y}-${m}-${d}`;
+    }
+
+    function toMonthKey(date) {
+        const y = date.getFullYear();
+        const m = String(date.getMonth() + 1).padStart(2, '0');
+        return `${y}-${m}`;
     }
 
     function toDateTimeInputValue(date) {
@@ -558,19 +659,25 @@ document.addEventListener('DOMContentLoaded', () => {
         const startDate = fromSqlDateTime(event.starts_at);
         const endDate = fromSqlDateTime(event.ends_at);
         const title = getEventTitle(event);
+        const timeLabel = `${formatTimeCs(startDate)} - ${formatTimeCs(endDate)}`;
+        const placeLabel = event.location ? `${event.location}` : '';
+        const detailLine = placeLabel ? `${timeLabel} | ${placeLabel}` : timeLabel;
         const place = event.location ? `\nMísto: ${event.location}` : '';
         const time = `\nČas: ${formatTimeCs(startDate)} - ${formatTimeCs(endDate)}`;
         const color = getEventColorScheme(event);
+        const statusMeta = getEventStatusMeta(event);
+        const statusLine = statusMeta.label ? `\nStav: ${statusMeta.label}` : '';
 
         return {
             id: String(event.id),
-            text: title,
-            toolTip: `${title}${time}${place}`,
+            text: [title, detailLine].filter(Boolean).join('\n'),
+            toolTip: `${title}${time}${place}${statusLine}`,
             start: toDateTimeSecondsValue(startDate),
             end: toDateTimeSecondsValue(endDate),
             backColor: color.backColor,
             barColor: color.barColor,
             fontColor: color.fontColor,
+            cssClass: statusMeta.className === 'pending' ? 'coach-calendar-pending' : '',
         };
     }
 
@@ -735,6 +842,18 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    function updateBillingControls() {
+        const showBillingMonth = eventIsMakeupInput.checked && !eventIsLockInput.checked;
+        eventBillingMonthWrap.classList.toggle('d-none', !showBillingMonth);
+
+        if (!showBillingMonth && eventStartInput.value) {
+            const baseDate = new Date(eventStartInput.value);
+            if (!Number.isNaN(baseDate.getTime())) {
+                eventBillingMonthInput.value = toMonthKey(baseDate);
+            }
+        }
+    }
+
     function updateLockRepeatControls() {
         const mode = lockRepeatModeInput.value;
         const unlockMode = lockUnlockModeInput.checked;
@@ -773,6 +892,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         updateLockRepeatControls();
+        updateBillingControls();
     }
 
     function renderDayPilotCalendar() {
@@ -786,7 +906,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 viewType: 'Week',
                 weekStarts: 1,
                 cellDuration: 60,
-                cellHeight: 42,
+                cellHeight: 54,
                 eventArrangement: 'SideBySide',
                 useEventBoxes: 'Never',
                 showNonBusiness: false,
@@ -966,9 +1086,13 @@ document.addEventListener('DOMContentLoaded', () => {
                         btn.type = 'button';
                         btn.className = 'slot-event';
                         const color = getEventColorScheme(event);
+                        const statusMeta = getEventStatusMeta(event);
                         btn.style.background = color.backColor;
                         btn.style.borderColor = color.barColor;
                         btn.style.color = color.fontColor;
+                        if (statusMeta.className) {
+                            btn.classList.add(statusMeta.className);
+                        }
                         
                         const eventStart = fromSqlDateTime(event.starts_at);
                         const eventEnd = fromSqlDateTime(event.ends_at);
@@ -978,8 +1102,9 @@ document.addEventListener('DOMContentLoaded', () => {
                         const endTime = eventEnd.toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' });
                         
                         const title = getEventTitle(event);
+                        const statusBadge = statusMeta.label ? `<span class="badge bg-light text-dark ms-1">${statusMeta.label}</span>` : '';
                         const where = event.location ? `<span class="where"><i class="fas fa-location-dot me-1"></i>${event.location}</span>` : '';
-                        btn.innerHTML = `<span class="time">${startTime}-${endTime}</span> ${title}${where}`;
+                        btn.innerHTML = `<span class="time">${startTime}-${endTime}</span> ${title}${statusBadge}${where}`;
                         btn.addEventListener('click', (e) => {
                             e.stopPropagation();
                             openEventModal(event);
@@ -1046,6 +1171,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function openEventModal(event = null, slotDate = null, lock = null) {
         clearError(eventError);
+        requestInfo.textContent = '';
+        requestInfo.classList.add('d-none');
+        approveEventBtn.classList.add('d-none');
         activeEvent = event;
 
         if (lock) {
@@ -1074,9 +1202,21 @@ document.addEventListener('DOMContentLoaded', () => {
             setEventStartControls(fromSqlDateTime(event.starts_at));
             eventRepeatModeInput.value = 'none';
             eventRepeatUntilInput.value = '';
+            eventIsMakeupInput.checked = Number(event.is_makeup_session || 0) === 1;
+            eventBillingMonthInput.value = event.billing_month ? String(event.billing_month).slice(0, 7) : toMonthKey(fromSqlDateTime(event.starts_at));
             setRepeatControlsEnabled(false);
             updateRepeatControls();
             deleteEventBtn.classList.remove('d-none');
+
+            const isPendingRequest = (event.approval_status || 'approved') === 'pending' && Number(event.requested_by_athlete_id || 0) > 0;
+            if (isPendingRequest) {
+                requestInfo.textContent = 'Toto je nový požadavek sportovce. Můžete jej schválit, zamítnout nebo upravit. Uložení změn požadavek automaticky schválí.';
+                requestInfo.classList.remove('d-none');
+                approveEventBtn.classList.remove('d-none');
+                deleteEventBtn.innerHTML = '<i class="fas fa-xmark me-1"></i>Zamítnout';
+            } else {
+                deleteEventBtn.innerHTML = '<i class="fas fa-trash me-1"></i>Smazat';
+            }
         } else {
             eventIsLockInput.checked = false;
             eventIsLockInput.disabled = false;
@@ -1111,9 +1251,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
             eventRepeatModeInput.value = 'none';
             eventRepeatUntilInput.value = '';
+            eventIsMakeupInput.checked = false;
+            eventBillingMonthInput.value = toMonthKey(base);
             setRepeatControlsEnabled(true);
             updateRepeatControls();
             deleteEventBtn.classList.add('d-none');
+            deleteEventBtn.innerHTML = '<i class="fas fa-trash me-1"></i>Smazat';
         }
 
         updateModeUI();
@@ -1137,6 +1280,7 @@ document.addEventListener('DOMContentLoaded', () => {
     lockEndHourInput.addEventListener('change', syncLockRangeFromControls);
     lockEndMinuteInput.addEventListener('change', syncLockRangeFromControls);
     eventRepeatModeInput.addEventListener('change', updateRepeatControls);
+    eventIsMakeupInput.addEventListener('change', updateBillingControls);
     eventIsLockInput.addEventListener('change', updateModeUI);
     lockUnlockModeInput.addEventListener('change', updateModeUI);
     lockRepeatModeInput.addEventListener('change', updateLockRepeatControls);
@@ -1195,6 +1339,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const customTitle = eventCustomTitleInput.value.trim();
         const repeatMode = eventRepeatModeInput.disabled ? 'none' : eventRepeatModeInput.value;
         const repeatUntil = eventRepeatUntilInput.value;
+        const isMakeupSession = eventIsMakeupInput.checked;
+        const billingMonth = eventBillingMonthInput.value;
 
         if (!startsAt) {
             showError(eventError, 'Vyberte datum a čas začátku tréninku.');
@@ -1203,6 +1349,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (repeatMode === 'weekly_until_date' && !repeatUntil) {
             showError(eventError, 'Vyberte datum, do kterého se má trénink opakovat.');
+            return;
+        }
+
+        if (isMakeupSession && !billingMonth) {
+            showError(eventError, 'Vyberte hrazený měsíc pro náhradní termín.');
             return;
         }
 
@@ -1223,6 +1374,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 location: eventLocationInput.value.trim(),
                 color_key: normalizeColorKey(eventColorInput.value),
                 starts_at: startsAt,
+                is_makeup_session: isMakeupSession,
+                billing_month: billingMonth,
                 repeat_mode: repeatMode,
                 repeat_until: repeatUntil,
             }),
@@ -1230,6 +1383,43 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (!payload.success) {
             showError(eventError, payload.error || 'Uložení se nepodařilo.');
+            return;
+        }
+
+        eventModal.hide();
+        await loadWeekData();
+    });
+
+    approveEventBtn.addEventListener('click', async () => {
+        const eventId = Number(eventIdInput.value || 0);
+        if (!eventId) {
+            return;
+        }
+
+        syncEventStartFromControls();
+
+        const payload = await fetchJson('<?= BASE_URL ?>/api/calendar_save_event.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({
+                csrf_token: csrfToken,
+                event_id: eventId,
+                athlete_id: eventAthleteInput.value ? Number(eventAthleteInput.value) : 0,
+                custom_title: eventCustomTitleInput.value.trim(),
+                location: eventLocationInput.value.trim(),
+                color_key: normalizeColorKey(eventColorInput.value),
+                starts_at: eventStartInput.value,
+                is_makeup_session: eventIsMakeupInput.checked,
+                billing_month: eventBillingMonthInput.value,
+                repeat_mode: 'none',
+                repeat_until: '',
+                approval_action: 'approve',
+            }),
+        });
+
+        if (!payload.success) {
+            showError(eventError, payload.error || 'Schválení se nepodařilo.');
             return;
         }
 

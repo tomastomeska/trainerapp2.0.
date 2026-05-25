@@ -7,10 +7,15 @@ require_once __DIR__ . '/includes/functions.php';
 if (isLoggedIn()) {
     redirect(BASE_URL . '/dashboard.php');
 }
+if (athleteIsLoggedIn()) {
+    redirect(BASE_URL . '/athlete_dashboard.php');
+}
 
 $error = null;
+$loginType = 'coach';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $loginType = ($_POST['login_type'] ?? '') === 'athlete' ? 'athlete' : 'coach';
     if (!verifyCsrf($_POST['csrf_token'] ?? '')) {
         $error = 'Neplatný bezpečnostní token. Zkuste to znovu.';
     } else {
@@ -19,7 +24,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($username === '' || $password === '') {
             $error = 'Vyplňte uživatelské jméno i heslo.';
-        } else {
+        } elseif ($loginType === 'coach') {
             $pdo  = getDB();
             $stmt = $pdo->prepare('SELECT id, password, name, is_active FROM coaches WHERE username = ?');
             $stmt->execute([$username]);
@@ -30,6 +35,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $error = 'Váš účet byl zablokován. Kontaktujte správce.';
                 } else {
                     session_regenerate_id(true);
+                    unset($_SESSION['athlete_id'], $_SESSION['athlete_name'], $_SESSION['athlete_coach_id'], $_SESSION['athlete_force_password_change']);
                     $_SESSION['coach_id']   = $coach['id'];
                     $_SESSION['coach_name'] = $coach['name'] ?: $username;
                     // Aktualizace posledního přihlášení
@@ -38,6 +44,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             } else {
                 $error = 'Nesprávné přihlašovací údaje.';
+            }
+        } else {
+            $pdo = getDB();
+            $email = mb_strtolower($username, 'UTF-8');
+            $stmt = $pdo->prepare(
+                'SELECT id, coach_id, email, password, first_name, last_name, login_enabled, force_password_change
+                 FROM athletes
+                 WHERE email = ?
+                 LIMIT 1'
+            );
+            $stmt->execute([$email]);
+            $athlete = $stmt->fetch();
+
+            if (!$athlete || !(int)$athlete['login_enabled']) {
+                $error = 'Účet sportovce ještě není aktivovaný. Kontaktujte trenéra.';
+            } elseif (empty($athlete['password']) || !password_verify($password, (string)$athlete['password'])) {
+                $error = 'Nesprávné přihlašovací údaje.';
+            } else {
+                session_regenerate_id(true);
+                unset($_SESSION['coach_id'], $_SESSION['coach_name']);
+                $_SESSION['athlete_id'] = (int)$athlete['id'];
+                $_SESSION['athlete_name'] = trim((string)$athlete['first_name'] . ' ' . (string)$athlete['last_name']);
+                $_SESSION['athlete_coach_id'] = (int)$athlete['coach_id'];
+                $_SESSION['athlete_force_password_change'] = (int)($athlete['force_password_change'] ?? 1);
+
+                $pdo->prepare('UPDATE athletes SET last_login = NOW() WHERE id = ?')->execute([(int)$athlete['id']]);
+
+                if (!empty($_SESSION['athlete_force_password_change'])) {
+                    redirect(BASE_URL . '/athlete_change_password.php');
+                }
+                redirect(BASE_URL . '/athlete_dashboard.php');
             }
         }
     }
@@ -150,6 +187,28 @@ $showFormOnLoad = $_SERVER['REQUEST_METHOD'] === 'POST';
 
         .intro-actions .btn-login {
             width: min(92vw, 380px);
+        }
+
+        .login-type-switch {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-bottom: 14px;
+        }
+
+        .login-type-btn {
+            border-radius: 10px;
+            border: 1px solid #d6dced;
+            background: #fff;
+            font-weight: 700;
+            color: #273758;
+            padding: .5rem .7rem;
+        }
+
+        .login-type-btn.active {
+            background: #0f234f;
+            border-color: #0f234f;
+            color: #fff;
         }
 
         .login-card {
@@ -324,7 +383,7 @@ $showFormOnLoad = $_SERVER['REQUEST_METHOD'] === 'POST';
         <div class="card login-card">
             <div class="card-body">
                 <h2 class="login-title">Přihlášení</h2>
-                <p class="login-sub">Přihlášení pro trenéry</p>
+                <p class="login-sub" id="loginSubTitle">Přihlášení pro trenéry</p>
 
                 <?php if ($error): ?>
                     <div class="alert alert-danger py-2 mb-3"><?= h($error) ?></div>
@@ -332,8 +391,19 @@ $showFormOnLoad = $_SERVER['REQUEST_METHOD'] === 'POST';
 
                 <form method="post" novalidate>
                     <?= csrfField() ?>
+                    <input type="hidden" name="login_type" id="loginTypeInput" value="<?= h($loginType) ?>">
+
+                    <div class="login-type-switch" role="group" aria-label="Typ přihlášení">
+                        <button type="button" class="login-type-btn <?= $loginType === 'coach' ? 'active' : '' ?>" data-type="coach">
+                            Trenér
+                        </button>
+                        <button type="button" class="login-type-btn <?= $loginType === 'athlete' ? 'active' : '' ?>" data-type="athlete">
+                            Sportovec
+                        </button>
+                    </div>
+
                     <div class="mb-3">
-                        <label class="form-label" for="username">Uživatelské jméno</label>
+                        <label class="form-label" for="username" id="usernameLabel">Uživatelské jméno</label>
                         <input id="username" type="text" name="username" class="form-control"
                             value="<?= h($_POST['username'] ?? '') ?>"
                             autofocus autocomplete="username" required>
@@ -379,6 +449,35 @@ $showFormOnLoad = $_SERVER['REQUEST_METHOD'] === 'POST';
                 }, 260);
             });
         }
+
+        const loginTypeInput = document.getElementById('loginTypeInput');
+        const loginSubTitle = document.getElementById('loginSubTitle');
+        const usernameLabel = document.getElementById('usernameLabel');
+        const typeButtons = Array.from(document.querySelectorAll('.login-type-btn'));
+
+        function applyLoginType(type) {
+            const isAthlete = type === 'athlete';
+            if (loginTypeInput) {
+                loginTypeInput.value = isAthlete ? 'athlete' : 'coach';
+            }
+            if (loginSubTitle) {
+                loginSubTitle.textContent = isAthlete ? 'Přihlášení pro sportovce' : 'Přihlášení pro trenéry';
+            }
+            if (usernameLabel) {
+                usernameLabel.textContent = isAthlete ? 'E-mail' : 'Uživatelské jméno';
+            }
+            typeButtons.forEach((btn) => {
+                btn.classList.toggle('active', btn.dataset.type === (isAthlete ? 'athlete' : 'coach'));
+            });
+        }
+
+        typeButtons.forEach((btn) => {
+            btn.addEventListener('click', function() {
+                applyLoginType(btn.dataset.type === 'athlete' ? 'athlete' : 'coach');
+            });
+        });
+
+        applyLoginType((loginTypeInput && loginTypeInput.value === 'athlete') ? 'athlete' : 'coach');
     </script>
 </body>
 

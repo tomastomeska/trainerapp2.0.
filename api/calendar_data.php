@@ -20,8 +20,13 @@ $weekEnd = $weekStart->modify('+7 days');
 $eventsStmt = $pdo->prepare(
     'SELECT e.id,
             e.athlete_id,
+            e.requested_by_athlete_id,
             e.series_id,
             e.color_key,
+            e.approval_status,
+            e.coach_modified_at,
+            e.is_makeup_session,
+            e.billing_month,
             e.custom_title,
             e.location,
             e.starts_at,

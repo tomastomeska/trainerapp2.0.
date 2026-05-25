@@ -22,6 +22,10 @@ function isLoggedIn(): bool {
     return !empty($_SESSION['coach_id']);
 }
 
+function athleteIsLoggedIn(): bool {
+    return !empty($_SESSION['athlete_id']);
+}
+
 function requireLogin(): void {
     if (!isLoggedIn()) {
         $script = str_replace('\\', '/', $_SERVER['SCRIPT_NAME'] ?? '');
@@ -41,8 +45,27 @@ function requireLogin(): void {
     }
 }
 
+function requireAthleteLogin(bool $enforcePasswordChange = true): void {
+    if (!athleteIsLoggedIn()) {
+        header('Location: ' . BASE_URL . '/login.php');
+        exit;
+    }
+
+    if ($enforcePasswordChange && !empty($_SESSION['athlete_force_password_change'])) {
+        $script = basename((string)($_SERVER['SCRIPT_NAME'] ?? ''));
+        if ($script !== 'athlete_change_password.php' && $script !== 'logout.php') {
+            header('Location: ' . BASE_URL . '/athlete_change_password.php');
+            exit;
+        }
+    }
+}
+
 function getCurrentCoachId(): ?int {
     return $_SESSION['coach_id'] ?? null;
+}
+
+function getCurrentAthleteId(): ?int {
+    return $_SESSION['athlete_id'] ?? null;
 }
 
 function getCurrentCoach(): ?array {
@@ -50,6 +73,23 @@ function getCurrentCoach(): ?array {
     $pdo  = getDB();
     $stmt = $pdo->prepare('SELECT id, username, name, email FROM coaches WHERE id = ?');
     $stmt->execute([$_SESSION['coach_id']]);
+    return $stmt->fetch() ?: null;
+}
+
+function getCurrentAthlete(): ?array {
+    if (!athleteIsLoggedIn()) {
+        return null;
+    }
+
+    $pdo  = getDB();
+    $stmt = $pdo->prepare(
+        'SELECT a.id, a.coach_id, a.first_name, a.last_name, a.email, c.name AS coach_name
+         FROM athletes a
+         JOIN coaches c ON c.id = a.coach_id
+         WHERE a.id = ?'
+    );
+    $stmt->execute([$_SESSION['athlete_id']]);
+
     return $stmt->fetch() ?: null;
 }
 
@@ -70,8 +110,8 @@ function csrfField(): string {
 }
 
 // Flash zprávy
-function flash(string $type, string $message): void {
-    $_SESSION['flash'] = compact('type', 'message');
+function flash(string $type, string $message, bool $html = false): void {
+    $_SESSION['flash'] = compact('type', 'message', 'html');
 }
 
 function getFlash(): ?array {

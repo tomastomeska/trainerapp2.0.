@@ -16,17 +16,10 @@ $athleteStmt = $pdo->prepare(
 $athleteStmt->execute([$coachId]);
 $athletes = $athleteStmt->fetchAll();
 
-$venueStmt = $pdo->prepare(
-    'SELECT DISTINCT location
-     FROM coach_calendar_events
-     WHERE coach_id = ? AND location IS NOT NULL
-     ORDER BY location ASC'
-);
-$venueStmt->execute([$coachId]);
-$venues = array_map(fn($row) => $row['location'], $venueStmt->fetchAll());
+$venues = array_values(array_filter(getTrainingVenues(), fn($row) => !empty($row['name'])));
 
 $athletesJson = json_encode($athletes);
-$venuesJson = json_encode($venues);
+$venuesJson = json_encode($venues, JSON_UNESCAPED_UNICODE);
 ?>
 <!DOCTYPE html>
 <html lang="cs">
@@ -354,12 +347,20 @@ $venuesJson = json_encode($venues);
                             <div class="input-group">
                                 <select id="locMode" class="form-select" style="flex: 0 0 120px;">
                                     <option value="">Vlastní</option>
-                                    <?php foreach ($venues as $v): ?>
-                                    <option value="<?= htmlspecialchars($v) ?>"><?= htmlspecialchars($v) ?></option>
+                                    <?php foreach ($venues as $venue): ?>
+                                    <option value="<?= htmlspecialchars((string)$venue['name']) ?>"
+                                            data-address="<?= htmlspecialchars((string)($venue['address'] ?? '')) ?>"
+                                            data-note="<?= htmlspecialchars((string)($venue['note'] ?? '')) ?>">
+                                        <?= htmlspecialchars((string)$venue['name']) ?>
+                                        <?php if (!empty($venue['address'])): ?>
+                                        — <?= htmlspecialchars((string)$venue['address']) ?>
+                                        <?php endif; ?>
+                                    </option>
                                     <?php endforeach; ?>
                                 </select>
                                 <input type="text" id="location" class="form-control" maxlength="255" placeholder="Stadion, fitko...">
                             </div>
+                            <div class="small text-muted mt-1" id="locationHint"></div>
                         </div>
                     </form>
                 </div>
@@ -376,6 +377,7 @@ $venuesJson = json_encode($venues);
     <script>
         const athletes = <?= $athletesJson ?>;
         const venues = <?= $venuesJson ?>;
+        const venueNames = venues.map(v => v.name);
 
         let modal = new bootstrap.Modal(document.getElementById('eventModal'));
         let currentDate = new Date();
@@ -536,6 +538,21 @@ $venuesJson = json_encode($venues);
             });
         }
 
+        function updateLocationHint() {
+            const select = document.getElementById('locMode');
+            const hint = document.getElementById('locationHint');
+            if (!select || !hint) return;
+
+            const option = select.options[select.selectedIndex];
+            if (!option || !select.value) {
+                hint.textContent = 'Vyberte existující místo, nebo zadejte vlastní.';
+                return;
+            }
+
+            const parts = [option.dataset.address, option.dataset.note].filter(Boolean);
+            hint.textContent = parts.length ? parts.join(' • ') : 'Místo je načtené z katalogu training_venues.';
+        }
+
         function openModal(ev, startDate = null) {
             currentEventId = ev ? ev.id : null;
             document.querySelector('.modal-title').textContent = ev ? 'Upravit trénink' : 'Nový trénink';
@@ -552,7 +569,7 @@ $venuesJson = json_encode($venues);
                 document.getElementById('duration').value = mins;
                 
                 if (ev.location) {
-                    document.getElementById('locMode').value = venues.includes(ev.location) ? ev.location : '';
+                    document.getElementById('locMode').value = venueNames.includes(ev.location) ? ev.location : '';
                     document.getElementById('location').value = ev.location;
                 }
             } else {
@@ -562,6 +579,7 @@ $venuesJson = json_encode($venues);
             }
 
             document.getElementById('errorMsg').style.display = 'none';
+            updateLocationHint();
             modal.show();
         }
 
@@ -569,6 +587,7 @@ $venuesJson = json_encode($venues);
             if (e.target.value) {
                 document.getElementById('location').value = e.target.value;
             }
+            updateLocationHint();
         });
 
         document.getElementById('saveBtn').addEventListener('click', async () => {

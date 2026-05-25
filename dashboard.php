@@ -97,7 +97,7 @@ foreach ($activeSessions as $session) {
 
 // Dnešní plán z kalendáře (neproběhlé + právě probíhající)
 $todayCalendarStmt = $pdo->prepare(
-    'SELECT e.id,
+        "SELECT e.id,
             e.custom_title,
             e.location,
             e.starts_at,
@@ -107,10 +107,11 @@ $todayCalendarStmt = $pdo->prepare(
      FROM coach_calendar_events e
      LEFT JOIN athletes a ON a.id = e.athlete_id
      WHERE e.coach_id = ?
+             AND e.approval_status = 'approved'
        AND e.starts_at >= CURDATE()
        AND e.starts_at < DATE_ADD(CURDATE(), INTERVAL 1 DAY)
        AND e.ends_at > NOW()
-     ORDER BY e.starts_at ASC, e.id ASC'
+         ORDER BY e.starts_at ASC, e.id ASC"
 );
 $todayCalendarStmt->execute([$coachId]);
 $todayPlannedEvents = $todayCalendarStmt->fetchAll();
@@ -157,7 +158,7 @@ $tomorrowStart = $now->modify('tomorrow')->setTime(0, 0, 0);
 $tomorrowEnd = $tomorrowStart->modify('+1 day');
 
 $tomorrowCalendarStmt = $pdo->prepare(
-    'SELECT e.id,
+        "SELECT e.id,
             e.custom_title,
             e.location,
             e.starts_at,
@@ -167,9 +168,10 @@ $tomorrowCalendarStmt = $pdo->prepare(
      FROM coach_calendar_events e
      LEFT JOIN athletes a ON a.id = e.athlete_id
      WHERE e.coach_id = ?
+             AND e.approval_status = 'approved'
        AND e.starts_at >= ?
        AND e.starts_at < ?
-     ORDER BY e.starts_at ASC, e.id ASC'
+         ORDER BY e.starts_at ASC, e.id ASC"
 );
 $tomorrowCalendarStmt->execute([
     $coachId,

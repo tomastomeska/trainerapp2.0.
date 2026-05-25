@@ -9,6 +9,13 @@ $coachId   = getCurrentCoachId();
 $athleteId = intParam($_GET, 'id');
 $error     = null;
 
+$defaultReturnUrl = BASE_URL . '/athlete_detail.php?id=' . $athleteId;
+$returnToRaw = trim((string)($_GET['return_to'] ?? $_POST['return_to'] ?? ''));
+$returnTo = $defaultReturnUrl;
+if ($returnToRaw !== '' && str_starts_with($returnToRaw, BASE_URL . '/')) {
+    $returnTo = $returnToRaw;
+}
+
 $pdo  = getDB();
 $stmt = $pdo->prepare('SELECT * FROM athletes WHERE id = ? AND coach_id = ?');
 $stmt->execute([$athleteId, $coachId]);
@@ -28,40 +35,51 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $birthDate = trim($_POST['birth_date'] ?? '');
         $phone     = trim($_POST['phone_contact'] ?? '');
         $email     = trim($_POST['email'] ?? '');
+        $trainingRateRaw = trim($_POST['training_rate'] ?? '');
         $notes     = trim($_POST['notes'] ?? '');
+        $trainingRate = null;
 
-        if ($firstName === '' || $lastName === '') {
+        if ($trainingRateRaw !== '') {
+            $normalizedRate = str_replace(',', '.', $trainingRateRaw);
+            if (!is_numeric($normalizedRate) || (float)$normalizedRate < 0) {
+                $error = 'Zadejte platnou sazbu za trénink.';
+            } else {
+                $trainingRate = number_format((float)$normalizedRate, 2, '.', '');
+            }
+        }
+
+        if ($error === null && ($firstName === '' || $lastName === '')) {
             $error = 'Vyplňte jméno a příjmení.';
-        } elseif ($birthDate === '') {
+        } elseif ($error === null && $birthDate === '') {
             $error = 'Zadejte datum narození.';
-        } elseif (!DateTime::createFromFormat('Y-m-d', $birthDate)) {
+        } elseif ($error === null && !DateTime::createFromFormat('Y-m-d', $birthDate)) {
             $error = 'Zadejte platné datum narození.';
-        } elseif ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        } elseif ($error === null && $email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
             $error = 'Zadejte platnou e-mailovou adresu.';
         } else {
             $newPhoto = saveUploadedPhoto('photo', 'athletes');
             if ($newPhoto !== null) {
                 deleteUploadedPhoto($athlete['photo'] ?? null, 'athletes');
                 $stmt = $pdo->prepare(
-                    'UPDATE athletes SET first_name=?, last_name=?, birth_date=?, phone_contact=?, email=?, notes=?, photo=?
+                    'UPDATE athletes SET first_name=?, last_name=?, birth_date=?, phone_contact=?, email=?, training_rate=?, notes=?, photo=?
                      WHERE id=? AND coach_id=?'
                 );
                 $stmt->execute([
-                    $firstName, $lastName, $birthDate, $phone ?: null, $email ?: null, $notes ?: null,
+                    $firstName, $lastName, $birthDate, $phone ?: null, $email ?: null, $trainingRate, $notes ?: null,
                     $newPhoto, $athleteId, $coachId,
                 ]);
             } else {
                 $stmt = $pdo->prepare(
-                    'UPDATE athletes SET first_name=?, last_name=?, birth_date=?, phone_contact=?, email=?, notes=?
+                    'UPDATE athletes SET first_name=?, last_name=?, birth_date=?, phone_contact=?, email=?, training_rate=?, notes=?
                      WHERE id=? AND coach_id=?'
                 );
                 $stmt->execute([
-                    $firstName, $lastName, $birthDate, $phone ?: null, $email ?: null, $notes ?: null,
+                    $firstName, $lastName, $birthDate, $phone ?: null, $email ?: null, $trainingRate, $notes ?: null,
                     $athleteId, $coachId,
                 ]);
             }
             flash('success', 'Údaje sportovce byly aktualizovány.');
-            redirect(BASE_URL . '/athlete_detail.php?id=' . $athleteId);
+            redirect($returnTo);
         }
     }
 }
@@ -75,7 +93,7 @@ renderHeader('Upravit sportovce');
 <div class="row justify-content-center">
     <div class="col-lg-6">
         <div class="d-flex align-items-center mb-4">
-            <a href="<?= BASE_URL ?>/athlete_detail.php?id=<?= $athleteId ?>"
+            <a href="<?= h($returnTo) ?>"
                class="btn btn-outline-secondary btn-sm me-3">
                 <i class="fas fa-arrow-left"></i>
             </a>
@@ -93,6 +111,7 @@ renderHeader('Upravit sportovce');
             <div class="card-body p-4">
                 <form method="post" enctype="multipart/form-data" novalidate>
                     <?= csrfField() ?>
+                    <input type="hidden" name="return_to" value="<?= h($returnTo) ?>">
                     <div class="row g-3 mb-3">
                         <div class="col-sm-6">
                             <label class="form-label fw-semibold">Jméno <span class="text-danger">*</span></label>
@@ -122,6 +141,16 @@ renderHeader('Upravit sportovce');
                                    value="<?= h($d['email'] ?? '') ?>">
                         </div>
                     </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Sazba za trénink</label>
+                        <div class="input-group">
+                            <input type="number" name="training_rate" class="form-control"
+                                   value="<?= h($d['training_rate'] ?? '') ?>"
+                                   min="0" step="0.01" placeholder="Např. 750">
+                            <span class="input-group-text">Kč</span>
+                        </div>
+                        <div class="form-text">Částka se používá na stránce Platby pro měsíční výpočet.</div>
+                    </div>
                     <div class="mb-4">
                         <label class="form-label fw-semibold">Poznámky</label>
                         <textarea name="notes" class="form-control" rows="3"><?= h($d['notes'] ?? '') ?></textarea>
@@ -143,7 +172,7 @@ renderHeader('Upravit sportovce');
                         <button type="submit" class="btn btn-warning fw-bold px-4">
                             <i class="fas fa-save me-1"></i>Uložit změny
                         </button>
-                        <a href="<?= BASE_URL ?>/athlete_detail.php?id=<?= $athleteId ?>"
+                        <a href="<?= h($returnTo) ?>"
                            class="btn btn-outline-secondary">Zrušit</a>
                     </div>
                 </form>

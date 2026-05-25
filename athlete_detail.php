@@ -76,6 +76,79 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         redirect(BASE_URL . '/athlete_detail.php?id=' . $athleteId);
     }
+
+    if ($action === 'create_login_credentials') {
+        if (empty($athlete['email'])) {
+            flash('danger', 'Sportovec nemá vyplněný e-mail.');
+            redirect(BASE_URL . '/athlete_detail.php?id=' . $athleteId);
+        }
+
+        if (!filter_var((string)$athlete['email'], FILTER_VALIDATE_EMAIL)) {
+            flash('danger', 'Sportovec má neplatný e-mail.');
+            redirect(BASE_URL . '/athlete_detail.php?id=' . $athleteId);
+        }
+
+        $tempPassword = generateRandomPassword(12);
+        $passwordHash = password_hash($tempPassword, PASSWORD_DEFAULT);
+
+        $updLogin = $pdo->prepare(
+            'UPDATE athletes
+             SET password = ?,
+                 login_enabled = 1,
+                 force_password_change = 1
+             WHERE id = ? AND coach_id = ?'
+        );
+        $updLogin->execute([$passwordHash, $athleteId, $coachId]);
+
+        $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+        $host = (string)($_SERVER['HTTP_HOST'] ?? '');
+        $loginUrl = $host !== ''
+            ? ($scheme . '://' . $host . rtrim(BASE_URL, '/') . '/login.php')
+            : (BASE_URL . '/login.php');
+
+        $athleteName = trim((string)$athlete['first_name'] . ' ' . (string)$athlete['last_name']);
+        $sent = sendAthleteWelcomeEmail((string)$athlete['email'], $athleteName, $tempPassword, $loginUrl);
+
+        // Heslo zobrazíme vždy – při neúspěšném emailu (lokální testování) je to jediný způsob jak ho zjistit.
+        $emailStatus = $sent ? ' E-mail byl odeslán.' : ' <strong>E-mail se nepodařilo odeslat</strong> – použij heslo níže.';
+        flash('success', 'Přístup vytvořen.' . $emailStatus
+            . '<br>Přihlašovací e-mail: <code>' . h((string)$athlete['email']) . '</code>'
+            . '<br>Dočasné heslo: <code>' . h($tempPassword) . '</code>'
+            . '<br><small class="text-muted">Sportovec bude po přihlášení vyzván ke změně hesla.</small>', true);
+
+        redirect(BASE_URL . '/athlete_detail.php?id=' . $athleteId);
+    }
+
+    if ($action === 'revoke_login_access') {
+        $upd = $pdo->prepare(
+            'UPDATE athletes
+             SET login_enabled = 0,
+                 password = NULL,
+                 force_password_change = 1
+             WHERE id = ? AND coach_id = ?'
+        );
+        $upd->execute([$athleteId, $coachId]);
+
+        flash('success', 'Přístup sportovce do aplikace byl zrušen.');
+        redirect(BASE_URL . '/athlete_detail.php?id=' . $athleteId);
+    }
+
+    if ($action === 'send_message_to_athlete') {
+        $subject = trim((string)($_POST['subject'] ?? ''));
+        $body = trim((string)($_POST['body'] ?? ''));
+
+        if ($subject === '' || $body === '') {
+            flash('danger', 'Vyplňte prosím předmět i text zprávy.');
+            redirect(BASE_URL . '/athlete_detail.php?id=' . $athleteId);
+        }
+
+        $subject = mb_substr($subject, 0, 200, 'UTF-8');
+        $body = mb_substr($body, 0, 4000, 'UTF-8');
+        createAthleteNotification($athleteId, $subject, $body);
+
+        flash('success', 'Zpráva byla odeslána sportovci.');
+        redirect(BASE_URL . '/athlete_detail.php?id=' . $athleteId);
+    }
 }
 
 // Tréninkové záznamy sportovce
@@ -248,6 +321,16 @@ renderHeader(h($athlete['first_name'] . ' ' . $athlete['last_name']), true);
                         <td><?= $athlete['email'] ? '<a href="mailto:'.h($athlete['email']).'">'.h($athlete['email']).'</a>' : '–' ?></td>
                     </tr>
                     <tr>
+                        <td class="text-muted fw-semibold">Přístup do aplikace</td>
+                        <td>
+                            <?php if (!empty($athlete['login_enabled'])): ?>
+                                <span class="badge bg-success">Aktivní</span>
+                            <?php else: ?>
+                                <span class="badge bg-secondary">Nevytvořen</span>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                    <tr>
                         <td class="text-muted fw-semibold">Tel. kontakt</td>
                         <td><?= $athlete['phone_contact'] ? h($athlete['phone_contact']) : '–' ?></td>
                     </tr>
@@ -389,6 +472,28 @@ renderHeader(h($athlete['first_name'] . ' ' . $athlete['last_name']), true);
                 </form>
 
                 <?php if (!empty($athlete['email'])): ?>
+                <form method="post" class="mb-2">
+                    <?= csrfField() ?>
+                    <input type="hidden" name="action" value="create_login_credentials">
+                    <button type="submit" class="btn btn-outline-dark w-100"
+                            onclick="return confirm('Vygenerovat nové přístupové heslo a zobrazit ho zde? (E-mail odeslán jen pokud SMTP funguje.)')">
+                        <i class="fas fa-key me-1"></i>
+                        <?= !empty($athlete['login_enabled']) ? 'Resetovat heslo sportovce' : 'Vytvořit přístup sportovce' ?>
+                    </button>
+                    <small class="text-muted d-block mt-2">Login = e-mail sportovce. Heslo se zobrazí na obrazovce i při nefunkčním SMTP.</small>
+                </form>
+
+                <?php if (!empty($athlete['login_enabled'])): ?>
+                <form method="post" class="mb-2">
+                    <?= csrfField() ?>
+                    <input type="hidden" name="action" value="revoke_login_access">
+                    <button type="submit" class="btn btn-outline-danger w-100"
+                            onclick="return confirm('Opravdu zrušit přístup tohoto sportovce do aplikace?')">
+                        <i class="fas fa-ban me-1"></i>Zrušit přístup sportovce
+                    </button>
+                </form>
+                <?php endif; ?>
+
                 <form method="post">
                     <?= csrfField() ?>
                     <input type="hidden" name="action" value="send_weight_invite">
@@ -397,11 +502,16 @@ renderHeader(h($athlete['first_name'] . ' ' . $athlete['last_name']), true);
                     </button>
                     <small class="text-muted d-block mt-2">Sportovec obdrží e-mail s bezpečným odkazem pro jednorázové zadání.</small>
                 </form>
+
                 <?php else: ?>
                 <div class="alert alert-warning py-2 mb-0">
                     Sportovec nemá vyplněný e-mail, výzvu nelze odeslat.
                 </div>
                 <?php endif; ?>
+
+                <button type="button" class="btn btn-outline-success w-100 mt-2" data-bs-toggle="modal" data-bs-target="#messageAthleteModal">
+                    <i class="fas fa-paper-plane me-1"></i>Napsat sportovci
+                </button>
             </div>
         </div>
     </div>
@@ -422,6 +532,35 @@ renderHeader(h($athlete['first_name'] . ' ' . $athlete['last_name']), true);
                 <canvas id="athleteWeightChart" style="max-height:340px"></canvas>
                 <?php endif; ?>
             </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="messageAthleteModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="post">
+                <?= csrfField() ?>
+                <input type="hidden" name="action" value="send_message_to_athlete">
+                <div class="modal-header bg-dark text-white">
+                    <h5 class="modal-title"><i class="fas fa-paper-plane me-2 text-warning"></i>Nová zpráva sportovci</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Předmět</label>
+                        <input type="text" class="form-control" name="subject" maxlength="200" required placeholder="Např. Úprava tréninku na příští týden">
+                    </div>
+                    <div>
+                        <label class="form-label fw-semibold">Zpráva</label>
+                        <textarea class="form-control" name="body" rows="5" maxlength="4000" required placeholder="Sem napište text zprávy pro sportovce..."></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Zrušit</button>
+                    <button type="submit" class="btn btn-success"><i class="fas fa-paper-plane me-1"></i>Odeslat zprávu</button>
+                </div>
+            </form>
         </div>
     </div>
 </div>

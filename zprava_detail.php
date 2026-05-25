@@ -55,6 +55,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'confi
     redirect($redirect);
 }
 
+// Zpracování odpovědi sportovci
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'reply_to_athlete') {
+    if (!verifyCsrf($_POST['csrf_token'] ?? '')) {
+        http_response_code(403);
+        exit('Neplatný token');
+    }
+    $fromAthleteId = (int)($message['from_athlete_id'] ?? 0);
+    if ($fromAthleteId > 0) {
+        $replyBody = trim((string)($_POST['reply_body'] ?? ''));
+        if ($replyBody !== '') {
+            $replySubject = 'Odpověď trenéra: ' . $message['subject'];
+            createAthleteNotification($fromAthleteId, $replySubject, $replyBody);
+            flash('success', 'Odpověď byla odeslána sportovci.');
+        } else {
+            flash('danger', 'Zadejte text odpovědi.');
+        }
+    }
+    redirect(BASE_URL . '/zprava_detail.php?id=' . $id);
+}
+
 $isUnread = $message['read_at'] === null;
 
 renderHeader('Zpráva: ' . $message['subject']);
@@ -83,7 +103,9 @@ renderHeader('Zpráva: ' . $message['subject']);
             <div class="fw-bold fs-5"><?= h($message['subject']) ?></div>
             <div class="text-muted small">
                 <i class="fas fa-calendar me-1"></i><?= date('d.m.Y H:i', strtotime($message['sent_at'])) ?>
-                &nbsp;&nbsp;<i class="fas fa-user-shield me-1"></i>Administrátor TrainerApp
+                &nbsp;&nbsp;<i class="fas fa-user-shield me-1"></i><?php if (!empty($message['from_athlete_id'])): ?>
+                <span class="badge bg-info text-dark"><i class="fas fa-running me-1"></i>Zpráva od sportovce</span>
+                <?php else: ?>Administrátor TrainerApp<?php endif; ?>
             </div>
         </div>
         <?php if ($message['read_at']): ?>
@@ -214,6 +236,14 @@ renderHeader('Zpráva: ' . $message['subject']);
         <button class="btn btn-outline-danger"><i class="fas fa-times me-1"></i>Trvale smazat</button>
     </form>
     <?php endif; ?>
+</div>
+<?php endif; ?>
+
+<?php if (!empty($message['from_athlete_id']) && !$isUnread): ?>
+<div class="mb-4 d-flex justify-content-end">
+    <button class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#replyAthleteModal">
+        <i class="fas fa-reply me-1"></i>Odpovědět sportovci
+    </button>
 </div>
 <?php endif; ?>
 
@@ -441,5 +471,36 @@ document.getElementById('btnSubmitSign').addEventListener('click', async functio
 
 }); // end window load
 </script>
+
+<!-- Modal: odpověď sportovci -->
+<?php if (!empty($message['from_athlete_id'])): ?>
+<div class="modal fade" id="replyAthleteModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="post">
+                <?= csrfField() ?>
+                <input type="hidden" name="action" value="reply_to_athlete">
+                <div class="modal-header bg-dark text-white">
+                    <h5 class="modal-title"><i class="fas fa-reply me-2 text-warning"></i>Odpovědět sportovci</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-info py-2 small mb-3">
+                        Odpověď na: <strong><?= h((string)$message['subject']) ?></strong>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label fw-semibold">Text odpovědi <span class="text-danger">*</span></label>
+                        <textarea name="reply_body" class="form-control" rows="5" required maxlength="4000" placeholder="Napište odpověď sportovci..."></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Zrušit</button>
+                    <button type="submit" class="btn btn-primary fw-bold"><i class="fas fa-paper-plane me-1"></i>Odeslat odpověď</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
 
 <?php renderFooter(); ?>

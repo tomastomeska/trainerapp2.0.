@@ -9,6 +9,27 @@ $coachId = getCurrentCoachId();
 $pdo     = getDB();
 $error   = null;
 
+function normalizeBankAccountInput(?string $raw): string|false|null
+{
+    $value = strtoupper(str_replace(' ', '', trim((string)$raw)));
+    if ($value === '') {
+        return null;
+    }
+
+    if (preg_match('/^[A-Z]{2}[0-9A-Z]{13,32}$/', $value) === 1) {
+        return $value;
+    }
+
+    if (
+        preg_match('/^[0-9]{1,6}-[0-9]{2,10}\/[0-9]{4}$/', $value) === 1 ||
+        preg_match('/^[0-9]{2,10}\/[0-9]{4}$/', $value) === 1
+    ) {
+        return $value;
+    }
+
+    return false;
+}
+
 // Akce z formuláře
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!verifyCsrf($_POST['csrf_token'] ?? '')) {
@@ -19,14 +40,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($action === 'update_profile') {
             $name  = trim($_POST['name'] ?? '');
             $email = trim($_POST['email'] ?? '');
+            $bankAccountRaw = $_POST['bank_account'] ?? '';
+            $bankAccount = normalizeBankAccountInput($bankAccountRaw);
 
             if ($name === '') {
                 $error = 'Jméno nesmí být prázdné.';
             } elseif ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
                 $error = 'Zadejte platný e-mail.';
+            } elseif ($bankAccount === false) {
+                $error = 'Zadejte platné číslo účtu (např. 123456789/0800 nebo IBAN).';
             } else {
-                $pdo->prepare('UPDATE coaches SET name = ?, email = ? WHERE id = ?')
-                    ->execute([$name, $email ?: null, $coachId]);
+                $pdo->prepare('UPDATE coaches SET name = ?, email = ?, bank_account = ? WHERE id = ?')
+                    ->execute([$name, $email ?: null, $bankAccount, $coachId]);
                 $_SESSION['coach_name'] = $name;
                 flash('success', 'Profil byl aktualizován.');
                 redirect(BASE_URL . '/profile.php');
@@ -64,7 +89,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$stmtCoach = $pdo->prepare('SELECT id, username, name, email, created_at FROM coaches WHERE id = ?');
+$stmtCoach = $pdo->prepare('SELECT id, username, name, email, bank_account, created_at FROM coaches WHERE id = ?');
 $stmtCoach->execute([$coachId]);
 $coach = $stmtCoach->fetch();
 
@@ -165,6 +190,12 @@ renderHeader('Můj profil');
                     <div class="mb-4">
                         <label class="form-label fw-semibold">E-mail</label>
                         <input type="email" name="email" class="form-control" value="<?= h($coach['email'] ?? '') ?>">
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="form-label fw-semibold">Číslo účtu pro QR platbu</label>
+                        <input type="text" name="bank_account" class="form-control" value="<?= h($coach['bank_account'] ?? '') ?>" placeholder="Např. 123456789/0800 nebo CZ6508000000192000145399">
+                        <div class="form-text">Použije se na stránce Platby pro QR kód.</div>
                     </div>
 
                     <button type="submit" class="btn btn-warning fw-bold">
