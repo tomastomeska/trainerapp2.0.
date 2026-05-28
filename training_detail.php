@@ -132,6 +132,14 @@ renderHeader('Detail tréninku');
                 <i class="fas fa-edit me-1"></i>Editovat
             </a>
             <?php endif; ?>
+            <form method="post" action="<?= BASE_URL ?>/training_reopen.php" class="d-inline"
+                  onsubmit="return confirm('Znovu otevřít tento trénink? Po úpravách ho bude potřeba znovu ukončit.');">
+                <?= csrfField() ?>
+                <input type="hidden" name="session_id" value="<?= (int)$sessionId ?>">
+                <button type="submit" class="btn btn-warning btn-sm fw-bold">
+                    <i class="fas fa-unlock me-1"></i>Znovu otevřít
+                </button>
+            </form>
         <?php endif; ?>
         <a href="<?= BASE_URL ?>/export_csv.php?session_id=<?= $sessionId ?>"
            class="btn btn-outline-success btn-sm">

@@ -41,6 +41,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->prepare(
                     'INSERT INTO coaches (username, password, name, email, is_active) VALUES (?, ?, ?, ?, ?)'
                 )->execute([$username, $hash, $name ?: null, $email ?: null, $isActive]);
+                $newCoachId = (int)$pdo->lastInsertId();
+
+                $pdo->prepare(
+                    'INSERT INTO coach_meals (
+                        coach_id,
+                        global_meal_id,
+                        name,
+                        description,
+                        grams,
+                        meal_type,
+                        fat_per_100g,
+                        sugars_per_100g,
+                        protein_per_100g,
+                        fiber_per_100g,
+                        salt_per_100g,
+                        photo
+                     )
+                     SELECT ?,
+                            g.id,
+                            g.name,
+                            g.description,
+                            g.grams,
+                            g.meal_type,
+                            g.fat_per_100g,
+                            g.sugars_per_100g,
+                            g.protein_per_100g,
+                            g.fiber_per_100g,
+                            g.salt_per_100g,
+                            g.photo
+                     FROM global_meals g'
+                )->execute([$newCoachId]);
 
                 // Odeslani prihlasovacich udaju e-mailem (pokud je zadany e-mail)
                 $mailInfo = null;

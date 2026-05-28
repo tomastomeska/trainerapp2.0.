@@ -772,6 +772,188 @@ function ensureSchemaUpgrades(PDO $pdo): void {
             CONSTRAINT `fk_athlete_notifications_athlete` FOREIGN KEY (`athlete_id`) REFERENCES `athletes`(`id`) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ");
+
+    // Databáze jídel trenéra
+    $pdo->exec(" 
+        CREATE TABLE IF NOT EXISTS `global_meals` (
+            `id`         INT AUTO_INCREMENT PRIMARY KEY,
+            `name`       VARCHAR(200) NOT NULL,
+            `description` TEXT NULL,
+            `grams`      INT NULL,
+            `meal_type`  ENUM('breakfast','snack','lunch','dinner','second_dinner','post_workout','cheat_day') NULL,
+            `fat_per_100g` DECIMAL(7,2) NULL,
+            `sugars_per_100g` DECIMAL(7,2) NULL,
+            `protein_per_100g` DECIMAL(7,2) NULL,
+            `fiber_per_100g` DECIMAL(7,2) NULL,
+            `salt_per_100g` DECIMAL(7,2) NULL,
+            `photo`      VARCHAR(255) NULL,
+            `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            KEY `idx_global_meals_name` (`name`),
+            KEY `idx_global_meals_type` (`meal_type`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
+    // Databáze jídel trenéra
+    $pdo->exec(" 
+        CREATE TABLE IF NOT EXISTS `coach_meals` (
+            `id`         INT AUTO_INCREMENT PRIMARY KEY,
+            `coach_id`   INT NOT NULL,
+            `global_meal_id` INT NULL,
+            `name`       VARCHAR(200) NOT NULL,
+            `description` TEXT NULL,
+            `grams`      INT NULL,
+            `meal_type`  ENUM('breakfast','snack','lunch','dinner','second_dinner','post_workout','cheat_day') NULL,
+            `fat_per_100g` DECIMAL(7,2) NULL,
+            `sugars_per_100g` DECIMAL(7,2) NULL,
+            `protein_per_100g` DECIMAL(7,2) NULL,
+            `fiber_per_100g` DECIMAL(7,2) NULL,
+            `salt_per_100g` DECIMAL(7,2) NULL,
+            `photo`      VARCHAR(255) NULL,
+            `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            KEY `idx_coach_meals_coach_type` (`coach_id`, `meal_type`),
+            KEY `idx_coach_meals_coach_name` (`coach_id`, `name`),
+            KEY `idx_coach_meals_global` (`global_meal_id`),
+            CONSTRAINT `fk_coach_meals_coach` FOREIGN KEY (`coach_id`) REFERENCES `coaches`(`id`) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
+    // Hlavičky jídelníčků
+    $pdo->exec(" 
+        CREATE TABLE IF NOT EXISTS `coach_meal_plans` (
+            `id`         INT AUTO_INCREMENT PRIMARY KEY,
+            `coach_id`   INT NOT NULL,
+            `name`       VARCHAR(200) NOT NULL,
+            `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            KEY `idx_coach_meal_plans_coach` (`coach_id`, `created_at`),
+            CONSTRAINT `fk_coach_meal_plans_coach` FOREIGN KEY (`coach_id`) REFERENCES `coaches`(`id`) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
+    // Položky jídelníčku
+    $pdo->exec(" 
+        CREATE TABLE IF NOT EXISTS `coach_meal_plan_items` (
+            `id`                INT AUTO_INCREMENT PRIMARY KEY,
+            `meal_plan_id`      INT NOT NULL,
+            `day_of_week`       ENUM('monday','tuesday','wednesday','thursday','friday','saturday','sunday') NOT NULL,
+            `meal_type`         ENUM('breakfast','snack','lunch','dinner','second_dinner','post_workout','cheat_day') NOT NULL,
+            `meal_id`           INT NULL,
+            `meal_name_snapshot` VARCHAR(200) NOT NULL,
+            `grams`             INT NULL,
+            `note`              TEXT NULL,
+            `position`          INT NOT NULL DEFAULT 1,
+            `created_at`        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            KEY `idx_meal_plan_items_plan_day_pos` (`meal_plan_id`, `day_of_week`, `position`),
+            KEY `idx_meal_plan_items_plan` (`meal_plan_id`),
+            KEY `idx_meal_plan_items_meal` (`meal_id`),
+            CONSTRAINT `fk_meal_plan_items_plan` FOREIGN KEY (`meal_plan_id`) REFERENCES `coach_meal_plans`(`id`) ON DELETE CASCADE,
+            CONSTRAINT `fk_meal_plan_items_meal` FOREIGN KEY (`meal_id`) REFERENCES `coach_meals`(`id`) ON DELETE SET NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
+    // Přiřazení jídelníčku sportovcům
+    $pdo->exec(" 
+        CREATE TABLE IF NOT EXISTS `athlete_meal_plans` (
+            `id`                 INT AUTO_INCREMENT PRIMARY KEY,
+            `coach_id`           INT NOT NULL,
+            `athlete_id`         INT NOT NULL,
+            `meal_plan_id`       INT NOT NULL,
+            `assigned_at`        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `removed_at`         DATETIME NULL,
+            `removed_by_coach_id` INT NULL,
+            KEY `idx_athlete_meal_plans_athlete_active` (`athlete_id`, `removed_at`),
+            KEY `idx_athlete_meal_plans_plan` (`meal_plan_id`),
+            KEY `idx_athlete_meal_plans_coach` (`coach_id`),
+            CONSTRAINT `fk_athlete_meal_plans_coach` FOREIGN KEY (`coach_id`) REFERENCES `coaches`(`id`) ON DELETE CASCADE,
+            CONSTRAINT `fk_athlete_meal_plans_athlete` FOREIGN KEY (`athlete_id`) REFERENCES `athletes`(`id`) ON DELETE CASCADE,
+            CONSTRAINT `fk_athlete_meal_plans_plan` FOREIGN KEY (`meal_plan_id`) REFERENCES `coach_meal_plans`(`id`) ON DELETE CASCADE,
+            CONSTRAINT `fk_athlete_meal_plans_removed_by` FOREIGN KEY (`removed_by_coach_id`) REFERENCES `coaches`(`id`) ON DELETE SET NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
+    // Kompatibilita starších instalací jídel
+    $stmtCoachMealsGrams = $pdo->query("SHOW COLUMNS FROM coach_meals LIKE 'grams'");
+    if (!$stmtCoachMealsGrams->fetch()) {
+        $pdo->exec('ALTER TABLE coach_meals ADD COLUMN grams INT NULL AFTER description');
+    }
+
+    $stmtCoachMealsType = $pdo->query("SHOW COLUMNS FROM coach_meals LIKE 'meal_type'");
+    if (!$stmtCoachMealsType->fetch()) {
+        $pdo->exec("ALTER TABLE coach_meals ADD COLUMN meal_type ENUM('breakfast','snack','lunch','dinner','second_dinner','post_workout','cheat_day') NOT NULL DEFAULT 'breakfast' AFTER grams");
+    }
+
+    $stmtCoachMealsGlobalMealId = $pdo->query("SHOW COLUMNS FROM coach_meals LIKE 'global_meal_id'");
+    if (!$stmtCoachMealsGlobalMealId->fetch()) {
+        $pdo->exec('ALTER TABLE coach_meals ADD COLUMN global_meal_id INT NULL AFTER coach_id');
+        $pdo->exec('ALTER TABLE coach_meals ADD KEY idx_coach_meals_global (global_meal_id)');
+    }
+
+    // Umožni typ jídla jako volitelný (NULL)
+    $stmtCoachMealsTypeDef = $pdo->query("SHOW COLUMNS FROM coach_meals LIKE 'meal_type'");
+    $coachMealsTypeDef = $stmtCoachMealsTypeDef->fetch();
+    if ($coachMealsTypeDef && strtoupper((string)($coachMealsTypeDef['Null'] ?? 'YES')) !== 'YES') {
+        $pdo->exec("ALTER TABLE coach_meals MODIFY COLUMN meal_type ENUM('breakfast','snack','lunch','dinner','second_dinner','post_workout','cheat_day') NULL DEFAULT NULL");
+    }
+
+    $stmtCoachMealsFat = $pdo->query("SHOW COLUMNS FROM coach_meals LIKE 'fat_per_100g'");
+    if (!$stmtCoachMealsFat->fetch()) {
+        $pdo->exec('ALTER TABLE coach_meals ADD COLUMN fat_per_100g DECIMAL(7,2) NULL AFTER meal_type');
+    }
+
+    $stmtCoachMealsSugars = $pdo->query("SHOW COLUMNS FROM coach_meals LIKE 'sugars_per_100g'");
+    if (!$stmtCoachMealsSugars->fetch()) {
+        $pdo->exec('ALTER TABLE coach_meals ADD COLUMN sugars_per_100g DECIMAL(7,2) NULL AFTER fat_per_100g');
+    }
+
+    $stmtCoachMealsProtein = $pdo->query("SHOW COLUMNS FROM coach_meals LIKE 'protein_per_100g'");
+    if (!$stmtCoachMealsProtein->fetch()) {
+        $pdo->exec('ALTER TABLE coach_meals ADD COLUMN protein_per_100g DECIMAL(7,2) NULL AFTER sugars_per_100g');
+    }
+
+    $stmtCoachMealsFiber = $pdo->query("SHOW COLUMNS FROM coach_meals LIKE 'fiber_per_100g'");
+    if (!$stmtCoachMealsFiber->fetch()) {
+        $pdo->exec('ALTER TABLE coach_meals ADD COLUMN fiber_per_100g DECIMAL(7,2) NULL AFTER protein_per_100g');
+    }
+
+    $stmtCoachMealsSalt = $pdo->query("SHOW COLUMNS FROM coach_meals LIKE 'salt_per_100g'");
+    if (!$stmtCoachMealsSalt->fetch()) {
+        $pdo->exec('ALTER TABLE coach_meals ADD COLUMN salt_per_100g DECIMAL(7,2) NULL AFTER fiber_per_100g');
+    }
+
+    $stmtCoachMealsPhoto = $pdo->query("SHOW COLUMNS FROM coach_meals LIKE 'photo'");
+    if (!$stmtCoachMealsPhoto->fetch()) {
+        $pdo->exec('ALTER TABLE coach_meals ADD COLUMN photo VARCHAR(255) NULL AFTER salt_per_100g');
+    }
+
+    $stmtPlanItemSnapshot = $pdo->query("SHOW COLUMNS FROM coach_meal_plan_items LIKE 'meal_name_snapshot'");
+    if (!$stmtPlanItemSnapshot->fetch()) {
+        $pdo->exec('ALTER TABLE coach_meal_plan_items ADD COLUMN meal_name_snapshot VARCHAR(200) NOT NULL AFTER meal_id');
+        $pdo->exec('UPDATE coach_meal_plan_items i LEFT JOIN coach_meals m ON m.id = i.meal_id SET i.meal_name_snapshot = COALESCE(m.name, \"Jidlo\") WHERE i.meal_name_snapshot = \"\" OR i.meal_name_snapshot IS NULL');
+    }
+
+    $stmtPlanItemNote = $pdo->query("SHOW COLUMNS FROM coach_meal_plan_items LIKE 'note'");
+    if (!$stmtPlanItemNote->fetch()) {
+        $pdo->exec('ALTER TABLE coach_meal_plan_items ADD COLUMN note TEXT NULL AFTER meal_name_snapshot');
+    }
+
+    $stmtPlanItemPosition = $pdo->query("SHOW COLUMNS FROM coach_meal_plan_items LIKE 'position'");
+    if (!$stmtPlanItemPosition->fetch()) {
+        $pdo->exec('ALTER TABLE coach_meal_plan_items ADD COLUMN position INT NOT NULL DEFAULT 1 AFTER note');
+        $pdo->exec('UPDATE coach_meal_plan_items SET position = id WHERE position = 1');
+    }
+
+    $stmtPlanItemGrams = $pdo->query("SHOW COLUMNS FROM coach_meal_plan_items LIKE 'grams'");
+    if (!$stmtPlanItemGrams->fetch()) {
+        $pdo->exec('ALTER TABLE coach_meal_plan_items ADD COLUMN grams INT NULL AFTER meal_name_snapshot');
+        $pdo->exec('UPDATE coach_meal_plan_items i LEFT JOIN coach_meals m ON m.id = i.meal_id SET i.grams = m.grams WHERE i.grams IS NULL AND m.grams IS NOT NULL');
+    }
+
+    $stmtAthleteMealRemovedBy = $pdo->query("SHOW COLUMNS FROM athlete_meal_plans LIKE 'removed_by_coach_id'");
+    if (!$stmtAthleteMealRemovedBy->fetch()) {
+        $pdo->exec('ALTER TABLE athlete_meal_plans ADD COLUMN removed_by_coach_id INT NULL AFTER removed_at');
+    }
 }
 
 function normalizeTrainingVenueName(string $name): string {

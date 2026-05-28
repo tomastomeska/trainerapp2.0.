@@ -49,7 +49,10 @@ $stmt = $pdo->prepare(
                                                      AND ts4.deleted_by_coach_at IS NULL
                          ORDER BY ts4.started_at DESC LIMIT 1) AS active_set_name,
             (SELECT w.weight_kg FROM athlete_weight_logs w WHERE w.athlete_id = a.id ORDER BY w.measured_at DESC LIMIT 1) AS current_weight,
-            (SELECT w.weight_kg FROM athlete_weight_logs w WHERE w.athlete_id = a.id ORDER BY w.measured_at ASC LIMIT 1) AS initial_weight
+                        (SELECT w.weight_kg FROM athlete_weight_logs w WHERE w.athlete_id = a.id ORDER BY w.measured_at ASC LIMIT 1) AS initial_weight,
+                        (SELECT COUNT(*) FROM athlete_meal_plans amp
+                         WHERE amp.athlete_id = a.id
+                             AND amp.removed_at IS NULL) AS active_meal_plan_count
      FROM athletes a
      WHERE a.coach_id = ?
      ORDER BY a.last_name, a.first_name'
@@ -401,6 +404,9 @@ renderHeader('Dashboard');
                 <?php endif; ?>
 
                 <div class="mb-3">
+                    <span class="badge bg-light text-dark border me-1">
+                        <i class="fas fa-utensils me-1"></i>Jídelníčky: <?= (int)$a['active_meal_plan_count'] ?>
+                    </span>
                     <?php if ($a['last_session_date']): ?>
                     <span class="badge bg-light text-dark border me-1">
                         <i class="fas fa-clock me-1"></i>Poslední trénink: <?= formatDate($a['last_session_date']) ?>

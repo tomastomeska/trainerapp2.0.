@@ -90,6 +90,7 @@ renderAthleteHeader('Profil sportovce');
 <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
     <h2 class="mb-0"><i class="fas fa-user me-2 text-warning"></i>Můj profil</h2>
     <div class="d-flex gap-2 flex-wrap">
+        <a href="<?= BASE_URL ?>/athlete_mealplans.php" class="btn btn-outline-success btn-sm"><i class="fas fa-utensils me-1"></i>Jídelníčky</a>
         <a href="<?= BASE_URL ?>/athlete_graphs.php" class="btn btn-outline-info btn-sm"><i class="fas fa-chart-line me-1"></i>Grafy</a>
         <a href="<?= BASE_URL ?>/athlete_calendar.php" class="btn btn-outline-warning btn-sm"><i class="fas fa-calendar-alt me-1"></i>Kalendář</a>
         <a href="<?= BASE_URL ?>/athlete_change_password.php" class="btn btn-outline-secondary btn-sm"><i class="fas fa-key me-1"></i>Změnit heslo</a>

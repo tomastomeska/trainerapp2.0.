@@ -38,6 +38,52 @@ if (!function_exists('formatDateTime')) {
     }
 }
 
+function mealTypeOptions(): array {
+  return [
+    'breakfast' => 'Snídaně',
+    'snack' => 'Svačina',
+    'lunch' => 'Oběd',
+    'dinner' => 'Večeře',
+    'second_dinner' => 'Druhá večeře',
+    'post_workout' => 'Po tréninku',
+    'cheat_day' => 'Cheat day',
+  ];
+}
+
+function mealDayOptions(): array {
+  return [
+    'monday' => 'Pondělí',
+    'tuesday' => 'Úterý',
+    'wednesday' => 'Středa',
+    'thursday' => 'Čtvrtek',
+    'friday' => 'Pátek',
+    'saturday' => 'Sobota',
+    'sunday' => 'Neděle',
+  ];
+}
+
+function mealDayOrder(): array {
+  return [
+    'monday' => 1,
+    'tuesday' => 2,
+    'wednesday' => 3,
+    'thursday' => 4,
+    'friday' => 5,
+    'saturday' => 6,
+    'sunday' => 7,
+  ];
+}
+
+function mealTypeLabel(string $type): string {
+  $types = mealTypeOptions();
+  return $types[$type] ?? $type;
+}
+
+function mealDayLabel(string $day): string {
+  $days = mealDayOptions();
+  return $days[$day] ?? $day;
+}
+
 function calculateAge(?string $birthDate): ?int {
     if (!$birthDate) {
         return null;

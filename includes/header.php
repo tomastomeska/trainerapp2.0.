@@ -92,6 +92,11 @@ if ($coach) {
                         <i class="fas fa-wallet me-1"></i>Platby
                     </a>
                 </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="<?= BASE_URL ?>/meal_plans.php">
+                        <i class="fas fa-utensils me-1"></i>Jídelníčky
+                    </a>
+                </li>
             </ul>
             <?php if ($coach): ?>
             <div class="navbar-nav">
