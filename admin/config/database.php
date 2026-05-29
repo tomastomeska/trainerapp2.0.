@@ -361,4 +361,113 @@ function ensureSchemaUpgrades(PDO $pdo): void {
             FOREIGN KEY (`coach_id`) REFERENCES `coaches`(`id`) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ");
+
+    // Galerie – složky trenéra
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS `gallery_folders` (
+            `id`          INT AUTO_INCREMENT PRIMARY KEY,
+            `coach_id`    INT NOT NULL,
+            `name`        VARCHAR(200) NOT NULL,
+            `folder_type` ENUM('custom','athlete') NOT NULL DEFAULT 'custom',
+            `athlete_id`  INT NULL,
+            `sort_order`  INT NOT NULL DEFAULT 0,
+            `created_at`  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            KEY `idx_gallery_folders_coach` (`coach_id`),
+            FOREIGN KEY (`coach_id`) REFERENCES `coaches`(`id`) ON DELETE CASCADE,
+            FOREIGN KEY (`athlete_id`) REFERENCES `athletes`(`id`) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
+    // Galerie – soubory trenéra
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS `gallery_files` (
+            `id`            INT AUTO_INCREMENT PRIMARY KEY,
+            `coach_id`      INT NOT NULL,
+            `folder_id`     INT NULL,
+            `file_path`     VARCHAR(500) NOT NULL,
+            `original_name` VARCHAR(500) NOT NULL,
+            `file_size`     BIGINT NOT NULL DEFAULT 0,
+            `file_type`     ENUM('image','video','document') NOT NULL DEFAULT 'document',
+            `mime_type`     VARCHAR(200) NULL,
+            `description`   TEXT NULL,
+            `visibility`    ENUM('private','all_athletes','specific_athletes') NOT NULL DEFAULT 'private',
+            `created_at`    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            KEY `idx_gallery_files_coach` (`coach_id`),
+            KEY `idx_gallery_files_folder` (`folder_id`),
+            FOREIGN KEY (`coach_id`) REFERENCES `coaches`(`id`) ON DELETE CASCADE,
+            FOREIGN KEY (`folder_id`) REFERENCES `gallery_folders`(`id`) ON DELETE SET NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
+    // Galerie – viditelnost souboru pro konkrétní sportovce
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS `gallery_file_athletes` (
+            `id`         INT AUTO_INCREMENT PRIMARY KEY,
+            `file_id`    INT NOT NULL,
+            `athlete_id` INT NOT NULL,
+            UNIQUE KEY `uq_gallery_file_athlete` (`file_id`, `athlete_id`),
+            FOREIGN KEY (`file_id`) REFERENCES `gallery_files`(`id`) ON DELETE CASCADE,
+            FOREIGN KEY (`athlete_id`) REFERENCES `athletes`(`id`) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
+    // Galerie administrátora
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS `admin_gallery_files` (
+            `id`                  INT AUTO_INCREMENT PRIMARY KEY,
+            `file_path`           VARCHAR(500) NOT NULL,
+            `original_name`       VARCHAR(500) NOT NULL,
+            `file_size`           BIGINT NOT NULL DEFAULT 0,
+            `file_type`           ENUM('image','video','document') NOT NULL DEFAULT 'document',
+            `mime_type`           VARCHAR(200) NULL,
+            `description`         TEXT NULL,
+            `visibility`          ENUM('all_coaches','specific_coaches') NOT NULL DEFAULT 'all_coaches',
+            `uploaded_by_admin_id` INT NULL,
+            `created_at`          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
+    // Galerie administrátora – viditelnost pro konkrétní trenéry
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS `admin_gallery_file_coaches` (
+            `id`       INT AUTO_INCREMENT PRIMARY KEY,
+            `file_id`  INT NOT NULL,
+            `coach_id` INT NOT NULL,
+            UNIQUE KEY `uq_admin_gallery_file_coach` (`file_id`, `coach_id`),
+            CONSTRAINT `fk_admin_gc_file`
+                FOREIGN KEY (`file_id`) REFERENCES `admin_gallery_files`(`id`) ON DELETE CASCADE,
+            CONSTRAINT `fk_admin_gc_coach`
+                FOREIGN KEY (`coach_id`) REFERENCES `coaches`(`id`) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
+    // Migrace: vytvořit chybějící gallery_folders pro stávající sportovce
+    $pdo->exec("
+        INSERT IGNORE INTO `gallery_folders` (coach_id, name, folder_type, athlete_id)
+        SELECT a.coach_id,
+               CONCAT(a.first_name, ' ', a.last_name),
+               'athlete',
+               a.id
+        FROM `athletes` a
+        WHERE NOT EXISTS (
+            SELECT 1 FROM `gallery_folders` gf
+            WHERE gf.athlete_id = a.id AND gf.coach_id = a.coach_id
+        )
+    ");
+    try {
+        $pdo->exec("
+            INSERT IGNORE INTO `gallery_folders` (coach_id, name, folder_type, athlete_id)
+            SELECT a.coach_id,
+                   CONCAT(a.first_name, ' ', a.last_name),
+                   'athlete',
+                   a.id
+            FROM `athletes` a
+            WHERE NOT EXISTS (
+                SELECT 1 FROM `gallery_folders` gf
+                WHERE gf.athlete_id = a.id AND gf.coach_id = a.coach_id
+            )
+        ");
+    } catch (Throwable $e) {
+        error_log('gallery_folders migration error (admin): ' . $e->getMessage());
+    }
 }

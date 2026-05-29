@@ -100,6 +100,10 @@ function renderAdminHeader(string $title = ''): void {
 				   class="nav-link <?= in_array(basename($_SERVER['PHP_SELF']), ['zpravy.php','zprava_nova.php','zprava_detail.php']) ? 'active' : '' ?>">
 					<i class="fas fa-comments me-2"></i>Zprávy trenérům
 				</a>
+				<a href="<?= BASE_URL ?>/admin/gallery.php"
+				   class="nav-link <?= basename($_SERVER['PHP_SELF']) === 'gallery.php' ? 'active' : '' ?>">
+					<i class="fas fa-images me-2"></i>Galerie
+				</a>
 				<a href="<?= BASE_URL ?>/admin/settings.php"
 				   class="nav-link <?= basename($_SERVER['PHP_SELF']) === 'settings.php' ? 'active' : '' ?>">
 					<i class="fas fa-sliders me-2"></i>Nastavení

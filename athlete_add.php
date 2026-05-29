@@ -56,6 +56,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $notes ?: null,
                 $photo,
             ]);
+            $newAthleteId = (int)$pdo->lastInsertId();
+
+            // Automaticky vytvořit složku sportovce v galerii trenéra
+            try {
+                $pdo->prepare(
+                    "INSERT INTO gallery_folders (coach_id, name, folder_type, athlete_id, sort_order)
+                     VALUES (?, ?, 'athlete', ?, 0)"
+                )->execute([$coachId, $firstName . ' ' . $lastName, $newAthleteId]);
+            } catch (Throwable $e) {
+                error_log('gallery_folder auto-create error: ' . $e->getMessage());
+            }
+
             flash('success', "Sportovec {$firstName} {$lastName} byl přidán.");
             redirect(BASE_URL . '/dashboard.php');
         }

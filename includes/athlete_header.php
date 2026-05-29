@@ -45,6 +45,7 @@ function renderAthleteHeader(string $title = '', bool $withCharts = false): void
                 <li class="nav-item"><a class="nav-link" href="<?= BASE_URL ?>/athlete_payments.php"><i class="fas fa-wallet me-1"></i>Platby</a></li>
                 <li class="nav-item"><a class="nav-link" href="<?= BASE_URL ?>/athlete_mealplans.php"><i class="fas fa-utensils me-1"></i>Jídelníčky</a></li>
                 <li class="nav-item"><a class="nav-link" href="<?= BASE_URL ?>/athlete_graphs.php"><i class="fas fa-chart-line me-1"></i>Grafy</a></li>
+                <li class="nav-item"><a class="nav-link" href="<?= BASE_URL ?>/athlete_gallery.php"><i class="fas fa-images me-1"></i>Galerie</a></li>
                 <li class="nav-item"><a class="nav-link position-relative" href="<?= BASE_URL ?>/athlete_zpravy.php"><i class="fas fa-envelope me-1"></i>Zprávy
                     <?php if ($unread > 0): ?>
                     <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="font-size:.65rem"><?= $unread ?></span>

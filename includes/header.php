@@ -97,6 +97,11 @@ if ($coach) {
                         <i class="fas fa-utensils me-1"></i>Jídelníčky
                     </a>
                 </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="<?= BASE_URL ?>/gallery.php">
+                        <i class="fas fa-images me-1"></i>Galerie
+                    </a>
+                </li>
             </ul>
             <?php if ($coach): ?>
             <div class="navbar-nav">

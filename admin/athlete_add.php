@@ -44,6 +44,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $notes ?: null,
                 $photo,
             ]);
+            $newAthleteId = (int)$pdo->lastInsertId();
+            try {
+                $pdo->prepare("INSERT INTO gallery_folders (coach_id, name, folder_type, athlete_id) VALUES (?, ?, 'athlete', ?)")
+                    ->execute([$coachId, $firstName . ' ' . $lastName, $newAthleteId]);
+            } catch (Throwable $e) {
+                error_log('gallery_folder auto-create error (admin/athlete_add): ' . $e->getMessage());
+            }
             flash('success', "Sportovec {$firstName} {$lastName} byl přidán.");
             redirect(BASE_URL . '/dashboard.php');
         }
