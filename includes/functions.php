@@ -702,7 +702,7 @@ function sendTrainingEmail(string $toEmail, array $session, array $exercises, ar
 
         foreach ($series as $s) {
             $assist = $s['assistance_reps'] > 0 ? $s['assistance_reps'] . 'x' : '–';
-            $weight = number_format((float)$s['weight'], 1, ',', '') . ' kg';
+          $weight = number_format((float)$s['weight'] + (float)($s['equipment_weight'] ?? 0), 1, ',', '') . ' kg';
             $reps   = $s['reps'] . 'x';
             $assistColor = $s['assistance_reps'] > 0 ? '#b45309' : '#9ca3af';
 

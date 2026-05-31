@@ -43,9 +43,9 @@ $stmt = $pdo->prepare(
      LEFT JOIN workout_set_exercises wse ON ws.id = wse.workout_set_id
      WHERE ws.coach_id = ?
      GROUP BY ws.id
-     ORDER BY ws.name'
+    ORDER BY CASE WHEN ws.name = ? THEN 0 ELSE 1 END, ws.name'
 );
-$stmt->execute([$coachId]);
+$stmt->execute([$coachId, 'Flexibilní sada']);
 $sets = $stmt->fetchAll();
 
 // Načtení cviků pro formulář
@@ -106,10 +106,10 @@ renderHeader('Sady');
     <div class="row g-3">
         <?php foreach ($sets as $ws): ?>
             <div class="col-md-6 col-xl-4">
-                <div class="card border-0 shadow-sm h-100">
-                    <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
-                        <span class="fw-bold"><i class="fas fa-layer-group me-2 text-warning"></i><?= h($ws['name']) ?></span>
-                        <span class="badge bg-secondary"><?= $ws['exercise_count'] ?> cvik<?= $ws['exercise_count'] != 1 ? ($ws['exercise_count'] < 5 ? 'y' : 'ů') : '' ?></span>
+                <div class="card border-0 shadow-sm h-100 <?= $ws['name'] === 'Flexibilní sada' ? 'border-warning' : '' ?>">
+                    <div class="card-header d-flex justify-content-between align-items-center <?= $ws['name'] === 'Flexibilní sada' ? 'bg-warning text-dark' : 'bg-dark text-white' ?>">
+                        <span class="fw-bold"><i class="fas fa-layer-group me-2 <?= $ws['name'] === 'Flexibilní sada' ? 'text-dark' : 'text-warning' ?>"></i><?= h($ws['name']) ?></span>
+                        <span class="badge <?= $ws['name'] === 'Flexibilní sada' ? 'bg-dark text-warning' : 'bg-secondary' ?>"><?= $ws['exercise_count'] ?> cvik<?= $ws['exercise_count'] != 1 ? ($ws['exercise_count'] < 5 ? 'y' : 'ů') : '' ?></span>
                     </div>
                     <div class="card-body">
                         <?php

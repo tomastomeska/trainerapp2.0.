@@ -54,16 +54,16 @@ fputcsv($out, [], ';');
 
 foreach ($exercises as $ex) {
     fputcsv($out, ['Cvik ' . $ex['exercise_order'] . ': ' . $ex['exercise_name']], ';');
-    fputcsv($out, ['#', 'Váha (kg)', 'Opakování', 'Dopomoc', 'Objem (kg×rep)'], ';');
+    fputcsv($out, ['#', 'Váha celkem (kg)', 'Opakování', 'Dopomoc', 'Objem (kg×rep)'], ';');
 
     $series = getSeriesForExercise($sessionId, $ex['exercise_id']);
     foreach ($series as $s) {
         fputcsv($out, [
             $s['series_order'],
-            number_format($s['weight'], 2, ',', ''),
+            number_format((float)$s['weight'] + (float)($s['equipment_weight'] ?? 0), 2, ',', ''),
             $s['reps'],
             $s['assistance_reps'],
-            number_format($s['weight'] * $s['reps'], 2, ',', ''),
+            number_format(((float)$s['weight'] + (float)($s['equipment_weight'] ?? 0)) * $s['reps'], 2, ',', ''),
         ], ';');
     }
     fputcsv($out, [], ';');

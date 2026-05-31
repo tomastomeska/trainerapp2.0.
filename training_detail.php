@@ -309,7 +309,7 @@ renderHeader('Detail tréninku');
             $totalVolume = 0;
             foreach ($seriesByExercise as $sArr) {
                 foreach ($sArr as $s) {
-                    $totalVolume += $s['weight'] * $s['reps'];
+                    $totalVolume += ((float)$s['weight'] + (float)($s['equipment_weight'] ?? 0)) * $s['reps'];
                 }
             }
             ?>
@@ -499,7 +499,7 @@ renderHeader('Detail tréninku');
         <span class="fw-bold fs-5"><?= h($ex['exercise_name']) ?></span>
         <?php if ($series): ?>
         <?php
-        $maxW  = max(array_column($series, 'weight'));
+        $maxW  = max(array_map(fn($row) => (float)$row['weight'] + (float)($row['equipment_weight'] ?? 0), $series));
         $maxR  = max(array_column($series, 'reps'));
         ?>
         <div class="ms-auto small text-secondary">
@@ -528,7 +528,13 @@ renderHeader('Detail tréninku');
                     <?php foreach ($series as $s): ?>
                     <tr id="series-row-<?= $s['id'] ?>">
                         <td class="fw-bold text-muted"><?= $s['series_order'] ?></td>
-                        <td class="fw-bold"><?= number_format($s['weight'], 1, ',', '') ?> kg</td>
+                        <?php $seriesWeightTotal = (float)$s['weight'] + (float)($s['equipment_weight'] ?? 0); ?>
+                        <td class="fw-bold">
+                            <?= number_format($seriesWeightTotal, 1, ',', '') ?> kg
+                            <?php if (!empty($s['equipment_weight'])): ?>
+                            <div class="small text-muted">vč. náčiní <?= number_format((float)$s['equipment_weight'], 1, ',', '') ?> kg</div>
+                            <?php endif; ?>
+                        </td>
                         <td><?= $s['reps'] ?></td>
                         <td>
                             <?php if ($s['assistance_reps'] > 0): ?>
@@ -537,7 +543,7 @@ renderHeader('Detail tréninku');
                             <span class="text-muted">–</span>
                             <?php endif; ?>
                         </td>
-                        <td class="text-muted"><?= number_format($s['weight'] * $s['reps'], 0, ',', '') ?></td>
+                        <td class="text-muted"><?= number_format(((float)$s['weight'] + (float)($s['equipment_weight'] ?? 0)) * $s['reps'], 0, ',', '') ?></td>
                         <?php if ($editMode): ?>
                         <td>
                             <button class="btn btn-outline-danger btn-sm"
@@ -554,7 +560,7 @@ renderHeader('Detail tréninku');
                     <tr>
                         <td colspan="4" class="text-end fw-semibold">Objem celkem</td>
                         <td class="fw-bold">
-                            <?= number_format(array_sum(array_map(fn($s) => $s['weight'] * $s['reps'], $series)), 0, ',', '') ?>
+                            <?= number_format(array_sum(array_map(fn($s) => ((float)$s['weight'] + (float)($s['equipment_weight'] ?? 0)) * $s['reps'], $series)), 0, ',', '') ?>
                         </td>
                     </tr>
                 </tfoot>
@@ -574,6 +580,13 @@ renderHeader('Detail tréninku');
                                class="form-control form-control-sm series-weight"
                                id="weight-<?= $ex['exercise_id'] ?>"
                                placeholder="80" style="width:90px">
+                    </div>
+                    <div>
+                        <label class="form-label small fw-semibold mb-1">Váha náčiní (kg)</label>
+                        <input type="number" step="0.5" min="0" max="999"
+                               class="form-control form-control-sm series-equipment-weight"
+                               id="equipment-weight-<?= $ex['exercise_id'] ?>"
+                               placeholder="10" style="width:120px">
                     </div>
                     <div>
                         <label class="form-label small fw-semibold mb-1">Opakování</label>
@@ -792,10 +805,12 @@ function previewAddGalleryPhotos(input) {
 // Přidání série
 function addSeries(exerciseId, sessionId) {
     const weightInput = document.getElementById('weight-' + exerciseId);
+    const equipmentWeightInput = document.getElementById('equipment-weight-' + exerciseId);
     const repsInput   = document.getElementById('reps-' + exerciseId);
     const assistInput = document.getElementById('assist-' + exerciseId);
 
     const weight = parseFloat(weightInput.value) || 0;
+    const equipmentWeight = parseFloat(equipmentWeightInput.value) || 0;
     const reps   = parseInt(repsInput.value) || 0;
     const assist = parseInt(assistInput.value) || 0;
 
@@ -812,6 +827,7 @@ function addSeries(exerciseId, sessionId) {
         exercise_id: exerciseId,
         series_order: seriesOrder,
         weight: weight,
+        equipment_weight: equipmentWeight,
         reps: reps,
         assistance_reps: assist
     };

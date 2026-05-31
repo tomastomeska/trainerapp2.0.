@@ -140,6 +140,7 @@ function athletePaymentsQrUrl(string $bankAccount, float $amount, string $note):
 $hasBillingMonth = athletePaymentsColumnExists($pdo, 'coach_calendar_events', 'billing_month');
 $hasIsMakeup = athletePaymentsColumnExists($pdo, 'coach_calendar_events', 'is_makeup_session');
 $hasCoachBankAccount = athletePaymentsColumnExists($pdo, 'coaches', 'bank_account');
+$hasCarryoverUsed = athletePaymentsColumnExists($pdo, 'athlete_monthly_payments', 'carryover_used_sessions');
 
 $athleteStmt = $pdo->prepare(
     'SELECT a.id, a.first_name, a.last_name, a.training_rate, c.id AS coach_id, c.name AS coach_name, c.username AS coach_username'
@@ -193,7 +194,8 @@ $statsRows = $statsStmt->fetchAll();
 $paymentRows = [];
 try {
     $paymentStmt = $pdo->prepare(
-        'SELECT billing_month, session_rate, planned_sessions, billed_amount, status, paid_at
+        'SELECT billing_month, session_rate, planned_sessions, '
+        . ($hasCarryoverUsed ? 'carryover_used_sessions' : '0 AS carryover_used_sessions') . ', billed_amount, status, paid_at
          FROM athlete_monthly_payments
          WHERE athlete_id = ?
          ORDER BY billing_month DESC'
@@ -231,7 +233,35 @@ foreach ($paymentsByMonth as $month => $payment) {
     }
 }
 
+$releasesByMonth = [];
+try {
+    $releaseStmt = $pdo->prepare('SELECT billing_month, status FROM coach_billing_months WHERE coach_id = ?');
+    $releaseStmt->execute([(int)$athlete['coach_id']]);
+    foreach ($releaseStmt->fetchAll() as $releaseRow) {
+        $releasesByMonth[(string)$releaseRow['billing_month']] = (string)($releaseRow['status'] ?? 'draft');
+    }
+} catch (Throwable $e) {
+    $releasesByMonth = [];
+}
+
 krsort($rowsByMonth);
+
+$monthsAsc = array_keys($rowsByMonth);
+sort($monthsAsc);
+$outstanding = 0;
+$outstandingBeforeByMonth = [];
+foreach ($monthsAsc as $monthKey) {
+    $outstandingBeforeByMonth[$monthKey] = $outstanding;
+    $paidMonthRow = $paymentsByMonth[$monthKey] ?? null;
+    if ($paidMonthRow && (($paidMonthRow['status'] ?? '') === 'paid')) {
+        $planned = max(0, (int)($paidMonthRow['planned_sessions'] ?? 0));
+        $actual = max(0, (int)($rowsByMonth[$monthKey]['billed_sessions'] ?? 0));
+        $generated = max(0, $planned - $actual);
+        $used = max(0, (int)($paidMonthRow['carryover_used_sessions'] ?? 0));
+        $outstanding += $generated;
+        $outstanding = max(0, $outstanding - $used);
+    }
+}
 
 $rate = isset($athlete['training_rate']) && $athlete['training_rate'] !== null ? (float)$athlete['training_rate'] : null;
 $paymentRowsForView = [];
@@ -239,14 +269,18 @@ $openPaymentCount = 0;
 
 foreach ($rowsByMonth as $month => $stats) {
     $payment = $paymentsByMonth[$month] ?? null;
-    $amount = $rate !== null ? ((int)$stats['billed_sessions']) * $rate : null;
+    $rawSessions = (int)$stats['billed_sessions'];
+    $carryoverApplied = min((int)($outstandingBeforeByMonth[$month] ?? 0), $rawSessions);
+    $billableSessions = max(0, $rawSessions - $carryoverApplied);
+    $amount = $rate !== null ? $billableSessions * $rate : null;
     $note = athletePaymentsAscii($coachLastName . ' ' . date('m/Y', strtotime($month)));
-    $qrUrl = ($coachBankAccount !== null && $amount !== null && $amount > 0)
+    $isReleased = (($releasesByMonth[$month] ?? 'draft') === 'released');
+    $qrUrl = ($isReleased && $coachBankAccount !== null && $amount !== null && $amount > 0)
         ? athletePaymentsQrUrl($coachBankAccount, $amount, $note)
         : null;
     $isPaid = $payment && ($payment['status'] ?? '') === 'paid';
 
-    if (!$isPaid && $amount !== null && $amount > 0) {
+    if (!$isPaid && $isReleased && $amount !== null && $amount > 0) {
         $openPaymentCount++;
     }
 
@@ -256,8 +290,11 @@ foreach ($rowsByMonth as $month => $stats) {
         'stats' => $stats,
         'payment' => $payment,
         'amount' => $amount,
+        'billable_sessions' => $billableSessions,
+        'carryover_applied' => $carryoverApplied,
         'note' => $note,
         'qr_url' => $qrUrl,
+        'is_released' => $isReleased,
         'is_paid' => $isPaid,
     ];
 }
@@ -335,12 +372,15 @@ renderAthleteHeader('Platby');
                                     <?php endif; ?>
                                 </td>
                                 <td>
-                                    <span class="fw-semibold"><?= (int)$row['stats']['billed_sessions'] ?></span>
+                                    <span class="fw-semibold"><?= (int)$row['billable_sessions'] ?></span>
                                     <div class="small text-muted">započítaných tréninků</div>
+                                    <?php if ((int)$row['carryover_applied'] > 0): ?>
+                                        <div class="small text-warning">Zápočet z dříve uhrazených: -<?= (int)$row['carryover_applied'] ?></div>
+                                    <?php endif; ?>
                                 </td>
                                 <td>
                                     <?php if ($row['amount'] !== null): ?>
-                                        <span class="fw-semibold"><?= number_format((float)$row['amount'], 0, ',', ' ') ?> Kč</span>
+                                        <span class="fw-semibold"><?= number_format((float)($row['is_paid'] ? ($row['payment']['billed_amount'] ?? $row['amount']) : $row['amount']), 0, ',', ' ') ?> Kč</span>
                                     <?php else: ?>
                                         <span class="text-muted">Nelze spočítat</span>
                                     <?php endif; ?>
@@ -352,8 +392,13 @@ renderAthleteHeader('Platby');
                                             <div class="small text-muted mt-1"><?= h(date('d.m.Y H:i', strtotime((string)$row['payment']['paid_at']))) ?></div>
                                         <?php endif; ?>
                                     <?php else: ?>
-                                        <span class="badge bg-warning text-dark">Čeká na úhradu</span>
-                                        <div class="small text-muted mt-1">Poznámka: <?= h($row['note']) ?></div>
+                                        <?php if ($row['is_released']): ?>
+                                            <span class="badge bg-warning text-dark">Čeká na úhradu</span>
+                                            <div class="small text-muted mt-1">Poznámka: <?= h($row['note']) ?></div>
+                                        <?php else: ?>
+                                            <span class="badge bg-secondary">Čeká na vystavení výzvy</span>
+                                            <div class="small text-muted mt-1">Trenér ještě neuzavřel měsíc.</div>
+                                        <?php endif; ?>
                                     <?php endif; ?>
                                 </td>
                                 <td class="text-end">

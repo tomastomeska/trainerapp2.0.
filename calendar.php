@@ -329,8 +329,8 @@ renderHeader('Kalendář');
                     <div class="mb-3">
                         <label for="eventColor" class="form-label fw-semibold">Barva události</label>
                         <select id="eventColor" class="form-select">
-                            <option value="blue" selected>Modrá</option>
-                            <option value="green">Zelená</option>
+                            <option value="blue">Modrá</option>
+                            <option value="green" selected>Zelená</option>
                             <option value="red">Červená</option>
                             <option value="orange">Oranžová</option>
                             <option value="purple">Fialová</option>
@@ -559,9 +559,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function normalizeColorKey(colorKey) {
         if (typeof colorKey !== 'string') {
-            return 'blue';
+            return 'green';
         }
-        return Object.prototype.hasOwnProperty.call(eventColorSchemes, colorKey) ? colorKey : 'blue';
+        return Object.prototype.hasOwnProperty.call(eventColorSchemes, colorKey) ? colorKey : 'green';
     }
 
     function getEventColorScheme(event) {
@@ -661,12 +661,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const title = getEventTitle(event);
         const timeLabel = `${formatTimeCs(startDate)} - ${formatTimeCs(endDate)}`;
         const placeLabel = event.location ? `${event.location}` : '';
-        const detailLine = placeLabel ? `${timeLabel} | ${placeLabel}` : timeLabel;
+        const athleteLabel = event.athlete_id && event.first_name && event.last_name ? `${event.last_name} ${event.first_name}` : '';
         const place = event.location ? `\nMísto: ${event.location}` : '';
         const time = `\nČas: ${formatTimeCs(startDate)} - ${formatTimeCs(endDate)}`;
         const color = getEventColorScheme(event);
         const statusMeta = getEventStatusMeta(event);
         const statusLine = statusMeta.label ? `\nStav: ${statusMeta.label}` : '';
+        const detailLine = [statusMeta.label, timeLabel, placeLabel, athleteLabel].filter(Boolean).join(' | ');
 
         return {
             id: String(event.id),
@@ -906,7 +907,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 viewType: 'Week',
                 weekStarts: 1,
                 cellDuration: 60,
-                cellHeight: 54,
+                cellHeight: 68,
                 eventArrangement: 'SideBySide',
                 useEventBoxes: 'Never',
                 showNonBusiness: false,
@@ -1026,10 +1027,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function getEventTitle(event) {
+        if (event.custom_title) {
+            return event.custom_title;
+        }
         if (event.athlete_id && event.first_name && event.last_name) {
             return `${event.last_name} ${event.first_name}`;
         }
-        return event.custom_title || 'Trénink';
+        return 'Trénink';
     }
 
     function renderCalendar() {
@@ -1226,7 +1230,7 @@ document.addEventListener('DOMContentLoaded', () => {
             eventCustomTitleInput.value = '';
             eventLocationModeInput.value = 'custom';
             eventLocationInput.value = '';
-            eventColorInput.value = 'blue';
+            eventColorInput.value = 'green';
 
             const base = slotDate ? new Date(slotDate) : new Date();
             base.setMinutes(0, 0, 0);
@@ -1494,6 +1498,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!payload.success) {
             showError(eventError, payload.error || 'Smazání se nepodařilo.');
             return;
+        }
+
+        if (payload.message && Number(payload.paid_affected_count || 0) > 0) {
+            alert(payload.message);
         }
 
         eventModal.hide();

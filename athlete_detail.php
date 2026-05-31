@@ -188,9 +188,13 @@ $sessions = $stmt->fetchAll();
 
 $weightHistory = getAthleteWeightHistory($athleteId, 500);
 $weightStats = getAthleteWeightStats($athleteId);
+$weightPreviewLimit = 10;
+$weightVisibleRows = array_slice($weightHistory, 0, $weightPreviewLimit);
+$weightCollapsedRows = array_slice($weightHistory, $weightPreviewLimit);
 
 $editWeightLogId = intParam($_GET, 'edit_weight');
 $editingWeightLog = $editWeightLogId > 0 ? getAthleteWeightLogById($editWeightLogId, $athleteId) : null;
+$weightShouldExpandAll = $editingWeightLog !== null;
 $weightFormAction = $editingWeightLog ? 'update_weight' : 'save_weight';
 $weightFormDate = $editingWeightLog['measured_at'] ?? date('Y-m-d');
 $weightFormValue = $editingWeightLog['weight_kg'] ?? ($weightStats['current_weight'] !== null ? (string)$weightStats['current_weight'] : '');
@@ -628,7 +632,7 @@ renderHeader(h($athlete['first_name'] . ' ' . $athlete['last_name']), true);
                     </tr>
                 </thead>
                 <tbody>
-                    <?php foreach ($weightHistory as $weightRow): ?>
+                    <?php foreach ($weightVisibleRows as $weightRow): ?>
                     <?php
                         $sourceLabel = 'Ruční záznam';
                         if (($weightRow['source'] ?? '') === 'coach') {
@@ -657,8 +661,48 @@ renderHeader(h($athlete['first_name'] . ' ' . $athlete['last_name']), true);
                     </tr>
                     <?php endforeach; ?>
                 </tbody>
+                <?php if (!empty($weightCollapsedRows)): ?>
+                <tbody id="coachWeightHistoryCollapse" class="collapse <?= $weightShouldExpandAll ? 'show' : '' ?>">
+                    <?php foreach ($weightCollapsedRows as $weightRow): ?>
+                    <?php
+                        $sourceLabel = 'Ruční záznam';
+                        if (($weightRow['source'] ?? '') === 'coach') {
+                            $sourceLabel = 'Trenér';
+                        } elseif (($weightRow['source'] ?? '') === 'athlete_link') {
+                            $sourceLabel = 'Sportovec';
+                        }
+                    ?>
+                    <tr class="<?= $editingWeightLog && (int)$editingWeightLog['id'] === (int)$weightRow['id'] ? 'table-warning' : '' ?>">
+                        <td><?= formatDate((string)$weightRow['measured_at']) ?></td>
+                        <td><strong><?= number_format((float)$weightRow['weight_kg'], 1, ',', '') ?> kg</strong></td>
+                        <td><span class="badge bg-secondary"><?= h($sourceLabel) ?></span></td>
+                        <td class="text-end">
+                            <a href="<?= BASE_URL ?>/athlete_detail.php?id=<?= $athleteId ?>&edit_weight=<?= (int)$weightRow['id'] ?>#weight-history" class="btn btn-sm btn-outline-primary">
+                                <i class="fas fa-pen me-1"></i>Upravit
+                            </a>
+                            <form method="post" class="d-inline" onsubmit="return confirm('Opravdu smazat tento záznam hmotnosti?');">
+                                <?= csrfField() ?>
+                                <input type="hidden" name="action" value="delete_weight">
+                                <input type="hidden" name="weight_log_id" value="<?= (int)$weightRow['id'] ?>">
+                                <button type="submit" class="btn btn-sm btn-outline-danger">
+                                    <i class="fas fa-trash me-1"></i>Smazat
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    <?php endforeach; ?>
+                </tbody>
+                <?php endif; ?>
             </table>
         </div>
+        <?php if (!empty($weightCollapsedRows)): ?>
+        <div class="border-top p-3 text-center bg-light">
+            <button class="btn btn-outline-dark btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#coachWeightHistoryCollapse" aria-expanded="<?= $weightShouldExpandAll ? 'true' : 'false' ?>" aria-controls="coachWeightHistoryCollapse">
+                <i class="fas fa-chevron-down me-1"></i>
+                <?= $weightShouldExpandAll ? 'Skrýt starší záznamy' : 'Zobrazit starší záznamy (' . count($weightCollapsedRows) . ')' ?>
+            </button>
+        </div>
+        <?php endif; ?>
         <?php endif; ?>
     </div>
 </div>

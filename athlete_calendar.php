@@ -74,6 +74,13 @@ renderAthleteHeader('Muj kalendar');
     animation: athletePendingPulse .72s ease-in-out infinite alternate;
 }
 
+#daypilotCalendar .athlete-event-non-cancelable {
+    filter: grayscale(.35) brightness(.9);
+    opacity: .82;
+    cursor: not-allowed;
+    box-shadow: inset 0 0 0 2px rgba(17, 24, 39, .28);
+}
+
 @keyframes athletePendingPulse {
     0% {
         opacity: 1;
@@ -136,6 +143,7 @@ renderAthleteHeader('Muj kalendar');
             <span class="badge" style="background:#16a34a;color:#fff">Schváleno</span>
             <span class="badge" style="background:#f97316;color:#fff">Ke schválení</span>
             <span class="badge" style="background:#374151;color:#fff">Obsazeno</span>
+            <span class="badge" style="background:#9ca3af;color:#111827">Nelze zrušit</span>
             <span class="badge text-bg-secondary">Uzamčeno</span>
         </div>
     </div>
@@ -144,6 +152,42 @@ renderAthleteHeader('Muj kalendar');
 <div class="card border-0 shadow-sm" id="daypilotCard">
     <div class="card-body p-2 p-md-3">
         <div id="daypilotCalendar"></div>
+    </div>
+</div>
+
+<div class="modal fade" id="eventDetailModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-dark text-white">
+                <h5 class="modal-title"><i class="fas fa-calendar-day me-2 text-warning"></i>Detail události</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-2">
+                    <div class="small text-muted">Název</div>
+                    <div class="fw-semibold" id="eventDetailTitle">-</div>
+                </div>
+                <div class="mb-2">
+                    <div class="small text-muted">Termín</div>
+                    <div class="fw-semibold" id="eventDetailWhen">-</div>
+                </div>
+                <div class="mb-2">
+                    <div class="small text-muted">Místo</div>
+                    <div class="fw-semibold" id="eventDetailLocation">-</div>
+                </div>
+                <div class="mb-1">
+                    <div class="small text-muted">Stav</div>
+                    <div class="fw-semibold" id="eventDetailStatus">-</div>
+                </div>
+                <div class="alert alert-light border mt-3 mb-0 py-2" id="eventDetailCancelInfo">Tento termín lze zrušit.</div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Zavřít</button>
+                <button type="button" class="btn btn-danger" id="eventDetailCancelBtn">
+                    <i class="fas fa-trash-alt me-1"></i>Zrušit událost
+                </button>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -164,15 +208,28 @@ renderAthleteHeader('Muj kalendar');
                     </div>
 
                     <div class="mb-2">
-                        <label class="form-label fw-semibold">Název</label>
-                        <input type="text" id="reserveTitle" class="form-control" maxlength="140" placeholder="Např. kondiční trénink">
+                        <label class="form-label fw-semibold d-block">Typ události</label>
+                        <div class="d-flex flex-column gap-2">
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="reserveTitleType" id="reserveTitleTraining" value="training" checked>
+                                <label class="form-check-label" for="reserveTitleTraining">Trénink</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="reserveTitleType" id="reserveTitleConsultation" value="consultation">
+                                <label class="form-check-label" for="reserveTitleConsultation">Konzultační hodina</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="reserveTitleType" id="reserveTitleOther" value="other">
+                                <label class="form-check-label" for="reserveTitleOther">Jiné</label>
+                            </div>
+                        </div>
                     </div>
 
                     <div>
                         <label class="form-label fw-semibold">Místo</label>
                         <div class="input-group">
-                            <select id="reserveLocationMode" class="form-select" style="flex: 0 0 180px">
-                                <option value="custom">Napsat sám</option>
+                            <select id="reserveLocation" class="form-select">
+                                <option value="">Vyberte místo</option>
                                 <?php foreach ($venues as $venue): ?>
                                 <option value="<?= h((string)$venue['name']) ?>"
                                         data-address="<?= h((string)($venue['address'] ?? '')) ?>"
@@ -184,7 +241,6 @@ renderAthleteHeader('Muj kalendar');
                                 </option>
                                 <?php endforeach; ?>
                             </select>
-                            <input type="text" id="reserveLocation" class="form-control" maxlength="255" placeholder="Např. Stadion">
                         </div>
                         <div class="small text-muted mt-1" id="reserveLocationHint"></div>
                     </div>
@@ -205,16 +261,24 @@ document.addEventListener('DOMContentLoaded', () => {
     const csrfToken = <?= json_encode(csrfToken(), JSON_UNESCAPED_UNICODE) ?>;
     const weekRangeLabel = document.getElementById('weekRangeLabel');
     const daypilotCalendarEl = document.getElementById('daypilotCalendar');
+    const eventDetailModalEl = document.getElementById('eventDetailModal');
+    const eventDetailModal = new bootstrap.Modal(eventDetailModalEl);
     const reserveModalEl = document.getElementById('reserveModal');
     const reserveModal = new bootstrap.Modal(reserveModalEl);
-    const reserveLocationModeInput = document.getElementById('reserveLocationMode');
     const reserveLocationInput = document.getElementById('reserveLocation');
     const reserveLocationHint = document.getElementById('reserveLocationHint');
+    const eventDetailTitleEl = document.getElementById('eventDetailTitle');
+    const eventDetailWhenEl = document.getElementById('eventDetailWhen');
+    const eventDetailLocationEl = document.getElementById('eventDetailLocation');
+    const eventDetailStatusEl = document.getElementById('eventDetailStatus');
+    const eventDetailCancelInfoEl = document.getElementById('eventDetailCancelInfo');
+    const eventDetailCancelBtn = document.getElementById('eventDetailCancelBtn');
 
     let currentWeekStart = getMonday(new Date());
     let events = [];
     let locks = [];
     let dayPilotCalendar = null;
+    let selectedEventForDetail = null;
     const hourStart = 5;
     const hourEnd = 22;
     const eventColorSchemes = {
@@ -238,7 +302,7 @@ document.addEventListener('DOMContentLoaded', () => {
             return { backColor: '#f97316', barColor: '#ea580c', fontColor: '#ffffff' };
         }
 
-        return eventColorSchemes[normalizeColorKey(event.color_key)];
+        return eventColorSchemes.green;
     }
 
     function getEventStatusMeta(event) {
@@ -263,10 +327,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function getEventTitle(event) {
+        if (event.custom_title) {
+            return event.custom_title;
+        }
         if (event.athlete_id && event.first_name && event.last_name) {
             return `${event.last_name} ${event.first_name}`;
         }
-        return event.custom_title || 'Trénink';
+        return 'Rezervace';
     }
 
     function getMonday(date) {
@@ -322,6 +389,13 @@ document.addEventListener('DOMContentLoaded', () => {
         return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
     }
 
+    function canCancelEventByTime(event) {
+        if (!event || !event.starts_at) return false;
+        const startDate = fromSqlDateTime(event.starts_at);
+        if (!(startDate instanceof Date) || Number.isNaN(startDate.getTime())) return false;
+        return startDate > new Date();
+    }
+
     function getWeekRangeLabel() {
         const start = new Date(currentWeekStart);
         const end = addDays(start, 6);
@@ -348,33 +422,70 @@ document.addEventListener('DOMContentLoaded', () => {
         const startDate = fromSqlDateTime(event.starts_at);
         const endDate = fromSqlDateTime(event.ends_at);
         const title = getEventTitle(event);
+        const statusMeta = getEventStatusMeta(event);
         const timeLabel = `${formatTimeCs(startDate)} - ${formatTimeCs(endDate)}`;
-        const placeLabel = event.location ? `${event.location}` : '';
-        const detailLine = placeLabel ? `${timeLabel} | ${placeLabel}` : timeLabel;
+        const detailLine = [timeLabel, event.location ? `Místo: ${event.location}` : 'Místo: -'].filter(Boolean).join('\n');
         const place = event.location ? `\nMísto: ${event.location}` : '';
         const time = `\nČas: ${formatTimeCs(startDate)} - ${formatTimeCs(endDate)}`;
         const color = getEventColorScheme(event);
-        const statusMeta = getEventStatusMeta(event);
         const statusLine = statusMeta.label ? `\nStav: ${statusMeta.label}` : '';
-        const mine = !!event.is_mine || !!event.is_requested_by_me;
+        const ownedByAthlete = Boolean(event.is_mine || event.is_requested_by_me);
+        const canCancel = Boolean(event.can_cancel ?? ownedByAthlete);
+        const nonCancelableOwnedEvent = ownedByAthlete && !canCancel;
 
         return {
             id: String(event.id),
             text: [title, detailLine].filter(Boolean).join('\n'),
-            toolTip: `${title}${time}${place}${statusLine}`,
+            toolTip: `${title}${time}${place}${statusLine}`
+                + (nonCancelableOwnedEvent ? '\nPoznámka: Tento termín už nelze zrušit.' : ''),
             start: toDateTimeSecondsValue(startDate),
             end: toDateTimeSecondsValue(endDate),
             backColor: color.backColor,
             barColor: color.barColor,
             fontColor: color.fontColor,
-            cssClass: statusMeta.className === 'pending' ? 'coach-calendar-pending' : '',
+            cssClass: [
+                statusMeta.className === 'pending' ? 'coach-calendar-pending' : '',
+                nonCancelableOwnedEvent ? 'athlete-event-non-cancelable' : '',
+            ].filter(Boolean).join(' '),
             moveDisabled: true,
             resizeDisabled: true,
-            clickDisabled: !mine,
+            clickDisabled: false,
+            mine: canCancel,
             data: {
-                mine,
+                mine: canCancel,
             },
         };
+    }
+
+    function openEventDetailModal(event) {
+        if (!event) return;
+
+        const title = getEventTitle(event);
+        const startDate = fromSqlDateTime(event.starts_at);
+        const endDate = fromSqlDateTime(event.ends_at);
+        const statusMeta = getEventStatusMeta(event);
+        const canCancel = Boolean(event.can_cancel ?? (event.is_mine || event.is_requested_by_me));
+
+        selectedEventForDetail = event;
+        eventDetailTitleEl.textContent = title;
+        eventDetailWhenEl.textContent = `${formatDateCs(startDate)} ${formatTimeCs(startDate)} - ${formatTimeCs(endDate)}`;
+        eventDetailLocationEl.textContent = event.location || '-';
+        eventDetailStatusEl.textContent = statusMeta.label || 'Schváleno';
+
+        if (canCancel) {
+            eventDetailCancelBtn.classList.remove('d-none');
+            eventDetailCancelBtn.disabled = false;
+            eventDetailCancelInfoEl.className = 'alert alert-light border mt-3 mb-0 py-2';
+            eventDetailCancelInfoEl.textContent = 'Tento termín lze zrušit.';
+        } else {
+            eventDetailCancelBtn.classList.add('d-none');
+            eventDetailCancelInfoEl.className = 'alert alert-secondary mt-3 mb-0 py-2';
+            eventDetailCancelInfoEl.textContent = canCancelEventByTime(event)
+                ? 'Tento termín nelze zrušit, protože není přiřazený tobě.'
+                : 'Minulé nebo právě probíhající termíny nelze rušit.';
+        }
+
+        eventDetailModal.show();
     }
 
     function toDayPilotLockEvent(lock) {
@@ -398,10 +509,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function updateReserveLocationHint() {
-        const selectedOption = reserveLocationModeInput.options[reserveLocationModeInput.selectedIndex] || null;
+        const selectedOption = reserveLocationInput.options[reserveLocationInput.selectedIndex] || null;
 
-        if (!selectedOption || reserveLocationModeInput.value === 'custom') {
-            reserveLocationHint.textContent = 'Vyberte existující místo, nebo zadejte vlastní.';
+        if (!selectedOption || !reserveLocationInput.value) {
+            reserveLocationHint.textContent = 'Vyberte existující místo z databáze.';
             return;
         }
 
@@ -418,8 +529,6 @@ document.addEventListener('DOMContentLoaded', () => {
     function openReserveModal(startDate) {
         document.getElementById('reserveStart').value = toDateTimeInputValue(startDate);
         document.getElementById('reserveStartLabel').value = `${formatDateCs(startDate)} ${formatTimeCs(startDate)}`;
-        document.getElementById('reserveTitle').value = '';
-        reserveLocationModeInput.value = 'custom';
         reserveLocationInput.value = '';
         updateReserveLocationHint();
         reserveModal.show();
@@ -440,6 +549,9 @@ document.addEventListener('DOMContentLoaded', () => {
             alert(payload.error || 'Termín se nepodařilo zrušit.');
             return;
         }
+        if (payload.message) {
+            alert(payload.message);
+        }
         await loadWeekData();
     }
 
@@ -455,7 +567,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 weekStarts: 1,
                 startDate: toDateKey(currentWeekStart),
                 cellDuration: 60,
-                cellHeight: 54,
+                cellHeight: 68,
                 eventArrangement: 'SideBySide',
                 useEventBoxes: 'Never',
                 showNonBusiness: false,
@@ -464,6 +576,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 businessBeginsHour: hourStart,
                 businessEndsHour: hourEnd,
                 durationBarVisible: true,
+                bubble: null,
                 eventMoveHandling: 'Disabled',
                 eventResizeHandling: 'Disabled',
                 eventDeleteHandling: 'Disabled',
@@ -486,11 +599,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     openReserveModal(start);
                 },
                 onEventClick: async (args) => {
-                    const data = args.e.data || {};
-                    if (!data.mine) return;
-                    const ok = confirm('Opravdu chcete zrušit tento termín?');
-                    if (!ok) return;
-                    await cancelMyEvent(args.e.id());
+                    const eventId = String(args.e.id());
+                    const srcEvent = events.find((item) => String(item.id) === eventId) || null;
+                    if (!srcEvent) return;
+                    openEventDetailModal(srcEvent);
                 },
             });
 
@@ -526,12 +638,27 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    reserveLocationModeInput.addEventListener('change', () => {
-        const value = reserveLocationModeInput.value;
-        if (value !== 'custom') {
-            reserveLocationInput.value = value;
-        }
+    reserveLocationInput.addEventListener('change', () => {
         updateReserveLocationHint();
+    });
+
+    eventDetailCancelBtn.addEventListener('click', async () => {
+        if (!selectedEventForDetail) {
+            return;
+        }
+
+        const ok = confirm('Opravdu chcete zrušit tuto událost?');
+        if (!ok) {
+            return;
+        }
+
+        const eventId = Number(selectedEventForDetail.id || 0);
+        if (!eventId) {
+            return;
+        }
+
+        await cancelMyEvent(eventId);
+        eventDetailModal.hide();
     });
 
     document.getElementById('reserveForm').addEventListener('submit', async (event) => {
@@ -540,7 +667,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const payload = {
             csrf_token: csrfToken,
             starts_at: document.getElementById('reserveStart').value,
-            custom_title: document.getElementById('reserveTitle').value.trim(),
+            title_type: document.querySelector('input[name="reserveTitleType"]:checked')?.value || 'training',
             location: reserveLocationInput.value.trim(),
         };
 

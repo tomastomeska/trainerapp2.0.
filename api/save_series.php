@@ -26,6 +26,7 @@ $sessionId  = (int)($input['session_id']  ?? 0);
 $exerciseId = (int)($input['exercise_id'] ?? 0);
 $order      = (int)($input['series_order'] ?? 1);
 $weight     = (float)($input['weight']    ?? 0);
+$equipmentWeight = (float)($input['equipment_weight'] ?? 0);
 $reps       = (int)($input['reps']        ?? 0);
 $assist     = (int)($input['assistance_reps'] ?? 0);
 
@@ -53,10 +54,10 @@ if (!$stmt2->fetch()) {
 }
 
 $stmt3 = $pdo->prepare(
-    'INSERT INTO session_series (session_id, exercise_id, series_order, weight, reps, assistance_reps)
-     VALUES (?, ?, ?, ?, ?, ?)'
+    'INSERT INTO session_series (session_id, exercise_id, series_order, weight, equipment_weight, reps, assistance_reps)
+     VALUES (?, ?, ?, ?, ?, ?, ?)'
 );
-$stmt3->execute([$sessionId, $exerciseId, $order, $weight, $reps, $assist]);
+$stmt3->execute([$sessionId, $exerciseId, $order, $weight, $equipmentWeight ?: null, $reps, $assist]);
 $newId = (int)$pdo->lastInsertId();
 
 echo json_encode(['success' => true, 'id' => $newId]);

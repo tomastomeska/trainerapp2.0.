@@ -156,6 +156,10 @@ $editingWeightLog = $editWeightLogId > 0 ? getAthleteWeightLogById($editWeightLo
 $weightFormAction = $editingWeightLog ? 'update_weight' : 'save_weight';
 $weightFormDate = $editingWeightLog['measured_at'] ?? date('Y-m-d');
 $weightFormValue = $editingWeightLog['weight_kg'] ?? '';
+$weightPreviewLimit = 10;
+$weightVisibleRows = array_slice($weightHistory, 0, $weightPreviewLimit);
+$weightCollapsedRows = array_slice($weightHistory, $weightPreviewLimit);
+$weightShouldExpandAll = $editingWeightLog !== null;
 
 $paymentSummary = null;
 try {
@@ -170,6 +174,35 @@ try {
     $paymentSummary = $paymentSummaryStmt->fetch() ?: null;
 } catch (Throwable $e) {
     $paymentSummary = null;
+}
+
+$upcomingPlannedCount = 0;
+$nearestPlannedTraining = null;
+try {
+    $upcomingCountStmt = $pdo->prepare(
+        "SELECT COUNT(*)
+         FROM coach_calendar_events
+         WHERE athlete_id = ?
+           AND starts_at >= NOW()
+           AND approval_status IN ('approved', 'pending')"
+    );
+    $upcomingCountStmt->execute([$athleteId]);
+    $upcomingPlannedCount = (int)$upcomingCountStmt->fetchColumn();
+
+    $nearestTrainingStmt = $pdo->prepare(
+        "SELECT starts_at, ends_at, location, custom_title, approval_status
+         FROM coach_calendar_events
+         WHERE athlete_id = ?
+           AND starts_at >= NOW()
+           AND approval_status IN ('approved', 'pending')
+         ORDER BY starts_at ASC
+         LIMIT 1"
+    );
+    $nearestTrainingStmt->execute([$athleteId]);
+    $nearestPlannedTraining = $nearestTrainingStmt->fetch() ?: null;
+} catch (Throwable $e) {
+    $upcomingPlannedCount = 0;
+    $nearestPlannedTraining = null;
 }
 
 renderAthleteHeader('Profil sportovce');
@@ -254,7 +287,7 @@ renderAthleteHeader('Profil sportovce');
                 </tr>
                 </thead>
                 <tbody>
-                <?php foreach ($weightHistory as $weightRow): ?>
+                <?php foreach ($weightVisibleRows as $weightRow): ?>
                     <?php
                         $sourceLabel = 'Ruční záznam';
                         if (($weightRow['source'] ?? '') === 'coach') {
@@ -283,9 +316,75 @@ renderAthleteHeader('Profil sportovce');
                 </tr>
                 <?php endforeach; ?>
                 </tbody>
+                <?php if (!empty($weightCollapsedRows)): ?>
+                <tbody id="athleteWeightHistoryCollapse" class="collapse <?= $weightShouldExpandAll ? 'show' : '' ?>">
+                <?php foreach ($weightCollapsedRows as $weightRow): ?>
+                    <?php
+                        $sourceLabel = 'Ruční záznam';
+                        if (($weightRow['source'] ?? '') === 'coach') {
+                            $sourceLabel = 'Trenér';
+                        } elseif (($weightRow['source'] ?? '') === 'athlete_link') {
+                            $sourceLabel = 'Sportovec';
+                        }
+                    ?>
+                <tr class="<?= $editingWeightLog && (int)$editingWeightLog['id'] === (int)$weightRow['id'] ? 'table-warning' : '' ?>">
+                    <td><?= formatDate((string)$weightRow['measured_at']) ?></td>
+                    <td><strong><?= number_format((float)$weightRow['weight_kg'], 1, ',', '') ?> kg</strong></td>
+                    <td><span class="badge bg-secondary"><?= h($sourceLabel) ?></span></td>
+                    <td class="text-end">
+                        <a href="<?= BASE_URL ?>/athlete_dashboard.php?edit_weight=<?= (int)$weightRow['id'] ?>#weight-history" class="btn btn-sm btn-outline-primary">
+                            <i class="fas fa-pen me-1"></i>Upravit
+                        </a>
+                        <form method="post" class="d-inline" onsubmit="return confirm('Opravdu smazat tento záznam hmotnosti?');">
+                            <?= csrfField() ?>
+                            <input type="hidden" name="action" value="delete_weight">
+                            <input type="hidden" name="weight_log_id" value="<?= (int)$weightRow['id'] ?>">
+                            <button type="submit" class="btn btn-sm btn-outline-danger">
+                                <i class="fas fa-trash me-1"></i>Smazat
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                <?php endforeach; ?>
+                </tbody>
+                <?php endif; ?>
             </table>
         </div>
+        <?php if (!empty($weightCollapsedRows)): ?>
+        <div class="border-top p-3 text-center bg-light">
+            <button class="btn btn-outline-dark btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#athleteWeightHistoryCollapse" aria-expanded="<?= $weightShouldExpandAll ? 'true' : 'false' ?>" aria-controls="athleteWeightHistoryCollapse">
+                <i class="fas fa-chevron-down me-1"></i>
+                <?= $weightShouldExpandAll ? 'Skrýt starší záznamy' : 'Zobrazit starší záznamy (' . count($weightCollapsedRows) . ')' ?>
+            </button>
+        </div>
         <?php endif; ?>
+        <?php endif; ?>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-header bg-dark text-white"><i class="fas fa-calendar-check me-2"></i>Plán tréninků</div>
+    <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start flex-wrap gap-3">
+            <div>
+                <div class="text-muted small">Zaplánované tréninky</div>
+                <div class="display-6 fw-bold mb-0"><?= (int)$upcomingPlannedCount ?></div>
+            </div>
+            <div class="text-start text-md-end">
+                <?php if ($nearestPlannedTraining): ?>
+                    <div class="fw-semibold">Nejbližší termín</div>
+                    <div><?= formatDateTime((string)$nearestPlannedTraining['starts_at']) ?></div>
+                    <div class="text-muted small">
+                        Místo: <?= !empty($nearestPlannedTraining['location']) ? h((string)$nearestPlannedTraining['location']) : 'neuvedeno' ?>
+                    </div>
+                    <?php if (($nearestPlannedTraining['approval_status'] ?? 'approved') === 'pending'): ?>
+                    <span class="badge bg-warning text-dark mt-1">Ke schválení</span>
+                    <?php endif; ?>
+                <?php else: ?>
+                    <div class="text-muted">Nejbližší termín zatím není naplánovaný.</div>
+                <?php endif; ?>
+            </div>
+        </div>
     </div>
 </div>
 

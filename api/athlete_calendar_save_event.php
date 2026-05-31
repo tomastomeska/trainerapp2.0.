@@ -28,7 +28,7 @@ if (!verifyCsrf((string)($input['csrf_token'] ?? ''))) {
 $athleteId = (int)getCurrentAthleteId();
 $startsAtRaw = trim((string)($input['starts_at'] ?? ''));
 $location = trim((string)($input['location'] ?? ''));
-$customTitle = trim((string)($input['custom_title'] ?? ''));
+$titleType = trim((string)($input['title_type'] ?? 'training'));
 
 $start = DateTime::createFromFormat('Y-m-d\TH:i', $startsAtRaw);
 if (!$start) {
@@ -39,11 +39,16 @@ if (!$start) {
 $end = clone $start;
 $end->modify('+60 minutes');
 
-if ($customTitle !== '') {
-    $customTitle = mb_substr($customTitle, 0, 140, 'UTF-8');
-} else {
-    $customTitle = 'Žádost sportovce';
+if (!in_array($titleType, ['training', 'consultation', 'other'], true)) {
+    $titleType = 'training';
 }
+
+$titleLabels = [
+    'training' => 'Trénink',
+    'consultation' => 'Konzultační hodina',
+    'other' => 'Jiné',
+];
+$customTitle = $titleLabels[$titleType];
 if ($location !== '') {
     $location = mb_substr($location, 0, 255, 'UTF-8');
 } else {

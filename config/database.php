@@ -392,6 +392,15 @@ function ensureSchemaUpgrades(PDO $pdo): void {
         $pdo->exec("ALTER TABLE training_session_exercises ADD COLUMN sport_type ENUM('standard','golf','run_outdoor','run_treadmill') NOT NULL DEFAULT 'standard' AFTER exercise_name");
     }
 
+    try {
+        $stmtSeriesEquipmentWeight = $pdo->query("SHOW COLUMNS FROM session_series LIKE 'equipment_weight'");
+        if (!$stmtSeriesEquipmentWeight->fetch()) {
+            $pdo->exec('ALTER TABLE session_series ADD COLUMN equipment_weight DECIMAL(7,2) NULL AFTER weight');
+        }
+    } catch (Throwable $e) {
+        // Tabulka session_series může v některých instalacích vznikat mimo bootstrap.
+    }
+
     $pdo->exec(" 
         CREATE TABLE IF NOT EXISTS `run_treadmill_splits` (
             `id`              INT AUTO_INCREMENT PRIMARY KEY,

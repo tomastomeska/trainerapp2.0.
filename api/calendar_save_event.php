@@ -99,7 +99,7 @@ $location = trim((string)($input['location'] ?? ''));
 $startsAtRaw = trim((string)($input['starts_at'] ?? ''));
 $repeatMode = trim((string)($input['repeat_mode'] ?? 'none'));
 $repeatUntilRaw = trim((string)($input['repeat_until'] ?? ''));
-$colorKey = trim((string)($input['color_key'] ?? 'blue'));
+$colorKey = trim((string)($input['color_key'] ?? 'green'));
 $approvalAction = trim((string)($input['approval_action'] ?? ''));
 $isMakeupSession = !empty($input['is_makeup_session']);
 $billingMonthRaw = trim((string)($input['billing_month'] ?? ''));
@@ -111,7 +111,7 @@ if (!in_array($repeatMode, $allowedRepeatModes, true)) {
 
 $allowedColorKeys = ['blue', 'green', 'red', 'orange', 'purple', 'gray'];
 if (!in_array($colorKey, $allowedColorKeys, true)) {
-    $colorKey = 'blue';
+    $colorKey = 'green';
 }
 
 $start = DateTime::createFromFormat('Y-m-d\TH:i', $startsAtRaw);

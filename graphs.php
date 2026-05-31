@@ -109,8 +109,8 @@ if ($selectedKind === 'standard' && $selectedExId > 0) {
     $stmtData = $pdo->prepare(
         'SELECT ts.completed_at AS session_date,
                 ws.name AS set_name,
-                MAX(ss.weight) AS max_weight,
-                SUM(ss.weight * ss.reps) AS total_volume,
+                MAX(COALESCE(ss.weight, 0) + COALESCE(ss.equipment_weight, 0)) AS max_weight,
+                SUM((COALESCE(ss.weight, 0) + COALESCE(ss.equipment_weight, 0)) * ss.reps) AS total_volume,
                 MAX(ss.reps) AS max_reps,
                 SUM(ss.reps) AS total_reps,
                 COUNT(ss.id) AS series_count

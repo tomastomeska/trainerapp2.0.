@@ -95,8 +95,32 @@ function ensurePaymentsRuntimeSchema(PDO $pdo): array
                     FOREIGN KEY (`athlete_id`) REFERENCES `athletes`(`id`) ON DELETE CASCADE
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         ");
+
+        if (!columnExists($pdo, 'athlete_monthly_payments', 'carryover_used_sessions')) {
+            $pdo->exec('ALTER TABLE athlete_monthly_payments ADD COLUMN carryover_used_sessions INT NOT NULL DEFAULT 0 AFTER planned_sessions');
+        }
     } catch (Throwable $e) {
         $warnings[] = 'Tabulku athlete_monthly_payments se nepodařilo vytvořit.';
+    }
+
+    try {
+        $pdo->exec(" 
+            CREATE TABLE IF NOT EXISTS `coach_billing_months` (
+                `id`            INT AUTO_INCREMENT PRIMARY KEY,
+                `coach_id`      INT NOT NULL,
+                `billing_month` DATE NOT NULL,
+                `status`        ENUM('draft','released') NOT NULL DEFAULT 'draft',
+                `released_at`   DATETIME NULL,
+                `created_at`    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                `updated_at`    TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY `uq_coach_billing_month` (`coach_id`, `billing_month`),
+                KEY `idx_coach_billing_month_status` (`coach_id`, `status`, `billing_month`),
+                CONSTRAINT `fk_coach_billing_month_coach`
+                    FOREIGN KEY (`coach_id`) REFERENCES `coaches`(`id`) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ");
+    } catch (Throwable $e) {
+        $warnings[] = 'Tabulku coach_billing_months se nepodařilo vytvořit.';
     }
 
     return [
@@ -277,6 +301,70 @@ function fetchBillingStats(PDO $pdo, int $coachId, string $billingMonthSql, bool
     return $result;
 }
 
+function fetchHistoricalActualSessionsByMonth(PDO $pdo, int $coachId, string $beforeMonthSql, bool $hasBillingMonth): array
+{
+    $monthExpr = $hasBillingMonth ? 'billing_month' : "DATE_FORMAT(starts_at, '%Y-%m-01')";
+    $monthFilter = $hasBillingMonth ? 'billing_month IS NOT NULL AND billing_month < ?' : "DATE_FORMAT(starts_at, '%Y-%m-01') < ?";
+
+    $stmt = $pdo->prepare(
+        "SELECT athlete_id,
+                {$monthExpr} AS billing_month,
+                COUNT(*) AS billed_sessions
+         FROM coach_calendar_events
+         WHERE coach_id = ?
+           AND athlete_id IS NOT NULL
+           AND approval_status = 'approved'
+           AND {$monthFilter}
+         GROUP BY athlete_id, {$monthExpr}"
+    );
+    $stmt->execute([$coachId, $beforeMonthSql]);
+
+    $result = [];
+    foreach ($stmt->fetchAll() as $row) {
+        $aid = (int)$row['athlete_id'];
+        $month = (string)$row['billing_month'];
+        $result[$aid][$month] = (int)$row['billed_sessions'];
+    }
+
+    return $result;
+}
+
+function fetchPaidHistoryBeforeMonth(PDO $pdo, int $coachId, string $beforeMonthSql): array
+{
+    $stmt = $pdo->prepare(
+        'SELECT athlete_id, billing_month, planned_sessions, carryover_used_sessions
+         FROM athlete_monthly_payments
+         WHERE coach_id = ?
+           AND status = "paid"
+           AND billing_month < ?
+         ORDER BY athlete_id ASC, billing_month ASC'
+    );
+    $stmt->execute([$coachId, $beforeMonthSql]);
+    return $stmt->fetchAll();
+}
+
+function computeOutstandingCarryoverByAthlete(array $paidHistoryRows, array $actualByAthleteMonth): array
+{
+    $outstandingByAthlete = [];
+
+    foreach ($paidHistoryRows as $row) {
+        $aid = (int)$row['athlete_id'];
+        $month = (string)$row['billing_month'];
+        $planned = max(0, (int)$row['planned_sessions']);
+        $used = max(0, (int)($row['carryover_used_sessions'] ?? 0));
+        $actual = (int)($actualByAthleteMonth[$aid][$month] ?? 0);
+
+        $generated = max(0, $planned - $actual);
+        $running = (int)($outstandingByAthlete[$aid] ?? 0);
+        $running += $generated;
+        $running = max(0, $running - $used);
+
+        $outstandingByAthlete[$aid] = $running;
+    }
+
+    return $outstandingByAthlete;
+}
+
 $schema = ensurePaymentsRuntimeSchema($pdo);
 $schemaWarnings = $schema['warnings'];
 $hasTrainingRate = (bool)$schema['has_training_rate'];
@@ -305,6 +393,16 @@ $monthTitle = (string)$monthFormatter->format($selectedMonth);
 $prevMonthParam = $selectedMonth->modify('-1 month')->format('Y-m');
 $nextMonthParam = $selectedMonth->modify('+1 month')->format('Y-m');
 
+$monthReleaseRow = null;
+try {
+    $releaseStmt = $pdo->prepare('SELECT status, released_at FROM coach_billing_months WHERE coach_id = ? AND billing_month = ? LIMIT 1');
+    $releaseStmt->execute([$coachId, $selectedMonthSql]);
+    $monthReleaseRow = $releaseStmt->fetch() ?: null;
+} catch (Throwable $e) {
+    $monthReleaseRow = null;
+}
+$isMonthReleased = (($monthReleaseRow['status'] ?? 'draft') === 'released');
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!verifyCsrf($_POST['csrf_token'] ?? '')) {
         flash('danger', 'Neplatný bezpečnostní token.');
@@ -313,6 +411,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $athleteId = (int)($_POST['athlete_id'] ?? 0);
     $action = trim((string)($_POST['action'] ?? ''));
+
+    if ($action === 'release_month') {
+        try {
+            $releaseUpsert = $pdo->prepare(
+                "INSERT INTO coach_billing_months (coach_id, billing_month, status, released_at)
+                 VALUES (?, ?, 'released', NOW())
+                 ON DUPLICATE KEY UPDATE status = 'released', released_at = NOW()"
+            );
+            $releaseUpsert->execute([$coachId, $selectedMonthSql]);
+            flash('success', 'Měsíc byl otevřen pro výzvy k platbě.');
+        } catch (Throwable $e) {
+            flash('danger', 'Měsíc se nepodařilo otevřít pro platby.');
+        }
+        redirect(BASE_URL . '/payments.php?month=' . urlencode($selectedMonthParam));
+    }
+
+    if ($action === 'unrelease_month') {
+        try {
+            $releaseUpsert = $pdo->prepare(
+                "INSERT INTO coach_billing_months (coach_id, billing_month, status, released_at)
+                 VALUES (?, ?, 'draft', NULL)
+                 ON DUPLICATE KEY UPDATE status = 'draft', released_at = NULL"
+            );
+            $releaseUpsert->execute([$coachId, $selectedMonthSql]);
+            flash('success', 'Měsíc byl vrácen do konceptu. QR výzvy jsou zablokované.');
+        } catch (Throwable $e) {
+            flash('danger', 'Měsíc se nepodařilo vrátit do konceptu.');
+        }
+        redirect(BASE_URL . '/payments.php?month=' . urlencode($selectedMonthParam));
+    }
 
     $athleteStmt = $pdo->prepare(
         'SELECT id, first_name, last_name, email, training_rate
@@ -331,6 +459,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $athleteName = trim((string)$athlete['first_name'] . ' ' . (string)$athlete['last_name']);
 
     if ($action === 'send_payment_email') {
+        if (!$isMonthReleased) {
+            flash('danger', 'Nejdříve označte měsíc jako výzvu k platbě.');
+            redirect(BASE_URL . '/payments.php?month=' . urlencode($selectedMonthParam));
+        }
+
         $athleteEmail = trim((string)($athlete['email'] ?? ''));
         if ($athleteEmail === '' || !filter_var($athleteEmail, FILTER_VALIDATE_EMAIL)) {
             flash('danger', 'Sportovec nemá platný e-mail.');
@@ -355,8 +488,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             redirect(BASE_URL . '/payments.php?month=' . urlencode($selectedMonthParam));
         }
 
+        $actualByAthleteMonth = fetchHistoricalActualSessionsByMonth($pdo, $coachId, $selectedMonthSql, $hasBillingMonth);
+        $paidHistoryRows = fetchPaidHistoryBeforeMonth($pdo, $coachId, $selectedMonthSql);
+        $outstandingByAthlete = computeOutstandingCarryoverByAthlete($paidHistoryRows, $actualByAthleteMonth);
+
         $currentSessions = (int)$athleteStats['billed_sessions'];
-        $currentAmount = $currentSessions * $rate;
+        $carryoverUsedNow = min((int)($outstandingByAthlete[$athleteId] ?? 0), $currentSessions);
+        $billableSessions = max(0, $currentSessions - $carryoverUsedNow);
+        $currentAmount = $billableSessions * $rate;
         if ($currentAmount <= 0) {
             flash('danger', 'Není co fakturovat. Částka je 0 Kč.');
             redirect(BASE_URL . '/payments.php?month=' . urlencode($selectedMonthParam));
@@ -395,6 +534,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             flash('danger', 'Evidenční tabulka plateb není dostupná.');
             redirect(BASE_URL . '/payments.php?month=' . urlencode($selectedMonthParam));
         }
+        if (!$isMonthReleased) {
+            flash('danger', 'Nejdříve označte měsíc jako výzvu k platbě.');
+            redirect(BASE_URL . '/payments.php?month=' . urlencode($selectedMonthParam));
+        }
 
         $stats = fetchBillingStats($pdo, $coachId, $selectedMonthSql, $hasIsMakeupSession, $hasBillingMonth, $athleteId);
         $athleteStats = $stats[$athleteId] ?? [
@@ -409,15 +552,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             redirect(BASE_URL . '/payments.php?month=' . urlencode($selectedMonthParam));
         }
 
-        $plannedSessions = (int)$athleteStats['billed_sessions'];
+        $actualByAthleteMonth = fetchHistoricalActualSessionsByMonth($pdo, $coachId, $selectedMonthSql, $hasBillingMonth);
+        $paidHistoryRows = fetchPaidHistoryBeforeMonth($pdo, $coachId, $selectedMonthSql);
+        $outstandingByAthlete = computeOutstandingCarryoverByAthlete($paidHistoryRows, $actualByAthleteMonth);
+
+        $rawSessions = (int)$athleteStats['billed_sessions'];
+        $carryoverUsedNow = min((int)($outstandingByAthlete[$athleteId] ?? 0), $rawSessions);
+        $plannedSessions = max(0, $rawSessions - $carryoverUsedNow);
         $billedAmount = $plannedSessions * $rate;
 
         $upsert = $pdo->prepare(
-            "INSERT INTO athlete_monthly_payments (coach_id, athlete_id, billing_month, session_rate, planned_sessions, billed_amount, status, paid_at)
-             VALUES (?, ?, ?, ?, ?, ?, 'paid', NOW())
+            "INSERT INTO athlete_monthly_payments (coach_id, athlete_id, billing_month, session_rate, planned_sessions, carryover_used_sessions, billed_amount, status, paid_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 'paid', NOW())
              ON DUPLICATE KEY UPDATE
                 session_rate = VALUES(session_rate),
                 planned_sessions = VALUES(planned_sessions),
+                carryover_used_sessions = VALUES(carryover_used_sessions),
                 billed_amount = VALUES(billed_amount),
                 status = 'paid',
                 paid_at = NOW()"
@@ -428,6 +578,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $selectedMonthSql,
             number_format($rate, 2, '.', ''),
             $plannedSessions,
+            $carryoverUsedNow,
             number_format($billedAmount, 2, '.', ''),
         ]);
 
@@ -436,6 +587,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'Platba byla označena jako uhrazená',
             'Trenér označil platbu za období ' . $selectedMonth->format('m/Y')
             . ' jako uhrazenou. Evidovaná částka je ' . number_format($billedAmount, 0, ',', ' ') . ' Kč.'
+            . ($carryoverUsedNow > 0 ? (' Zároveň bylo započteno ' . $carryoverUsedNow . ' dříve uhrazených tréninků.') : '')
         );
 
         flash('success', 'Úhrada pro ' . $athleteName . ' byla označena jako uhrazená.');
@@ -482,7 +634,7 @@ $statsByAthlete = fetchBillingStats($pdo, $coachId, $selectedMonthSql, $hasIsMak
 $paymentsRows = [];
 if ($hasPaymentsTable) {
     $paymentsStmt = $pdo->prepare(
-        'SELECT athlete_id, session_rate, planned_sessions, billed_amount, status, paid_at
+        'SELECT athlete_id, session_rate, planned_sessions, carryover_used_sessions, billed_amount, status, paid_at
          FROM athlete_monthly_payments
          WHERE coach_id = ? AND billing_month = ?'
     );
@@ -493,6 +645,16 @@ $paymentsByAthlete = [];
 foreach ($paymentsRows as $row) {
     $paymentsByAthlete[(int)$row['athlete_id']] = $row;
 }
+
+$actualByAthleteMonth = $hasPaymentsTable
+    ? fetchHistoricalActualSessionsByMonth($pdo, $coachId, $selectedMonthSql, $hasBillingMonth)
+    : [];
+$paidHistoryRows = $hasPaymentsTable
+    ? fetchPaidHistoryBeforeMonth($pdo, $coachId, $selectedMonthSql)
+    : [];
+$outstandingByAthlete = $hasPaymentsTable
+    ? computeOutstandingCarryoverByAthlete($paidHistoryRows, $actualByAthleteMonth)
+    : [];
 
 $totalSessions = 0;
 $totalAmount = 0.0;
@@ -510,9 +672,13 @@ foreach ($athletes as $athlete) {
         ? (float)$athlete['training_rate']
         : null;
 
-    $totalSessions += (int)$stats['billed_sessions'];
+    $rawSessions = (int)$stats['billed_sessions'];
+    $carryoverUsedNow = min((int)($outstandingByAthlete[$athleteId] ?? 0), $rawSessions);
+    $billableSessions = max(0, $rawSessions - $carryoverUsedNow);
+
+    $totalSessions += $billableSessions;
     if ($rate !== null) {
-        $totalAmount += ((int)$stats['billed_sessions']) * $rate;
+        $totalAmount += $billableSessions * $rate;
     }
 
     if (isset($paymentsByAthlete[$athleteId]) && ($paymentsByAthlete[$athleteId]['status'] ?? '') === 'paid') {
@@ -598,6 +764,25 @@ renderHeader('Platby');
     </div>
 </div>
 
+<div class="alert <?= $isMonthReleased ? 'alert-success' : 'alert-warning' ?> d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <div>
+        <strong><?= $isMonthReleased ? 'Měsíc je otevřen pro platby.' : 'Měsíc je zatím v konceptu.' ?></strong>
+        <div class="small mt-1">
+            <?= $isMonthReleased
+                ? 'Sportovci vidí QR výzvy a mohou platit.'
+                : 'Dokud měsíc neotevřete, sportovec neuvidí QR kód ani částku k úhradě.' ?>
+        </div>
+    </div>
+    <form method="post" class="d-inline">
+        <?= csrfField() ?>
+        <input type="hidden" name="month" value="<?= h($selectedMonthParam) ?>">
+        <input type="hidden" name="action" value="<?= $isMonthReleased ? 'unrelease_month' : 'release_month' ?>">
+        <button type="submit" class="btn <?= $isMonthReleased ? 'btn-outline-danger' : 'btn-success' ?> btn-sm">
+            <?= $isMonthReleased ? 'Vrátit měsíc do konceptu' : 'Otevřít měsíc pro výzvy k platbě' ?>
+        </button>
+    </form>
+</div>
+
 <div class="card border-0 shadow-sm">
     <div class="card-body p-0">
         <div class="table-responsive">
@@ -623,7 +808,9 @@ renderHeader('Platby');
                         ];
                         $payment = $paymentsByAthlete[$athleteId] ?? null;
                         $rate = $athlete['training_rate'] !== null ? (float)$athlete['training_rate'] : null;
-                        $currentSessions = (int)$stats['billed_sessions'];
+                        $rawSessions = (int)$stats['billed_sessions'];
+                        $carryoverUsedNow = min((int)($outstandingByAthlete[$athleteId] ?? 0), $rawSessions);
+                        $currentSessions = max(0, $rawSessions - $carryoverUsedNow);
                         $currentAmount = $rate !== null ? $currentSessions * $rate : null;
                         $paymentNote = paymentAsciiText($coachLastName . ' ' . $selectedMonth->format('m/Y'));
                         $athleteName = trim((string)$athlete['last_name'] . ' ' . (string)$athlete['first_name']);
@@ -638,7 +825,7 @@ renderHeader('Platby');
                             . '. Účet: ' . ($coachBankAccount ?? '')
                             . '. Poznámka: ' . $paymentNote
                             . '. QR: ';
-                        $paymentQrUrl = ($coachBankAccount !== null && $currentAmount !== null && $currentAmount > 0)
+                        $paymentQrUrl = ($isMonthReleased && $coachBankAccount !== null && $currentAmount !== null && $currentAmount > 0)
                             ? buildPaymentQrUrl($coachBankAccount, $currentAmount, $paymentNote)
                             : null;
                         $hasDiff = $payment && (((int)$payment['planned_sessions'] !== $currentSessions) || ((float)$payment['billed_amount'] !== (float)($currentAmount ?? 0)));
@@ -662,7 +849,11 @@ renderHeader('Platby');
                             </td>
                             <td>
                                 <span class="fw-semibold"><?= $currentSessions ?></span>
-                                <div class="small text-muted">schválených / trenérem vytvořených</div>
+                                <div class="small text-muted">započítaných do platby</div>
+                                <div class="small text-muted">celkem v měsíci: <?= $rawSessions ?></div>
+                                <?php if ($carryoverUsedNow > 0): ?>
+                                    <div class="small text-warning">Zápočet z minulých úhrad: -<?= $carryoverUsedNow ?> tréninků</div>
+                                <?php endif; ?>
                             </td>
                             <td>
                                 <?php if ($currentAmount !== null): ?>
@@ -682,7 +873,11 @@ renderHeader('Platby');
                                         <div class="small text-danger">Kalendář se od poslední evidence změnil.</div>
                                     <?php endif; ?>
                                 <?php else: ?>
-                                    <span class="badge bg-secondary">Neuhrazeno</span>
+                                    <?php if ($isMonthReleased): ?>
+                                        <span class="badge bg-secondary">Neuhrazeno</span>
+                                    <?php else: ?>
+                                        <span class="badge bg-warning text-dark">Čeká na vystavení výzvy</span>
+                                    <?php endif; ?>
                                 <?php endif; ?>
                             </td>
                             <td class="text-end">
@@ -723,7 +918,7 @@ renderHeader('Platby');
                                             <input type="hidden" name="month" value="<?= h($selectedMonthParam) ?>">
                                             <input type="hidden" name="athlete_id" value="<?= $athleteId ?>">
                                             <input type="hidden" name="action" value="mark_paid">
-                                            <button type="submit" class="btn btn-success btn-sm" <?= $rate === null ? 'disabled' : '' ?>>Označit uhrazeno</button>
+                                            <button type="submit" class="btn btn-success btn-sm" <?= ($rate === null || !$isMonthReleased) ? 'disabled' : '' ?>>Označit uhrazeno</button>
                                         </form>
                                     <?php endif; ?>
                                 </div>

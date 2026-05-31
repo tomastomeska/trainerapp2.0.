@@ -183,7 +183,7 @@ renderHeader('Aktivní trénink');
                     <?php foreach ($series as $s): ?>
                     <tr id="series-row-<?= $s['id'] ?>">
                         <td class="fw-bold text-muted"><?= $s['series_order'] ?></td>
-                        <td class="fw-bold"><?= $s['weight'] > 0 ? number_format($s['weight'], 1, ',', '') : '–' ?></td>
+                        <td class="fw-bold"><?= ((float)$s['weight'] + (float)($s['equipment_weight'] ?? 0)) > 0 ? number_format((float)$s['weight'] + (float)($s['equipment_weight'] ?? 0), 1, ',', '') : '–' ?></td>
                         <td><?= $s['reps'] ?: '–' ?></td>
                         <td>
                             <?php if ($s['assistance_reps'] > 0): ?>
@@ -234,7 +234,7 @@ renderHeader('Aktivní trénink');
                             <?php foreach ($lastCompleted['series'] as $prev): ?>
                             <tr>
                                 <td class="fw-bold text-muted"><?= (int)$prev['series_order'] ?></td>
-                                <td><?= number_format((float)$prev['weight'], 1, ',', '') ?></td>
+                                <td><?= number_format((float)$prev['weight'] + (float)($prev['equipment_weight'] ?? 0), 1, ',', '') ?></td>
                                 <td><?= (int)$prev['reps'] ?></td>
                                 <td><?= (int)$prev['assistance_reps'] > 0 ? (int)$prev['assistance_reps'] : '–' ?></td>
                             </tr>
@@ -254,6 +254,13 @@ renderHeader('Aktivní trénink');
                            id="weight-<?= $ex['exercise_id'] ?>"
                            placeholder="80" style="width:90px">
                 </div>
+                    <div>
+                        <label class="form-label small fw-semibold mb-1">Váha náčiní (kg)</label>
+                        <input type="number" step="0.5" min="0" max="999"
+                               class="form-control form-control-sm series-equipment-weight"
+                               id="equipment-weight-<?= $ex['exercise_id'] ?>"
+                               placeholder="10" style="width:120px">
+                    </div>
                 <div>
                     <label class="form-label small fw-semibold mb-1">Opakování</label>
                     <input type="number" step="1" min="0" max="999"
@@ -441,6 +448,7 @@ async function addExerciseToSession(sessionId) {
 // Přidání série přes AJAX
 async function addSeries(exerciseId, sessionId) {
     const weight  = parseFloat(document.getElementById('weight-' + exerciseId).value) || 0;
+    const equipmentWeight = parseFloat(document.getElementById('equipment-weight-' + exerciseId).value) || 0;
     const reps    = parseInt(document.getElementById('reps-' + exerciseId).value)    || 0;
     const assist  = parseInt(document.getElementById('assist-' + exerciseId).value)  || 0;
 
@@ -460,6 +468,7 @@ async function addSeries(exerciseId, sessionId) {
                 exercise_id:     exerciseId,
                 series_order:    rowCount + 1,
                 weight:          weight,
+                equipment_weight: equipmentWeight,
                 reps:            reps,
                 assistance_reps: assist
             })
@@ -471,7 +480,7 @@ async function addSeries(exerciseId, sessionId) {
             tr.id = 'series-row-' + data.id;
             tr.innerHTML = `
                 <td class="fw-bold text-muted">${rowCount + 1}</td>
-                <td class="fw-bold">${weight > 0 ? weight.toFixed(1).replace('.', ',') : '–'}</td>
+                <td class="fw-bold">${(weight + equipmentWeight) > 0 ? (weight + equipmentWeight).toFixed(1).replace('.', ',') : '–'}</td>
                 <td>${reps || '–'}</td>
                 <td>${assist > 0 ? '<span class="badge bg-warning text-dark">' + assist + '</span>' : '–'}</td>
                 <td>
@@ -485,6 +494,7 @@ async function addSeries(exerciseId, sessionId) {
 
             // Reset formuláře
             document.getElementById('weight-' + exerciseId).value  = '';
+            document.getElementById('equipment-weight-' + exerciseId).value  = '';
             document.getElementById('reps-' + exerciseId).value    = '';
             document.getElementById('assist-' + exerciseId).value  = '';
             document.getElementById('weight-' + exerciseId).focus();
