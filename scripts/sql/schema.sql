@@ -2,10 +2,10 @@
 -- TrainerApp - Databázové schéma
 -- ============================================================
 
-CREATE DATABASE IF NOT EXISTS `marcelmiler`
+CREATE DATABASE IF NOT EXISTS `trainerapp_v2_dev`
     CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
-USE `marcelmiler`;
+USE `trainerapp_v2_dev`;
 
 -- Trenéři (přihlášení uživatelé)
 CREATE TABLE IF NOT EXISTS `coaches` (
