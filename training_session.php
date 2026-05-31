@@ -27,6 +27,15 @@ if (!$session) {
     redirect(BASE_URL . '/dashboard.php');
 }
 
+$stmtAvailableExercises = $pdo->prepare(
+    'SELECT id, name, sport_type
+     FROM exercises
+     WHERE coach_id = ? OR is_global = 1
+     ORDER BY name ASC'
+);
+$stmtAvailableExercises->execute([$coachId]);
+$availableExercises = $stmtAvailableExercises->fetchAll();
+
 // Načtení cviků v session snapshotu (fallback pro starší data)
 $exercises = getSessionExercises($sessionId, (int)$session['workout_set_id']);
 
@@ -69,7 +78,32 @@ renderHeader('Aktivní trénink');
             Zahájeno: <?= formatDateTime($session['started_at']) ?>
         </div>
     </div>
-    <div class="ms-auto">
+    <div class="ms-auto d-flex gap-2 align-items-center flex-wrap justify-content-end">
+        <?php if (!empty($availableExercises)): ?>
+        <div class="d-flex gap-2 align-items-center">
+            <select id="add-exercise-select" class="form-select form-select-sm" style="min-width:260px">
+                <option value="">Přidat cvik do tréninku...</option>
+                <?php foreach ($availableExercises as $availableExercise): ?>
+                <option value="<?= (int)$availableExercise['id'] ?>">
+                    <?= h($availableExercise['name']) ?>
+                    <?php
+                    $exerciseTypeLabels = [
+                        'golf' => 'Golf',
+                        'run_outdoor' => 'Běh venku',
+                        'run_treadmill' => 'Běh na páse',
+                        'standard' => 'Cvik',
+                    ];
+                    $label = $exerciseTypeLabels[$availableExercise['sport_type'] ?? 'standard'] ?? 'Cvik';
+                    ?>
+                    (<?= h($label) ?>)
+                </option>
+                <?php endforeach; ?>
+            </select>
+            <button type="button" class="btn btn-outline-warning btn-sm fw-bold" id="add-exercise-btn" onclick="addExerciseToSession(<?= $sessionId ?>)">
+                <i class="fas fa-plus me-1"></i>Přidat cvik
+            </button>
+        </div>
+        <?php endif; ?>
         <?php if (!$session['completed_at']): ?>
         <button class="btn btn-success btn-lg fw-bold training-finish-btn" data-bs-toggle="modal" data-bs-target="#completeModal">
             <i class="fas fa-flag-checkered me-2"></i>Ukončit trénink
@@ -79,7 +113,7 @@ renderHeader('Aktivní trénink');
 </div>
 
 <?php if (empty($exercises)): ?>
-<div class="alert alert-warning">Sada neobsahuje žádné cviky.</div>
+<div class="alert alert-warning">Sada zatím neobsahuje žádné cviky. Přidejte první cvik pomocí pole nahoře.</div>
 <?php else: ?>
 
 <!-- Cviky -->
@@ -364,6 +398,46 @@ renderHeader('Aktivní trénink');
 </div>
 
 <script>
+async function addExerciseToSession(sessionId) {
+    const select = document.getElementById('add-exercise-select');
+    const button = document.getElementById('add-exercise-btn');
+    if (!select || !button) return;
+
+    const exerciseId = parseInt(select.value || '0', 10);
+    if (!exerciseId) {
+        alert('Vyberte cvik, který chcete do tréninku přidat.');
+        return;
+    }
+
+    button.disabled = true;
+    const originalHtml = button.innerHTML;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Přidávám...';
+
+    try {
+        const resp = await fetch('<?= BASE_URL ?>/api/add_session_exercise.php', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                session_id: sessionId,
+                exercise_id: exerciseId,
+                csrf_token: '<?= csrfToken() ?>'
+            })
+        });
+        const data = await resp.json();
+        if (!data.success) {
+            alert('Chyba při přidání cviku: ' + (data.error || 'Neznámá chyba'));
+            return;
+        }
+
+        window.location.reload();
+    } catch (error) {
+        alert('Chyba připojení k serveru.');
+    } finally {
+        button.disabled = false;
+        button.innerHTML = originalHtml;
+    }
+}
+
 // Přidání série přes AJAX
 async function addSeries(exerciseId, sessionId) {
     const weight  = parseFloat(document.getElementById('weight-' + exerciseId).value) || 0;

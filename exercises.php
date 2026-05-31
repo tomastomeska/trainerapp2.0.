@@ -9,13 +9,34 @@ $coachId = getCurrentCoachId();
 $pdo     = getDB();
 $error   = null;
 
+function normalizeExerciseSportType(string $name, string $selectedSportType): string {
+    $selectedSportType = trim($selectedSportType);
+    if (!in_array($selectedSportType, ['standard', 'golf', 'run_outdoor', 'run_treadmill'], true)) {
+        $selectedSportType = 'standard';
+    }
+
+    $normalizedName = mb_strtolower(trim($name), 'UTF-8');
+    if ($normalizedName === '') {
+        return $selectedSportType;
+    }
+
+    $treadmillHints = ['pás', 'pas', 'treadmill', 'běh v hale', 'beh v hale', 'chůze v hale', 'chuze v hale'];
+    foreach ($treadmillHints as $hint) {
+        if (mb_strpos($normalizedName, $hint, 0, 'UTF-8') !== false) {
+            return 'run_treadmill';
+        }
+    }
+
+    return $selectedSportType;
+}
+
 // Přidání cviku – formulář odesílá multipart
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'add') {
     if (!verifyCsrf($_POST['csrf_token'] ?? '')) {
         $error = 'Neplatný bezpečnostní token.';
     } else {
         $name = trim($_POST['name'] ?? '');
-        $sportType = $_POST['sport_type'] ?? 'standard';
+        $sportType = normalizeExerciseSportType($name, (string)($_POST['sport_type'] ?? 'standard'));
         if ($name === '') {
             $error = 'Zadejte název cviku.';
         } else {
@@ -60,7 +81,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     } else {
         $exId    = intParam($_POST, 'exercise_id');
         $newName = trim($_POST['new_name'] ?? '');
-        $sportType = $_POST['sport_type'] ?? 'standard';
+        $sportType = normalizeExerciseSportType($newName, (string)($_POST['sport_type'] ?? 'standard'));
         if ($newName === '') {
             $error = 'Zadejte název cviku.';
         } else {
@@ -129,18 +150,19 @@ renderHeader('Cviky');
                     <input type="hidden" name="action" value="add">
                     <div class="mb-3">
                         <label class="form-label fw-semibold">Název cviku</label>
-                        <input type="text" name="name" class="form-control"
+                        <input type="text" name="name" class="form-control" id="add-exercise-name"
                                placeholder="např. Benchpress, Dřep, Mrtvý tah..."
                                required autofocus>
                     </div>
                     <div class="mb-3">
                         <label class="form-label fw-semibold">Typ cviku</label>
-                        <select name="sport_type" class="form-select">
+                        <select name="sport_type" class="form-select" id="add-exercise-sport-type">
                             <option value="standard" selected>Standardní cvik (váha, opakování)</option>
                             <option value="golf">Golf (jamky, par)</option>
-                            <option value="run_outdoor">Běh venku (tempo, splity)</option>
-                            <option value="run_treadmill">Běh na páse (čas, km)</option>
+                            <option value="run_outdoor">Běh venku (silnice, terén, splity)</option>
+                            <option value="run_treadmill">Běh na páse / v hale (čas, km)</option>
                         </select>
+                        <div class="form-text">Pokud název obsahuje pás nebo hala, aplikace automaticky nastaví běh na páse.</div>
                     </div>
                     <div class="mb-3">
                         <label class="form-label fw-semibold">Fotografie <span class="text-muted fw-normal">(nepovinné)</span></label>
@@ -202,13 +224,13 @@ renderHeader('Cviky');
                                     <?= csrfField() ?>
                                     <input type="hidden" name="action" value="rename">
                                     <input type="hidden" name="exercise_id" value="<?= $ex['id'] ?>">
-                                    <input type="text" name="new_name" class="form-control form-control-sm"
+                                     <input type="text" name="new_name" class="form-control form-control-sm js-exercise-name"
                                            value="<?= h($ex['name']) ?>" style="min-width:180px">
-                                    <select name="sport_type" class="form-select form-select-sm" style="max-width:200px">
+                                    <select name="sport_type" class="form-select form-select-sm js-exercise-sport-type" style="max-width:200px">
                                         <option value="standard" <?= $ex['sport_type'] === 'standard' ? 'selected' : '' ?>>Standardní</option>
                                         <option value="golf" <?= $ex['sport_type'] === 'golf' ? 'selected' : '' ?>>Golf</option>
                                         <option value="run_outdoor" <?= $ex['sport_type'] === 'run_outdoor' ? 'selected' : '' ?>>Běh venku</option>
-                                        <option value="run_treadmill" <?= $ex['sport_type'] === 'run_treadmill' ? 'selected' : '' ?>>Běh na páse</option>
+                                        <option value="run_treadmill" <?= $ex['sport_type'] === 'run_treadmill' ? 'selected' : '' ?>>Běh na páse / v hale</option>
                                     </select>
                                     <input type="file" name="photo" class="form-control form-control-sm"
                                            accept="image/*" style="max-width:100%;flex:1;min-width:0"
@@ -268,6 +290,32 @@ renderHeader('Cviky');
 </div>
 
 <script>
+function inferExerciseSportType(name) {
+    const normalized = String(name || '').trim().toLowerCase();
+    if (!normalized) return null;
+
+    const treadmillHints = ['pás', 'pas', 'treadmill', 'běh v hale', 'beh v hale', 'chůze v hale', 'chuze v hale'];
+    if (treadmillHints.some((hint) => normalized.includes(hint))) {
+        return 'run_treadmill';
+    }
+
+    return null;
+}
+
+function attachExerciseTypeAutoDetect(nameInput, typeSelect) {
+    if (!nameInput || !typeSelect) return;
+
+    const applySuggestion = () => {
+        const inferred = inferExerciseSportType(nameInput.value);
+        if (inferred && typeSelect.value !== inferred) {
+            typeSelect.value = inferred;
+        }
+    };
+
+    nameInput.addEventListener('input', applySuggestion);
+    nameInput.addEventListener('change', applySuggestion);
+}
+
 function editExercise(id) {
     document.querySelector('#ex-row-' + id + ' .exercise-name').classList.add('d-none');
     document.querySelector('#ex-row-' + id + ' .exercise-edit').classList.remove('d-none');
@@ -276,6 +324,20 @@ function cancelEdit(id) {
     document.querySelector('#ex-row-' + id + ' .exercise-name').classList.remove('d-none');
     document.querySelector('#ex-row-' + id + ' .exercise-edit').classList.add('d-none');
 }
+
+document.addEventListener('DOMContentLoaded', function() {
+    attachExerciseTypeAutoDetect(
+        document.getElementById('add-exercise-name'),
+        document.getElementById('add-exercise-sport-type')
+    );
+
+    document.querySelectorAll('#exercises-list .exercise-edit form').forEach(function(form) {
+        attachExerciseTypeAutoDetect(
+            form.querySelector('.js-exercise-name'),
+            form.querySelector('.js-exercise-sport-type')
+        );
+    });
+});
 </script>
 
 

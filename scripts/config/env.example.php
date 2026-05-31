@@ -18,6 +18,10 @@ define('DB_PASS',    'heslo_db');
 // true na produkci (HTTPS), false lokalne.
 define('SESSION_SECURE', false);
 
+// Pro soubezny beh vice verzi na jedne domene nastavte vlastni nazev session.
+// Napr. v2: define('SESSION_NAME', 'trainerapp_v2_sess');
+// define('SESSION_NAME', 'trainerapp_sess');
+
 // Bezpecnostni pojistka setup_admin.php (na produkci ponechte false).
 define('ENABLE_SETUP_ADMIN', false);
 

@@ -7,15 +7,17 @@ require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../config/database.php';
 
 if (session_status() === PHP_SESSION_NONE) {
+    $cookiePath = (defined('BASE_URL') && BASE_URL !== '') ? BASE_URL : '/';
     session_name(SESSION_NAME);
     session_set_cookie_params([
         'lifetime' => 0,
-        'path'     => '/',
+        'path'     => $cookiePath,
         'secure'   => defined('SESSION_SECURE') ? SESSION_SECURE : false,
         'httponly' => true,
         'samesite' => 'Lax',
     ]);
     session_start();
+    unset($cookiePath);
 }
 
 function isLoggedIn(): bool {

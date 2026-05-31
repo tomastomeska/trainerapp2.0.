@@ -164,6 +164,27 @@ function getWorkoutSetExercises(int $setId): array {
     return $stmt->fetchAll();
 }
 
+  function ensureFlexibleWorkoutSet(int $coachId): int {
+    $pdo = getDB();
+
+    $stmt = $pdo->prepare(
+      'SELECT id
+       FROM workout_sets
+       WHERE coach_id = ? AND name = ?
+       LIMIT 1'
+    );
+    $stmt->execute([$coachId, 'Flexibilní sada']);
+    $existingId = (int)$stmt->fetchColumn();
+    if ($existingId > 0) {
+      return $existingId;
+    }
+
+    $insert = $pdo->prepare('INSERT INTO workout_sets (coach_id, name) VALUES (?, ?)');
+    $insert->execute([$coachId, 'Flexibilní sada']);
+
+    return (int)$pdo->lastInsertId();
+  }
+
 // Vrátí cviky konkrétní session ze snapshotu; fallback pro starší data.
 function getSessionExercises(int $sessionId, int $setId): array {
     $pdo = getDB();
@@ -1563,6 +1584,49 @@ function createAthleteToCoachMessage(int $athleteId, int $coachId, string $subje
       ->execute([$messageId, $coachId]);
 
   return $messageId;
+}
+
+function getAthleteWeightLogById(int $logId, int $athleteId = 0): ?array {
+  $pdo = getDB();
+  $sql = 'SELECT * FROM athlete_weight_logs WHERE id = ?';
+  $params = [$logId];
+
+  if ($athleteId > 0) {
+    $sql .= ' AND athlete_id = ?';
+    $params[] = $athleteId;
+  }
+
+  $sql .= ' LIMIT 1';
+  $stmt = $pdo->prepare($sql);
+  $stmt->execute($params);
+
+  return $stmt->fetch() ?: null;
+}
+
+function updateAthleteWeightLog(int $logId, int $athleteId, string $measuredAt, float $weightKg): bool {
+  if (!getAthleteWeightLogById($logId, $athleteId)) {
+    return false;
+  }
+
+  $pdo = getDB();
+  $stmt = $pdo->prepare(
+    'UPDATE athlete_weight_logs
+     SET measured_at = ?, weight_kg = ?
+     WHERE id = ? AND athlete_id = ?'
+  );
+
+  return $stmt->execute([$measuredAt, $weightKg, $logId, $athleteId]);
+}
+
+function deleteAthleteWeightLog(int $logId, int $athleteId): bool {
+  if (!getAthleteWeightLogById($logId, $athleteId)) {
+    return false;
+  }
+
+  $pdo = getDB();
+  $stmt = $pdo->prepare('DELETE FROM athlete_weight_logs WHERE id = ? AND athlete_id = ?');
+
+  return $stmt->execute([$logId, $athleteId]);
 }
 
   /**

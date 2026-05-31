@@ -9,6 +9,8 @@ $coachId = getCurrentCoachId();
 $pdo     = getDB();
 $error   = null;
 
+ensureFlexibleWorkoutSet($coachId);
+
 // Smazání sady
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete') {
     if (!verifyCsrf($_POST['csrf_token'] ?? '')) {
@@ -121,6 +123,11 @@ renderHeader('Sady');
                         $stmtItems->execute([$ws['id']]);
                         $items = $stmtItems->fetchAll();
                         ?>
+                        <?php if ($ws['name'] === 'Flexibilní sada'): ?>
+                            <div class="alert alert-light border py-2 small">
+                                Prázdná sada pro skládání tréninku za běhu. Cviky do ní přidáte až v aktivním tréninku.
+                            </div>
+                        <?php endif; ?>
                         <?php if ($items): ?>
                             <ol class="mb-3 ps-3">
                                 <?php foreach ($items as $item): ?>

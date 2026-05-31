@@ -70,24 +70,32 @@ foreach ($exercises as $ex) {
 
 $athleteName = h($session['first_name'] . ' ' . $session['last_name']);
 
+$standardExercises = array_values(array_filter(
+    $exercises,
+    static fn(array $exercise): bool => (($exercise['sport_type'] ?? 'standard') === 'standard')
+));
+$hasRunOutdoor = in_array('run_outdoor', $sportTypes, true);
+$hasRunTreadmill = in_array('run_treadmill', $sportTypes, true);
+$hasGolf = in_array('golf', $sportTypes, true);
+
 $runOutdoor = null;
 $runOutdoorSplits = [];
 $runTreadmill = null;
 $golfSession = null;
 $golfHoles = [];
 
-if ($primarySportType === 'run_outdoor') {
+if ($hasRunOutdoor) {
     $runOutdoor = getRunOutdoorSessionByTrainingSession($sessionId);
     if ($runOutdoor) {
         $runOutdoorSplits = getRunOutdoorSplits((int)$runOutdoor['id']);
     }
 }
 
-if ($primarySportType === 'run_treadmill') {
+if ($hasRunTreadmill) {
     $runTreadmill = getRunTreadmillSessionByTrainingSession($sessionId);
 }
 
-if ($primarySportType === 'golf') {
+if ($hasGolf) {
     $golfSession = getGolfSessionByTrainingSession($sessionId);
     if ($golfSession) {
         $golfHoles = getGolfHoles((int)$golfSession['id']);
@@ -313,7 +321,7 @@ renderHeader('Detail tréninku');
 <?php endif; ?>
 
 <!-- Cviky a série / speciální sporty -->
-<?php if ($primarySportType === 'run_outdoor' && $runOutdoor): ?>
+<?php if ($hasRunOutdoor && $runOutdoor): ?>
 <div class="card border-0 shadow-sm mb-4 exercise-block">
     <div class="card-header bg-dark text-white d-flex align-items-center">
         <span class="badge bg-warning text-dark me-2 fs-5">1</span>
@@ -379,7 +387,9 @@ renderHeader('Detail tréninku');
         <?php endif; ?>
     </div>
 </div>
-<?php elseif ($primarySportType === 'run_treadmill' && $runTreadmill): ?>
+<?php endif; ?>
+
+<?php if ($hasRunTreadmill && $runTreadmill): ?>
 <div class="card border-0 shadow-sm mb-4 exercise-block">
     <div class="card-header bg-dark text-white d-flex align-items-center">
         <span class="badge bg-warning text-dark me-2 fs-5">1</span>
@@ -400,7 +410,9 @@ renderHeader('Detail tréninku');
         </table>
     </div>
 </div>
-<?php elseif ($primarySportType === 'golf' && $golfSession): ?>
+<?php endif; ?>
+
+<?php if ($hasGolf && $golfSession): ?>
 <?php
     $totalPar = 0;
     $totalScore = 0;
@@ -477,8 +489,9 @@ renderHeader('Detail tréninku');
         <?php endif; ?>
     </div>
 </div>
-<?php else: ?>
-<?php foreach ($exercises as $ex): ?>
+<?php endif; ?>
+
+<?php foreach ($standardExercises as $ex): ?>
 <?php $series = $seriesByExercise[$ex['exercise_id']] ?? []; ?>
 <div class="card border-0 shadow-sm mb-4 exercise-block" id="ex-<?= $ex['exercise_id'] ?>">
     <div class="card-header bg-dark text-white d-flex align-items-center">
@@ -590,7 +603,6 @@ renderHeader('Detail tréninku');
     </div>
 </div>
 <?php endforeach; ?>
-<?php endif; ?>
 
 <?php if ($session['notes']): ?>
 <div class="card border-0 shadow-sm mb-4">

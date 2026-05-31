@@ -3,6 +3,55 @@ require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/includes/functions.php';
 require_once __DIR__ . '/includes/athlete_header.php';
 
+if (!function_exists('getAthleteWeightLogById')) {
+    function getAthleteWeightLogById(int $logId, int $athleteId = 0): ?array {
+        $pdo = getDB();
+        $sql = 'SELECT * FROM athlete_weight_logs WHERE id = ?';
+        $params = [$logId];
+
+        if ($athleteId > 0) {
+            $sql .= ' AND athlete_id = ?';
+            $params[] = $athleteId;
+        }
+
+        $sql .= ' LIMIT 1';
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+
+        return $stmt->fetch() ?: null;
+    }
+}
+
+if (!function_exists('updateAthleteWeightLog')) {
+    function updateAthleteWeightLog(int $logId, int $athleteId, string $measuredAt, float $weightKg): bool {
+        if (!getAthleteWeightLogById($logId, $athleteId)) {
+            return false;
+        }
+
+        $pdo = getDB();
+        $stmt = $pdo->prepare(
+            'UPDATE athlete_weight_logs
+             SET measured_at = ?, weight_kg = ?
+             WHERE id = ? AND athlete_id = ?'
+        );
+
+        return $stmt->execute([$measuredAt, $weightKg, $logId, $athleteId]);
+    }
+}
+
+if (!function_exists('deleteAthleteWeightLog')) {
+    function deleteAthleteWeightLog(int $logId, int $athleteId): bool {
+        if (!getAthleteWeightLogById($logId, $athleteId)) {
+            return false;
+        }
+
+        $pdo = getDB();
+        $stmt = $pdo->prepare('DELETE FROM athlete_weight_logs WHERE id = ? AND athlete_id = ?');
+
+        return $stmt->execute([$logId, $athleteId]);
+    }
+}
+
 requireAthleteLogin();
 
 $athleteId = (int)getCurrentAthleteId();
@@ -30,25 +79,58 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     $action = (string)($_POST['action'] ?? '');
-    if ($action === 'save_weight') {
+    if ($action === 'save_weight' || $action === 'update_weight') {
         $weightInput = str_replace(',', '.', trim((string)($_POST['weight_kg'] ?? '')));
         $measuredAt = preg_replace('/[^0-9\-]/', '', (string)($_POST['measured_at'] ?? date('Y-m-d')));
         $weightKg = is_numeric($weightInput) ? (float)$weightInput : 0.0;
+        $weightLogId = (int)($_POST['weight_log_id'] ?? 0);
 
         if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $measuredAt)) {
             flash('danger', 'Zadejte platné datum vážení.');
         } elseif ($weightKg < 20 || $weightKg > 400) {
             flash('danger', 'Zadejte platnou hmotnost v kg.');
+        } elseif ($action === 'update_weight' && $weightLogId <= 0) {
+            flash('danger', 'Vybraný záznam hmotnosti nebyl nalezen.');
         } else {
-            addAthleteWeightLog($athleteId, $measuredAt, $weightKg, 'athlete_link', null, null);
-
             $coachDisplayName = (string)($athlete['coach_name'] ?: $athlete['coach_username']);
             $athleteName = trim((string)$athlete['first_name'] . ' ' . (string)$athlete['last_name']);
-            $subject = "Nová hmotnost - {$athleteName}";
-            $body = "Sportovec {$athleteName} zadal novou hmotnost: " . number_format($weightKg, 1, ',', '') . " kg ({$measuredAt}).";
+
+            if ($action === 'save_weight') {
+                addAthleteWeightLog($athleteId, $measuredAt, $weightKg, 'athlete_link', null, null);
+
+                $subject = "Nová hmotnost - {$athleteName}";
+                $body = "Sportovec {$athleteName} zadal novou hmotnost: " . number_format($weightKg, 1, ',', '') . " kg ({$measuredAt}).";
+                createCoachSystemMessage((int)$athlete['coach_id'], $subject, $body, true);
+
+                flash('success', 'Hmotnost byla uložena a trenér byl informován.');
+            } elseif (updateAthleteWeightLog($weightLogId, $athleteId, $measuredAt, $weightKg)) {
+                $subject = "Upravená hmotnost - {$athleteName}";
+                $body = "Sportovec {$athleteName} upravil záznam hmotnosti na " . number_format($weightKg, 1, ',', '') . " kg ({$measuredAt}).";
+                createCoachSystemMessage((int)$athlete['coach_id'], $subject, $body, true);
+
+                flash('success', 'Záznam hmotnosti byl upraven a trenér byl informován.');
+            } else {
+                flash('danger', 'Záznam hmotnosti se nepodařilo upravit.');
+            }
+        }
+
+        redirect(BASE_URL . '/athlete_dashboard.php');
+    }
+
+    if ($action === 'delete_weight') {
+        $weightLogId = (int)($_POST['weight_log_id'] ?? 0);
+
+        if ($weightLogId <= 0) {
+            flash('danger', 'Vybraný záznam hmotnosti nebyl nalezen.');
+        } elseif (deleteAthleteWeightLog($weightLogId, $athleteId)) {
+            $athleteName = trim((string)$athlete['first_name'] . ' ' . (string)$athlete['last_name']);
+            $subject = "Smazaná hmotnost - {$athleteName}";
+            $body = "Sportovec {$athleteName} smazal jeden záznam ze své historie hmotnosti.";
             createCoachSystemMessage((int)$athlete['coach_id'], $subject, $body, true);
 
-            flash('success', 'Hmotnost byla uložena a trenér byl informován.');
+            flash('success', 'Záznam hmotnosti byl smazán a trenér byl informován.');
+        } else {
+            flash('danger', 'Záznam hmotnosti se nepodařilo smazat.');
         }
 
         redirect(BASE_URL . '/athlete_dashboard.php');
@@ -67,7 +149,13 @@ $sessionsStmt = $pdo->prepare(
 $sessionsStmt->execute([$athleteId]);
 $sessions = $sessionsStmt->fetchAll();
 
+$weightHistory = getAthleteWeightHistory($athleteId, 200);
 $weightStats = getAthleteWeightStats($athleteId);
+$editWeightLogId = intParam($_GET, 'edit_weight');
+$editingWeightLog = $editWeightLogId > 0 ? getAthleteWeightLogById($editWeightLogId, $athleteId) : null;
+$weightFormAction = $editingWeightLog ? 'update_weight' : 'save_weight';
+$weightFormDate = $editingWeightLog['measured_at'] ?? date('Y-m-d');
+$weightFormValue = $editingWeightLog['weight_kg'] ?? '';
 
 $paymentSummary = null;
 try {
@@ -119,22 +207,85 @@ renderAthleteHeader('Profil sportovce');
             <div class="card-body">
                 <form method="post" class="row g-3 align-items-end">
                     <?= csrfField() ?>
-                    <input type="hidden" name="action" value="save_weight">
+                    <input type="hidden" name="action" value="<?= h($weightFormAction) ?>">
+                    <?php if ($editingWeightLog): ?>
+                    <input type="hidden" name="weight_log_id" value="<?= (int)$editingWeightLog['id'] ?>">
+                    <?php endif; ?>
                     <div class="col-md-4">
                         <label class="form-label fw-semibold">Datum vážení</label>
-                        <input type="date" name="measured_at" class="form-control" value="<?= date('Y-m-d') ?>" required>
+                        <input type="date" name="measured_at" class="form-control" value="<?= h((string)$weightFormDate) ?>" required>
                     </div>
                     <div class="col-md-4">
                         <label class="form-label fw-semibold">Hmotnost (kg)</label>
-                        <input type="number" name="weight_kg" class="form-control" min="20" max="400" step="0.1" required>
+                        <input type="number" name="weight_kg" class="form-control" min="20" max="400" step="0.1" value="<?= h((string)$weightFormValue) ?>" required>
                     </div>
                     <div class="col-md-4">
-                        <button type="submit" class="btn btn-primary w-100 fw-semibold">Odeslat</button>
+                        <div class="d-flex gap-2">
+                            <button type="submit" class="btn btn-primary w-100 fw-semibold"><?= $editingWeightLog ? 'Uložit změny' : 'Odeslat' ?></button>
+                            <?php if ($editingWeightLog): ?>
+                            <a href="<?= BASE_URL ?>/athlete_dashboard.php#weight-history" class="btn btn-outline-secondary">Zrušit</a>
+                            <?php endif; ?>
+                        </div>
                     </div>
                 </form>
-                <small class="text-muted d-block mt-2">Data jsou jen pro čtení, tréninky nelze upravovat ani mazat.</small>
+                <small class="text-muted d-block mt-2">Svou historii hmotnosti můžete průběžně doplňovat, upravovat i mazat.</small>
             </div>
         </div>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-4" id="weight-history">
+    <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <span><i class="fas fa-clock-rotate-left me-2"></i>Historie hmotnosti</span>
+        <span class="badge bg-light text-dark"><?= count($weightHistory) ?> záznamů</span>
+    </div>
+    <div class="card-body p-0">
+        <?php if (empty($weightHistory)): ?>
+        <div class="text-center text-muted py-4">Zatím tu není žádný záznam hmotnosti.</div>
+        <?php else: ?>
+        <div class="table-responsive">
+            <table class="table table-hover mb-0 align-middle">
+                <thead class="table-light">
+                <tr>
+                    <th>Datum</th>
+                    <th>Hmotnost</th>
+                    <th>Zdroj</th>
+                    <th class="text-end">Akce</th>
+                </tr>
+                </thead>
+                <tbody>
+                <?php foreach ($weightHistory as $weightRow): ?>
+                    <?php
+                        $sourceLabel = 'Ruční záznam';
+                        if (($weightRow['source'] ?? '') === 'coach') {
+                            $sourceLabel = 'Trenér';
+                        } elseif (($weightRow['source'] ?? '') === 'athlete_link') {
+                            $sourceLabel = 'Sportovec';
+                        }
+                    ?>
+                <tr class="<?= $editingWeightLog && (int)$editingWeightLog['id'] === (int)$weightRow['id'] ? 'table-warning' : '' ?>">
+                    <td><?= formatDate((string)$weightRow['measured_at']) ?></td>
+                    <td><strong><?= number_format((float)$weightRow['weight_kg'], 1, ',', '') ?> kg</strong></td>
+                    <td><span class="badge bg-secondary"><?= h($sourceLabel) ?></span></td>
+                    <td class="text-end">
+                        <a href="<?= BASE_URL ?>/athlete_dashboard.php?edit_weight=<?= (int)$weightRow['id'] ?>#weight-history" class="btn btn-sm btn-outline-primary">
+                            <i class="fas fa-pen me-1"></i>Upravit
+                        </a>
+                        <form method="post" class="d-inline" onsubmit="return confirm('Opravdu smazat tento záznam hmotnosti?');">
+                            <?= csrfField() ?>
+                            <input type="hidden" name="action" value="delete_weight">
+                            <input type="hidden" name="weight_log_id" value="<?= (int)$weightRow['id'] ?>">
+                            <button type="submit" class="btn btn-sm btn-outline-danger">
+                                <i class="fas fa-trash me-1"></i>Smazat
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+        <?php endif; ?>
     </div>
 </div>
 

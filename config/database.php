@@ -597,6 +597,22 @@ function ensureSchemaUpgrades(PDO $pdo): void {
         $pdo->exec('ALTER TABLE coach_calendar_events ADD COLUMN coach_modified_at DATETIME NULL AFTER approval_status');
     }
 
+    $stmtIsMakeupSession = $pdo->query("SHOW COLUMNS FROM coach_calendar_events LIKE 'is_makeup_session'");
+    if (!$stmtIsMakeupSession->fetch()) {
+        $pdo->exec('ALTER TABLE coach_calendar_events ADD COLUMN is_makeup_session TINYINT(1) NOT NULL DEFAULT 0 AFTER coach_modified_at');
+    }
+
+    $stmtBillingMonth = $pdo->query("SHOW COLUMNS FROM coach_calendar_events LIKE 'billing_month'");
+    if (!$stmtBillingMonth->fetch()) {
+        $pdo->exec('ALTER TABLE coach_calendar_events ADD COLUMN billing_month DATE NULL AFTER is_makeup_session');
+        $pdo->exec("UPDATE coach_calendar_events SET billing_month = DATE_FORMAT(starts_at, '%Y-%m-01') WHERE billing_month IS NULL");
+    }
+
+    $stmtBillingIdx = $pdo->query("SHOW INDEX FROM coach_calendar_events WHERE Key_name = 'idx_calendar_events_billing'");
+    if (!$stmtBillingIdx->fetch()) {
+        $pdo->exec('CREATE INDEX idx_calendar_events_billing ON coach_calendar_events (coach_id, billing_month, approval_status, athlete_id)');
+    }
+
     try {
         $pdo->exec('ALTER TABLE coach_calendar_events ADD CONSTRAINT fk_calendar_events_requested_by_athlete FOREIGN KEY (requested_by_athlete_id) REFERENCES athletes(id) ON DELETE SET NULL');
     } catch (Throwable $e) {

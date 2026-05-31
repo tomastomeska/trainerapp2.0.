@@ -19,9 +19,9 @@ foreach ($_envCandidates as $_envFile) {
 unset($_envCandidates, $_envFile);
 
 // Zakladni nastaveni aplikace
-define('APP_NAME',     'TrainerApp');
-define('APP_VERSION',  '1.0.0');
-define('SESSION_NAME', 'trainerapp_sess');
+if (!defined('APP_NAME')) define('APP_NAME', 'TrainerApp');
+if (!defined('APP_VERSION')) define('APP_VERSION', '1.0.0');
+if (!defined('SESSION_NAME')) define('SESSION_NAME', 'trainerapp_sess');
 
 // E-mail odesilatele (prepisuje env.php, pokud je nastaven SMTP_FROM)
 define('MAIL_FROM',      defined('SMTP_FROM')      ? SMTP_FROM      : 'noreply@example.com');
@@ -37,7 +37,7 @@ if (!defined('SMTP_FROM_NAME')) define('SMTP_FROM_NAME', 'TrainerApp');
 
 // BASE_URL: env.php muze nastavit vlastni hodnotu; vychozi pro lokalni dev
 if (!defined('BASE_URL')) {
-    define('BASE_URL', '/marcelmiler');
+    define('BASE_URL', '');
 }
 
 // SESSION_SECURE: true na produkci (HTTPS), false lokalne
