@@ -39,6 +39,15 @@ if (empty($sessions)) {
     redirect(BASE_URL . '/dashboard.php');
 }
 
+$stmtAvailableExercises = $pdo->prepare(
+    'SELECT id, name, sport_type
+     FROM exercises
+     WHERE coach_id = ? OR is_global = 1
+     ORDER BY name ASC'
+);
+$stmtAvailableExercises->execute([$coachId]);
+$availableExercises = $stmtAvailableExercises->fetchAll();
+
 // Pokud jsou všechny session dokončené, přesměruj na detail prvního
 $allCompleted = true;
 foreach ($sessions as $s) {
@@ -116,6 +125,22 @@ renderHeader('Párový trénink');
                     <i class="fas fa-layer-group me-1"></i><?= h($sd['session']['set_name']) ?>
                 </div>
             </div>
+            <?php if (!empty($availableExercises)): ?>
+            <div class="ms-auto d-flex gap-2 align-items-center">
+                <select id="add-exercise-select-<?= $sid ?>" class="form-select form-select-sm" style="min-width:220px">
+                    <option value="">Přidat cvik...</option>
+                    <?php foreach ($availableExercises as $availableExercise): ?>
+                    <option value="<?= (int)$availableExercise['id'] ?>"><?= h($availableExercise['name']) ?></option>
+                    <?php endforeach; ?>
+                </select>
+                <button type="button"
+                        class="btn btn-outline-warning btn-sm fw-bold"
+                        id="add-exercise-btn-<?= $sid ?>"
+                        onclick="addExerciseToPairedSession(this, <?= $sid ?>)">
+                    <i class="fas fa-plus me-1"></i>Přidat
+                </button>
+            </div>
+            <?php endif; ?>
         </div>
 
         <!-- Cviky -->
@@ -129,11 +154,32 @@ renderHeader('Párový trénink');
             $series   = $sd['series'][$eid]  ?? [];
             $lastComp = $sd['lastComp'][$eid] ?? null;
         ?>
-        <div class="card border-0 shadow-sm mb-3">
+        <div class="card border-0 shadow-sm mb-3" id="exercise-card-<?= $key ?>">
             <div class="card-header d-flex align-items-center bg-dark text-white py-2 gap-2">
                 <span class="badge bg-warning text-dark"><?= $ex['exercise_order'] ?></span>
                 <span class="fw-bold"><?= h($ex['exercise_name']) ?></span>
-                <span class="ms-auto badge bg-secondary small" id="series-count-<?= $key ?>">
+                <div class="ms-auto d-flex align-items-center gap-2 flex-wrap">
+                    <?php if (!empty($availableExercises)): ?>
+                    <select id="replace-exercise-select-<?= $key ?>" class="form-select form-select-sm" style="min-width:180px">
+                        <option value="">Nahradit...</option>
+                        <?php foreach ($availableExercises as $availableExercise): ?>
+                        <?php if ((int)$availableExercise['id'] === $eid) { continue; } ?>
+                        <option value="<?= (int)$availableExercise['id'] ?>"><?= h($availableExercise['name']) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <button type="button"
+                            class="btn btn-outline-light btn-sm"
+                            onclick="replaceExerciseInPairedSession(this, <?= $sid ?>, <?= $eid ?>)">
+                        <i class="fas fa-right-left me-1"></i>Nahradit
+                    </button>
+                    <?php endif; ?>
+                    <button type="button"
+                            class="btn btn-outline-danger btn-sm"
+                            onclick="removeExerciseFromPairedSession(this, <?= $sid ?>, <?= $eid ?>, <?= json_encode((string)$ex['exercise_name']) ?>)">
+                        <i class="fas fa-trash me-1"></i>Odebrat
+                    </button>
+                </div>
+                <span class="badge bg-secondary small" id="series-count-<?= $key ?>">
                     <?= count($series) ?> séri<?= count($series) === 1 ? 'e' : 'í' ?>
                 </span>
             </div>
@@ -304,6 +350,118 @@ renderHeader('Párový trénink');
 
 <script>
 const BASE_URL = '<?= BASE_URL ?>';
+
+async function updatePairedSessionExercise(button, payload) {
+    const originalHtml = button?.innerHTML || '';
+    if (button) {
+        button.disabled = true;
+        button.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Ukládám...';
+    }
+
+    try {
+        const response = await fetch(BASE_URL + '/api/update_session_exercise.php', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                ...payload,
+                csrf_token: '<?= csrfToken() ?>'
+            })
+        });
+        const data = await response.json();
+        if (!data.success) {
+            alert('Chyba při úpravě cviku: ' + (data.error || 'Neznámá chyba'));
+            return false;
+        }
+        return true;
+    } catch (error) {
+        alert('Chyba připojení k serveru.');
+        return false;
+    } finally {
+        if (button) {
+            button.disabled = false;
+            button.innerHTML = originalHtml;
+        }
+    }
+}
+
+async function addExerciseToPairedSession(button, sessionId) {
+    const select = document.getElementById('add-exercise-select-' + sessionId);
+    const exerciseId = parseInt(select?.value || '0', 10);
+    if (!exerciseId) {
+        alert('Vyberte cvik, který chcete přidat.');
+        return;
+    }
+
+    const originalHtml = button?.innerHTML || '';
+    if (button) {
+        button.disabled = true;
+        button.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Přidávám...';
+    }
+
+    try {
+        const resp = await fetch(BASE_URL + '/api/add_session_exercise.php', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                session_id: sessionId,
+                exercise_id: exerciseId,
+                csrf_token: '<?= csrfToken() ?>'
+            })
+        });
+        const data = await resp.json();
+        if (!data.success) {
+            alert('Chyba při přidání cviku: ' + (data.error || 'Neznámá chyba'));
+            return;
+        }
+        window.location.reload();
+    } catch (error) {
+        alert('Chyba připojení k serveru.');
+    } finally {
+        if (button) {
+            button.disabled = false;
+            button.innerHTML = originalHtml;
+        }
+    }
+}
+
+async function removeExerciseFromPairedSession(button, sessionId, exerciseId, exerciseName) {
+    if (!confirm('Odebrat cvik "' + (exerciseName || 'bez názvu') + '" z tohoto tréninku?\nSmažou se i jeho zadané série v tomto tréninku.')) {
+        return;
+    }
+
+    const ok = await updatePairedSessionExercise(button, {
+        action: 'remove',
+        session_id: sessionId,
+        exercise_id: exerciseId
+    });
+    if (ok) {
+        window.location.reload();
+    }
+}
+
+async function replaceExerciseInPairedSession(button, sessionId, exerciseId) {
+    const key = sessionId + '-' + exerciseId;
+    const select = document.getElementById('replace-exercise-select-' + key);
+    const newExerciseId = parseInt(select?.value || '0', 10);
+    if (!newExerciseId) {
+        alert('Vyberte nejdřív cvik, kterým chcete nahradit aktuální cvik.');
+        return;
+    }
+
+    if (!confirm('Nahradit tento cvik vybraným cvikem?\nPůvodní série tohoto cviku v aktuálním tréninku budou smazány.')) {
+        return;
+    }
+
+    const ok = await updatePairedSessionExercise(button, {
+        action: 'replace',
+        session_id: sessionId,
+        exercise_id: exerciseId,
+        new_exercise_id: newExerciseId
+    });
+    if (ok) {
+        window.location.reload();
+    }
+}
 
 async function addPairedSeries(sessionId, exerciseId) {
     const key    = sessionId + '-' + exerciseId;
