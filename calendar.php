@@ -226,6 +226,19 @@ renderHeader('Kalendář');
     .slot-add-hint {
         font-size: .58rem;
     }
+
+    #daypilotCard .card-body {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    #daypilotCalendar {
+        min-width: 860px;
+    }
+
+    #legacyCalendarGridCard {
+        display: none;
+    }
 }
 </style>
 
@@ -263,11 +276,14 @@ renderHeader('Kalendář');
 
 <div class="card border-0 shadow-sm mb-3" id="daypilotCard">
     <div class="card-body p-2 p-md-3">
+        <div class="small text-muted mb-2 d-lg-none">
+            <i class="fas fa-hand-point-right me-1"></i>Kalendář na mobilu posunete vodorovně tahem.
+        </div>
         <div id="daypilotCalendar"></div>
     </div>
 </div>
 
-<div class="card border-0 shadow-sm">
+<div class="card border-0 shadow-sm" id="legacyCalendarGridCard">
     <div class="card-body p-2 p-md-3">
         <div class="calendar-shell">
             <table class="calendar-grid" id="calendarGrid" aria-label="Týdenní kalendář"></table>
@@ -542,6 +558,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const czechDayShort = ['Po', 'Út', 'St', 'Čt', 'Pá', 'So', 'Ne'];
     const hourStart = 5;
     const hourEnd = 22;
+    const isCompactMobile = window.matchMedia('(max-width: 991.98px)').matches;
     const eventColorSchemes = {
         blue: { backColor: '#0ea5e9', barColor: '#0284c7', fontColor: '#ffffff' },
         green: { backColor: '#22c55e', barColor: '#16a34a', fontColor: '#ffffff' },
@@ -907,7 +924,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 viewType: 'Week',
                 weekStarts: 1,
                 cellDuration: 60,
-                cellHeight: 68,
+                cellHeight: isCompactMobile ? 56 : 68,
                 eventArrangement: 'SideBySide',
                 useEventBoxes: 'Never',
                 showNonBusiness: false,

@@ -79,11 +79,10 @@ if ($coach) {
                     </a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link position-relative" href="<?= BASE_URL ?>/calendar.php">
+                    <a class="nav-link d-inline-flex align-items-center" href="<?= BASE_URL ?>/calendar.php">
                         <i class="fas fa-calendar-alt me-1"></i>Kalendář
                         <?php if ($pendingCalendarCount > 0): ?>
-                        <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-warning text-dark"
-                              style="font-size:.65rem">
+                        <span class="badge rounded-pill bg-warning text-dark ms-1" style="font-size:.65rem">
                             <?= $pendingCalendarCount ?>
                         </span>
                         <?php endif; ?>
@@ -107,11 +106,10 @@ if ($coach) {
             </ul>
             <?php if ($coach): ?>
             <div class="navbar-nav">
-                <a class="nav-link position-relative" href="<?= BASE_URL ?>/zpravy.php" title="Zprávy">
-                    <i class="fas fa-envelope me-1"></i>
+                <a class="nav-link d-inline-flex align-items-center" href="<?= BASE_URL ?>/zpravy.php" title="Zprávy">
+                    <i class="fas fa-envelope me-1"></i>Zprávy
                     <?php if ($unreadMsgCount > 0): ?>
-                    <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger"
-                          style="font-size:.65rem">
+                    <span class="badge rounded-pill bg-danger ms-1" style="font-size:.65rem">
                         <?= $unreadMsgCount ?>
                     </span>
                     <?php endif; ?>

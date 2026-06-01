@@ -117,6 +117,15 @@ renderAthleteHeader('Muj kalendar');
     .calendar-grid .slot-cell {
         height: 52px;
     }
+
+    #daypilotCard .card-body {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    #daypilotCalendar {
+        min-width: 860px;
+    }
 }
 </style>
 
@@ -151,6 +160,9 @@ renderAthleteHeader('Muj kalendar');
 
 <div class="card border-0 shadow-sm" id="daypilotCard">
     <div class="card-body p-2 p-md-3">
+        <div class="small text-muted mb-2 d-lg-none">
+            <i class="fas fa-hand-point-right me-1"></i>Kalendář na mobilu posunete vodorovně tahem.
+        </div>
         <div id="daypilotCalendar"></div>
     </div>
 </div>
@@ -281,6 +293,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let selectedEventForDetail = null;
     const hourStart = 5;
     const hourEnd = 22;
+    const isCompactMobile = window.matchMedia('(max-width: 991.98px)').matches;
     const eventColorSchemes = {
         blue: { backColor: '#0ea5e9', barColor: '#0284c7', fontColor: '#ffffff' },
         green: { backColor: '#22c55e', barColor: '#16a34a', fontColor: '#ffffff' },
@@ -567,7 +580,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 weekStarts: 1,
                 startDate: toDateKey(currentWeekStart),
                 cellDuration: 60,
-                cellHeight: 68,
+                cellHeight: isCompactMobile ? 56 : 68,
                 eventArrangement: 'SideBySide',
                 useEventBoxes: 'Never',
                 showNonBusiness: false,

@@ -150,6 +150,33 @@ foreach ($todayPlannedEvents as $event) {
 
 $todayPendingCount = count($todayPlannedEvents);
 
+$unreadInboxCount = 0;
+$pendingCalendarRequestCount = 0;
+try {
+    $unreadInboxStmt = $pdo->prepare(
+        "SELECT COUNT(*)
+         FROM admin_message_recipients
+         WHERE coach_id = ?
+           AND status = 'inbox'
+           AND read_at IS NULL"
+    );
+    $unreadInboxStmt->execute([$coachId]);
+    $unreadInboxCount = (int)$unreadInboxStmt->fetchColumn();
+
+    $pendingCalendarStmt = $pdo->prepare(
+        "SELECT COUNT(*)
+         FROM coach_calendar_events
+         WHERE coach_id = ?
+           AND approval_status = 'pending'
+           AND requested_by_athlete_id IS NOT NULL"
+    );
+    $pendingCalendarStmt->execute([$coachId]);
+    $pendingCalendarRequestCount = (int)$pendingCalendarStmt->fetchColumn();
+} catch (Throwable $e) {
+    $unreadInboxCount = 0;
+    $pendingCalendarRequestCount = 0;
+}
+
 $minutesToNextTodayEvent = null;
 if ($nextTodayEvent !== null) {
     $nextStart = new DateTimeImmutable($nextTodayEvent['starts_at']);
@@ -198,6 +225,32 @@ if (!file_exists(__DIR__ . '/../uploads/athletes/' . ($athlete['photo'] ?? 'defa
 
 renderHeader('Dashboard');
 ?>
+
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-body py-2">
+        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+            <div class="fw-semibold small text-uppercase text-muted">Rychlá upozornění</div>
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+                <a href="<?= BASE_URL ?>/zpravy.php" class="btn btn-outline-danger btn-sm d-inline-flex align-items-center">
+                    <i class="fas fa-envelope me-1"></i>Zprávy
+                    <?php if ($unreadInboxCount > 0): ?>
+                    <span class="badge rounded-pill bg-danger ms-1"><?= (int)$unreadInboxCount ?></span>
+                    <?php else: ?>
+                    <span class="badge rounded-pill bg-secondary ms-1">0</span>
+                    <?php endif; ?>
+                </a>
+                <a href="<?= BASE_URL ?>/calendar.php" class="btn btn-outline-warning btn-sm d-inline-flex align-items-center">
+                    <i class="fas fa-calendar-alt me-1"></i>Kalendář žádosti
+                    <?php if ($pendingCalendarRequestCount > 0): ?>
+                    <span class="badge rounded-pill bg-warning text-dark ms-1"><?= (int)$pendingCalendarRequestCount ?></span>
+                    <?php else: ?>
+                    <span class="badge rounded-pill bg-secondary ms-1">0</span>
+                    <?php endif; ?>
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
 
 <div class="card border-0 shadow-sm mb-3">
     <div class="card-body py-3">
