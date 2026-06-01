@@ -117,10 +117,18 @@ renderHeader('Aktivní trénink');
 <?php else: ?>
 
 <!-- Cviky -->
+<div class="small text-muted mb-2">
+    <i class="fas fa-grip-vertical me-1"></i>Pořadí cviků můžete změnit přetažením celé karty.
+</div>
+<div id="exercise-list" class="exercise-sort-list" data-session-id="<?= (int)$sessionId ?>">
 <?php foreach ($exercises as $idx => $ex): ?>
 <?php $series = $seriesByExercise[$ex['exercise_id']] ?? []; ?>
 <?php $sportType = $ex['sport_type'] ?? 'standard'; ?>
-<div class="card border-0 shadow-sm mb-4" id="exercise-card-<?= $ex['exercise_id'] ?>" data-is-timed="<?= !empty($ex['is_timed']) ? '1' : '0' ?>">
+<div class="card border-0 shadow-sm mb-4 exercise-sort-item"
+     id="exercise-card-<?= $ex['exercise_id'] ?>"
+     data-exercise-id="<?= (int)$ex['exercise_id'] ?>"
+     data-is-timed="<?= !empty($ex['is_timed']) ? '1' : '0' ?>"
+     draggable="true">
     <div class="card-header d-flex align-items-center bg-dark text-white">
         <span class="badge bg-warning text-dark me-2 fs-5"><?= $ex['exercise_order'] ?></span>
         <span class="fw-bold fs-5"><?= h($ex['exercise_name']) ?></span>
@@ -401,6 +409,7 @@ renderHeader('Aktivní trénink');
     </div>
 </div>
 <?php endforeach; ?>
+</div>
 
 <!-- Tlačítko ukončit trénink dole -->
 <?php if (!$session['completed_at']): ?>
@@ -578,6 +587,103 @@ renderHeader('Aktivní trénink');
 </div>
 
 <script>
+async function saveExerciseOrder(sessionId, orderedExerciseIds) {
+    try {
+        const response = await fetch('<?= BASE_URL ?>/api/reorder_session_exercises.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                session_id: sessionId,
+                exercise_ids: orderedExerciseIds,
+                csrf_token: '<?= csrfToken() ?>'
+            })
+        });
+        const data = await response.json();
+        if (!data.success) {
+            alert('Chyba při ukládání pořadí cviků: ' + (data.error || 'Neznámá chyba'));
+            return false;
+        }
+        return true;
+    } catch (error) {
+        alert('Chyba připojení k serveru.');
+        return false;
+    }
+}
+
+function initExerciseSort() {
+    const list = document.getElementById('exercise-list');
+    if (!list) return;
+
+    const sessionId = parseInt(list.dataset.sessionId || '0', 10);
+    if (!sessionId) return;
+
+    let draggedCard = null;
+    let isSaving = false;
+    const initialOrder = Array.from(list.querySelectorAll('.exercise-sort-item'))
+        .map(card => parseInt(card.dataset.exerciseId || '0', 10));
+
+    const getDragAfterElement = (container, y) => {
+        const draggableElements = [...container.querySelectorAll('.exercise-sort-item:not(.dragging)')];
+        return draggableElements.reduce((closest, child) => {
+            const box = child.getBoundingClientRect();
+            const offset = y - box.top - box.height / 2;
+            if (offset < 0 && offset > closest.offset) {
+                return { offset, element: child };
+            }
+            return closest;
+        }, { offset: Number.NEGATIVE_INFINITY, element: null }).element;
+    };
+
+    list.querySelectorAll('.exercise-sort-item').forEach(card => {
+        card.addEventListener('dragstart', () => {
+            if (isSaving) return;
+            draggedCard = card;
+            card.classList.add('dragging', 'opacity-75');
+        });
+
+        card.addEventListener('dragend', async () => {
+            card.classList.remove('dragging', 'opacity-75');
+            if (!draggedCard || isSaving) {
+                draggedCard = null;
+                return;
+            }
+
+            const newOrder = Array.from(list.querySelectorAll('.exercise-sort-item'))
+                .map(el => parseInt(el.dataset.exerciseId || '0', 10))
+                .filter(Boolean);
+            draggedCard = null;
+
+            const changed = newOrder.length === initialOrder.length && newOrder.some((id, idx) => id !== initialOrder[idx]);
+            if (!changed) {
+                return;
+            }
+
+            isSaving = true;
+            const ok = await saveExerciseOrder(sessionId, newOrder);
+            if (ok) {
+                window.location.reload();
+                return;
+            }
+            window.location.reload();
+        });
+    });
+
+    list.addEventListener('dragover', event => {
+        event.preventDefault();
+        if (!draggedCard || isSaving) return;
+        const afterElement = getDragAfterElement(list, event.clientY);
+        if (!afterElement) {
+            list.appendChild(draggedCard);
+            return;
+        }
+        if (afterElement !== draggedCard) {
+            list.insertBefore(draggedCard, afterElement);
+        }
+    });
+}
+
+initExerciseSort();
+
 async function updateSessionExercise(button, payload) {
     const originalHtml = button?.innerHTML || '';
     if (button) {
