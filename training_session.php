@@ -136,8 +136,29 @@ renderHeader('Aktivní trénink');
             ?>
         </span>
         <?php endif; ?>
+        <div class="ms-auto d-flex align-items-center gap-2 flex-wrap">
+            <?php if (!empty($availableExercises)): ?>
+            <select id="replace-exercise-select-<?= (int)$ex['exercise_id'] ?>" class="form-select form-select-sm" style="min-width:220px">
+                <option value="">Nahradit cvik...</option>
+                <?php foreach ($availableExercises as $availableExercise): ?>
+                <?php if ((int)$availableExercise['id'] === (int)$ex['exercise_id']) { continue; } ?>
+                <option value="<?= (int)$availableExercise['id'] ?>"><?= h($availableExercise['name']) ?></option>
+                <?php endforeach; ?>
+            </select>
+            <button type="button"
+                    class="btn btn-outline-light btn-sm"
+                    onclick="replaceExerciseInSession(this, <?= (int)$sessionId ?>, <?= (int)$ex['exercise_id'] ?>)">
+                <i class="fas fa-right-left me-1"></i>Nahradit
+            </button>
+            <?php endif; ?>
+            <button type="button"
+                    class="btn btn-outline-danger btn-sm"
+                    onclick="removeExerciseFromSession(this, <?= (int)$sessionId ?>, <?= (int)$ex['exercise_id'] ?>, <?= json_encode((string)$ex['exercise_name']) ?>)">
+                <i class="fas fa-trash me-1"></i>Odebrat
+            </button>
+        </div>
         <?php $lastCompleted = $lastCompletedByExercise[$ex['exercise_id']] ?? null; ?>
-        <span class="ms-auto badge bg-secondary" id="series-count-<?= $ex['exercise_id'] ?>">
+        <span class="badge bg-secondary" id="series-count-<?= $ex['exercise_id'] ?>">
             <?= count($series) ?> séri<?= count($series) === 1 ? 'e' : 'í' ?>
         </span>
     </div>
@@ -557,6 +578,77 @@ renderHeader('Aktivní trénink');
 </div>
 
 <script>
+async function updateSessionExercise(button, payload) {
+    const originalHtml = button?.innerHTML || '';
+    if (button) {
+        button.disabled = true;
+        button.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Ukládám...';
+    }
+
+    try {
+        const response = await fetch('<?= BASE_URL ?>/api/update_session_exercise.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                ...payload,
+                csrf_token: '<?= csrfToken() ?>'
+            })
+        });
+        const data = await response.json();
+        if (!data.success) {
+            alert('Chyba při úpravě cviku: ' + (data.error || 'Neznámá chyba'));
+            return false;
+        }
+        return true;
+    } catch (error) {
+        alert('Chyba připojení k serveru.');
+        return false;
+    } finally {
+        if (button) {
+            button.disabled = false;
+            button.innerHTML = originalHtml;
+        }
+    }
+}
+
+async function removeExerciseFromSession(button, sessionId, exerciseId, exerciseName) {
+    if (!confirm('Odebrat cvik "' + (exerciseName || 'bez názvu') + '" z tohoto tréninku?\nSmažou se i jeho zadané série v tomto tréninku.')) {
+        return;
+    }
+
+    const ok = await updateSessionExercise(button, {
+        action: 'remove',
+        session_id: sessionId,
+        exercise_id: exerciseId
+    });
+    if (ok) {
+        window.location.reload();
+    }
+}
+
+async function replaceExerciseInSession(button, sessionId, exerciseId) {
+    const select = document.getElementById('replace-exercise-select-' + exerciseId);
+    const newExerciseId = parseInt(select?.value || '0', 10);
+    if (!newExerciseId) {
+        alert('Vyberte nejdřív cvik, kterým chcete nahradit aktuální cvik.');
+        return;
+    }
+
+    if (!confirm('Nahradit tento cvik vybraným cvikem?\nPůvodní série tohoto cviku v aktuálním tréninku budou smazány.')) {
+        return;
+    }
+
+    const ok = await updateSessionExercise(button, {
+        action: 'replace',
+        session_id: sessionId,
+        exercise_id: exerciseId,
+        new_exercise_id: newExerciseId
+    });
+    if (ok) {
+        window.location.reload();
+    }
+}
+
 async function addExerciseToSession(sessionId) {
     const select = document.getElementById('add-exercise-select');
     const button = document.getElementById('add-exercise-btn');
