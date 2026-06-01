@@ -291,6 +291,98 @@ body {
     margin-top: 0.15rem;
 }
 
+.dashboard-quick-tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 0.55rem;
+}
+
+.quick-tile {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.5rem 0.75rem;
+    border-radius: 10px;
+    text-decoration: none;
+    border: 1px solid #d1d5db;
+    background: #ffffff;
+    color: #1f2937;
+    min-height: 44px;
+}
+
+.quick-tile:hover {
+    text-decoration: none;
+    color: #111827;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.12);
+}
+
+.quick-tile__label {
+    font-size: 0.88rem;
+    font-weight: 600;
+}
+
+.quick-tile__value {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 22px;
+    height: 22px;
+    padding: 0 0.42rem;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 700;
+}
+
+.quick-tile-danger {
+    border-color: #fecaca;
+    background: #fff1f2;
+}
+
+.quick-tile-danger .quick-tile__value {
+    background: #dc2626;
+    color: #fff;
+}
+
+.quick-tile-warning {
+    border-color: #fde68a;
+    background: #fffbeb;
+}
+
+.quick-tile-warning .quick-tile__value {
+    background: #f59e0b;
+    color: #111827;
+}
+
+.quick-tile-success {
+    border-color: #bbf7d0;
+    background: #f0fdf4;
+}
+
+.quick-tile-success .quick-tile__value {
+    background: #16a34a;
+    color: #fff;
+}
+
+.quick-tile-info {
+    border-color: #bae6fd;
+    background: #f0f9ff;
+}
+
+.quick-tile-info .quick-tile__value {
+    background: #0284c7;
+    color: #fff;
+}
+
+.quick-tile-muted {
+    border-color: #d1d5db;
+    background: #f9fafb;
+}
+
+.quick-tile-muted .quick-tile__value {
+    background: #6b7280;
+    color: #fff;
+}
+
 @media (max-width: 767.98px) {
     .golf-form-topbar {
         flex-direction: column;

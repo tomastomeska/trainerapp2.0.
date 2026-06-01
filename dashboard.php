@@ -226,30 +226,15 @@ if (!file_exists(__DIR__ . '/../uploads/athletes/' . ($athlete['photo'] ?? 'defa
 renderHeader('Dashboard');
 ?>
 
-<div class="card border-0 shadow-sm mb-3">
-    <div class="card-body py-2">
-        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
-            <div class="fw-semibold small text-uppercase text-muted">Rychlá upozornění</div>
-            <div class="d-flex align-items-center gap-2 flex-wrap">
-                <a href="<?= BASE_URL ?>/zpravy.php" class="btn btn-outline-danger btn-sm d-inline-flex align-items-center">
-                    <i class="fas fa-envelope me-1"></i>Zprávy
-                    <?php if ($unreadInboxCount > 0): ?>
-                    <span class="badge rounded-pill bg-danger ms-1"><?= (int)$unreadInboxCount ?></span>
-                    <?php else: ?>
-                    <span class="badge rounded-pill bg-secondary ms-1">0</span>
-                    <?php endif; ?>
-                </a>
-                <a href="<?= BASE_URL ?>/calendar.php" class="btn btn-outline-warning btn-sm d-inline-flex align-items-center">
-                    <i class="fas fa-calendar-alt me-1"></i>Kalendář žádosti
-                    <?php if ($pendingCalendarRequestCount > 0): ?>
-                    <span class="badge rounded-pill bg-warning text-dark ms-1"><?= (int)$pendingCalendarRequestCount ?></span>
-                    <?php else: ?>
-                    <span class="badge rounded-pill bg-secondary ms-1">0</span>
-                    <?php endif; ?>
-                </a>
-            </div>
-        </div>
-    </div>
+<div class="dashboard-quick-tiles mb-3">
+    <a href="<?= BASE_URL ?>/zpravy.php" class="quick-tile quick-tile-danger">
+        <span class="quick-tile__label"><i class="fas fa-envelope me-1"></i>Zprávy</span>
+        <span class="quick-tile__value"><?= (int)$unreadInboxCount ?></span>
+    </a>
+    <a href="<?= BASE_URL ?>/calendar.php" class="quick-tile quick-tile-warning">
+        <span class="quick-tile__label"><i class="fas fa-calendar-alt me-1"></i>Žádosti kalendáře</span>
+        <span class="quick-tile__value"><?= (int)$pendingCalendarRequestCount ?></span>
+    </a>
 </div>
 
 <div class="card border-0 shadow-sm mb-3">

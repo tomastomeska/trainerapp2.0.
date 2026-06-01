@@ -224,31 +224,31 @@ renderAthleteHeader('Profil sportovce');
 
 <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
     <h2 class="mb-0"><i class="fas fa-user me-2 text-warning"></i>Můj profil</h2>
-    <div class="d-flex gap-2 flex-wrap">
-        <a href="<?= BASE_URL ?>/athlete_zpravy.php" class="btn btn-outline-danger btn-sm d-inline-flex align-items-center">
-            <i class="fas fa-envelope me-1"></i>Zprávy
-            <?php if ($unreadInboxCount > 0): ?>
-            <span class="badge rounded-pill bg-danger ms-1"><?= (int)$unreadInboxCount ?></span>
-            <?php else: ?>
-            <span class="badge rounded-pill bg-secondary ms-1">0</span>
-            <?php endif; ?>
-        </a>
-        <a href="<?= BASE_URL ?>/athlete_mealplans.php" class="btn btn-outline-success btn-sm"><i class="fas fa-utensils me-1"></i>Jídelníčky</a>
-        <a href="<?= BASE_URL ?>/athlete_graphs.php" class="btn btn-outline-info btn-sm"><i class="fas fa-chart-line me-1"></i>Grafy</a>
-        <a href="<?= BASE_URL ?>/athlete_calendar.php" class="btn btn-outline-warning btn-sm"><i class="fas fa-calendar-alt me-1"></i>Kalendář</a>
-        <a href="<?= BASE_URL ?>/athlete_change_password.php" class="btn btn-outline-secondary btn-sm"><i class="fas fa-key me-1"></i>Změnit heslo</a>
-    </div>
+    <div class="d-flex gap-2 flex-wrap"></div>
 </div>
 
-<?php if ($unreadInboxCount > 0): ?>
-<div class="alert alert-danger d-flex align-items-center justify-content-between flex-wrap gap-2" role="alert">
-    <div>
-        <i class="fas fa-envelope me-2"></i>
-        Máte nepřečtené zprávy: <strong><?= (int)$unreadInboxCount ?></strong>
-    </div>
-    <a href="<?= BASE_URL ?>/athlete_zpravy.php" class="btn btn-sm btn-danger fw-semibold">Otevřít zprávy</a>
+<div class="dashboard-quick-tiles mb-3">
+    <a href="<?= BASE_URL ?>/athlete_zpravy.php" class="quick-tile quick-tile-danger">
+        <span class="quick-tile__label"><i class="fas fa-envelope me-1"></i>Zprávy</span>
+        <span class="quick-tile__value"><?= (int)$unreadInboxCount ?></span>
+    </a>
+    <a href="<?= BASE_URL ?>/athlete_mealplans.php" class="quick-tile quick-tile-success">
+        <span class="quick-tile__label"><i class="fas fa-utensils me-1"></i>Jídelníčky</span>
+        <span class="quick-tile__value"><i class="fas fa-chevron-right"></i></span>
+    </a>
+    <a href="<?= BASE_URL ?>/athlete_graphs.php" class="quick-tile quick-tile-info">
+        <span class="quick-tile__label"><i class="fas fa-chart-line me-1"></i>Grafy</span>
+        <span class="quick-tile__value"><i class="fas fa-chevron-right"></i></span>
+    </a>
+    <a href="<?= BASE_URL ?>/athlete_calendar.php" class="quick-tile quick-tile-warning">
+        <span class="quick-tile__label"><i class="fas fa-calendar-alt me-1"></i>Kalendář</span>
+        <span class="quick-tile__value"><i class="fas fa-chevron-right"></i></span>
+    </a>
+    <a href="<?= BASE_URL ?>/athlete_change_password.php" class="quick-tile quick-tile-muted">
+        <span class="quick-tile__label"><i class="fas fa-key me-1"></i>Heslo</span>
+        <span class="quick-tile__value"><i class="fas fa-chevron-right"></i></span>
+    </a>
 </div>
-<?php endif; ?>
 
 <div class="row g-4 mb-4">
     <div class="col-lg-4">
