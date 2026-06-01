@@ -134,9 +134,9 @@ renderHeader('Detail tréninku');
     <div class="card-header bg-dark text-white d-flex align-items-center">
         <span class="badge bg-warning text-dark me-2 fs-5"><?= $ex['exercise_order'] ?></span>
         <span class="fw-bold fs-5"><?= h($ex['exercise_name']) ?></span>
-        <?php if ($series): ?>
+        <?php if ($series && empty($ex['is_timed'])): ?>
         <?php
-        $maxW  = max(array_column($series, 'weight'));
+        $maxW  = max(array_map(fn($row) => (float)$row['weight'] + (float)($row['equipment_weight'] ?? 0), $series));
         $maxR  = max(array_column($series, 'reps'));
         ?>
         <div class="ms-auto small text-secondary">
@@ -154,17 +154,27 @@ renderHeader('Detail tréninku');
                 <thead class="table-light">
                     <tr>
                         <th>#</th>
+                        <?php if (!empty($ex['is_timed'])): ?>
+                        <th>Čas</th>
+                        <th>Váha náčiní (kg)</th>
+                        <?php else: ?>
                         <th>Váha (kg)</th>
                         <th>Opakování</th>
                         <th>Dopomoc</th>
                         <th>Objem</th>
+                        <?php endif; ?>
                     </tr>
                 </thead>
                 <tbody>
                     <?php foreach ($series as $s): ?>
                     <tr>
                         <td class="fw-bold text-muted"><?= $s['series_order'] ?></td>
-                        <td class="fw-bold"><?= number_format($s['weight'], 1, ',', '') ?> kg</td>
+                        <?php if (!empty($ex['is_timed'])): ?>
+                        <td class="fw-bold"><?= !empty($s['duration_seconds']) ? formatSeriesDuration((int)$s['duration_seconds']) : '–' ?></td>
+                        <?php $seriesTimedLoad = (float)$s['weight'] + (float)($s['equipment_weight'] ?? 0); ?>
+                        <td class="fw-bold"><?= $seriesTimedLoad > 0 ? number_format($seriesTimedLoad, 1, ',', '') . ' kg' : '–' ?></td>
+                        <?php else: ?>
+                        <td class="fw-bold"><?= number_format((float)$s['weight'] + (float)($s['equipment_weight'] ?? 0), 1, ',', '') ?> kg</td>
                         <td><?= $s['reps'] ?></td>
                         <td>
                             <?php if ($s['assistance_reps'] > 0): ?>
@@ -173,18 +183,21 @@ renderHeader('Detail tréninku');
                             <span class="text-muted">–</span>
                             <?php endif; ?>
                         </td>
-                        <td class="text-muted"><?= number_format($s['weight'] * $s['reps'], 0, ',', '') ?></td>
+                        <td class="text-muted"><?= number_format(((float)$s['weight'] + (float)($s['equipment_weight'] ?? 0)) * $s['reps'], 0, ',', '') ?></td>
+                        <?php endif; ?>
                     </tr>
                     <?php endforeach; ?>
                 </tbody>
+                <?php if (empty($ex['is_timed'])): ?>
                 <tfoot class="table-dark">
                     <tr>
                         <td colspan="4" class="text-end fw-semibold">Objem celkem</td>
                         <td class="fw-bold">
-                            <?= number_format(array_sum(array_map(fn($s) => $s['weight'] * $s['reps'], $series)), 0, ',', '') ?>
+                            <?= number_format(array_sum(array_map(fn($s) => ((float)$s['weight'] + (float)($s['equipment_weight'] ?? 0)) * $s['reps'], $series)), 0, ',', '') ?>
                         </td>
                     </tr>
                 </tfoot>
+                <?php endif; ?>
             </table>
         </div>
         <?php endif; ?>

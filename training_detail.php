@@ -497,7 +497,7 @@ renderHeader('Detail tréninku');
     <div class="card-header bg-dark text-white d-flex align-items-center">
         <span class="badge bg-warning text-dark me-2 fs-5"><?= $ex['exercise_order'] ?></span>
         <span class="fw-bold fs-5"><?= h($ex['exercise_name']) ?></span>
-        <?php if ($series): ?>
+        <?php if ($series && empty($ex['is_timed'])): ?>
         <?php
         $maxW  = max(array_map(fn($row) => (float)$row['weight'] + (float)($row['equipment_weight'] ?? 0), $series));
         $maxR  = max(array_column($series, 'reps'));
@@ -517,10 +517,15 @@ renderHeader('Detail tréninku');
                 <thead class="table-light">
                     <tr>
                         <th>#</th>
+                        <?php if (!empty($ex['is_timed'])): ?>
+                        <th>Čas</th>
+                        <th>Váha náčiní (kg)</th>
+                        <?php else: ?>
                         <th>Váha (kg)</th>
                         <th>Opakování</th>
                         <th>Dopomoc</th>
                         <th>Objem</th>
+                        <?php endif; ?>
                         <?php if ($editMode): ?><th style="width:50px"></th><?php endif; ?>
                     </tr>
                 </thead>
@@ -528,6 +533,11 @@ renderHeader('Detail tréninku');
                     <?php foreach ($series as $s): ?>
                     <tr id="series-row-<?= $s['id'] ?>">
                         <td class="fw-bold text-muted"><?= $s['series_order'] ?></td>
+                        <?php if (!empty($ex['is_timed'])): ?>
+                        <td class="fw-bold"><?= !empty($s['duration_seconds']) ? formatSeriesDuration((int)$s['duration_seconds']) : '–' ?></td>
+                        <?php $seriesTimedLoad = (float)$s['weight'] + (float)($s['equipment_weight'] ?? 0); ?>
+                        <td class="fw-bold"><?= $seriesTimedLoad > 0 ? number_format($seriesTimedLoad, 1, ',', '') : '–' ?></td>
+                        <?php else: ?>
                         <?php $seriesWeightTotal = (float)$s['weight'] + (float)($s['equipment_weight'] ?? 0); ?>
                         <td class="fw-bold">
                             <?= number_format($seriesWeightTotal, 1, ',', '') ?> kg
@@ -544,8 +554,14 @@ renderHeader('Detail tréninku');
                             <?php endif; ?>
                         </td>
                         <td class="text-muted"><?= number_format(((float)$s['weight'] + (float)($s['equipment_weight'] ?? 0)) * $s['reps'], 0, ',', '') ?></td>
+                        <?php endif; ?>
                         <?php if ($editMode): ?>
                         <td>
+                            <button class="btn btn-outline-secondary btn-sm mb-1"
+                                    onclick="editSeriesPrompt(<?= (int)$s['id'] ?>, <?= (int)$ex['exercise_id'] ?>, <?= !empty($ex['is_timed']) ? 1 : 0 ?>, <?= (float)$s['weight'] ?>, <?= (float)($s['equipment_weight'] ?? 0) ?>, <?= (int)$s['reps'] ?>, <?= (int)$s['assistance_reps'] ?>, <?= (int)($s['duration_seconds'] ?? 0) ?>)"
+                                    title="Upravit sérii">
+                                <i class="fas fa-pen"></i>
+                            </button>
                             <button class="btn btn-outline-danger btn-sm"
                                     onclick="deleteSeries(<?= $s['id'] ?>, <?= $ex['exercise_id'] ?>)"
                                     title="Smazat sérii">
@@ -556,6 +572,7 @@ renderHeader('Detail tréninku');
                     </tr>
                     <?php endforeach; ?>
                 </tbody>
+                <?php if (empty($ex['is_timed'])): ?>
                 <tfoot class="table-dark">
                     <tr>
                         <td colspan="4" class="text-end fw-semibold">Objem celkem</td>
@@ -564,6 +581,7 @@ renderHeader('Detail tréninku');
                         </td>
                     </tr>
                 </tfoot>
+                <?php endif; ?>
             </table>
         </div>
         <?php endif; ?>
@@ -581,13 +599,7 @@ renderHeader('Detail tréninku');
                                id="weight-<?= $ex['exercise_id'] ?>"
                                placeholder="80" style="width:90px">
                     </div>
-                    <div>
-                        <label class="form-label small fw-semibold mb-1">Váha náčiní (kg)</label>
-                        <input type="number" step="0.5" min="0" max="999"
-                               class="form-control form-control-sm series-equipment-weight"
-                               id="equipment-weight-<?= $ex['exercise_id'] ?>"
-                               placeholder="10" style="width:120px">
-                    </div>
+                    <?php if (empty($ex['is_timed'])): ?>
                     <div>
                         <label class="form-label small fw-semibold mb-1">Opakování</label>
                         <input type="number" step="1" min="0" max="999"
@@ -601,6 +613,31 @@ renderHeader('Detail tréninku');
                                class="form-control form-control-sm series-assist"
                                id="assist-<?= $ex['exercise_id'] ?>"
                                placeholder="0" style="width:80px">
+                    </div>
+                    <?php else: ?>
+                    <div>
+                        <label class="form-label small fw-semibold mb-1">Čas</label>
+                        <div class="d-flex align-items-center gap-1">
+                            <select class="form-select form-select-sm" id="time-min-<?= $ex['exercise_id'] ?>" style="width:85px">
+                                <?php for ($m = 0; $m <= 60; $m++): ?>
+                                <option value="<?= $m ?>"><?= sprintf('%02d', $m) ?> min</option>
+                                <?php endfor; ?>
+                            </select>
+                            <select class="form-select form-select-sm" id="time-sec-<?= $ex['exercise_id'] ?>" style="width:85px">
+                                <?php for ($s = 0; $s <= 60; $s++): ?>
+                                <option value="<?= $s ?>"><?= sprintf('%02d', $s) ?> s</option>
+                                <?php endfor; ?>
+                            </select>
+                        </div>
+                    </div>
+                    <?php endif; ?>
+                    <div>
+                        <label class="form-label small fw-semibold mb-1">Váha náčiní (kg)</label>
+                        <input type="number" step="0.5" min="0" max="999"
+                               class="form-control form-control-sm series-equipment-weight"
+                               id="equipment-weight-<?= $ex['exercise_id'] ?>"
+                               placeholder="10" style="width:120px">
+                        <div class="form-text small">Bude přičteno k celkové váze.</div>
                     </div>
                     <div>
                         <button type="button"
@@ -802,19 +839,55 @@ function previewAddGalleryPhotos(input) {
     previewInfo.textContent = 'K nahrání je připraveno ' + files.length + ' fotografií.';
 }
 
+function parseSeriesDuration(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return 0;
+    const parts = raw.split(':').map(part => parseInt(part, 10));
+    if (parts.some(Number.isNaN)) return 0;
+    if (parts.length === 3) return (parts[0] * 3600) + (parts[1] * 60) + parts[2];
+    if (parts.length === 2) return (parts[0] * 60) + parts[1];
+    return parts[0];
+}
+
+function formatSeriesDurationJs(seconds) {
+    const total = Math.max(0, parseInt(seconds, 10) || 0);
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    const restSeconds = total % 60;
+    if (hours > 0) {
+        return `${hours}:${String(minutes).padStart(2, '0')}:${String(restSeconds).padStart(2, '0')}`;
+    }
+    return `${minutes}:${String(restSeconds).padStart(2, '0')}`;
+}
+
+function durationFromMinuteSecondInputs(minEl, secEl) {
+    const minutes = parseInt(minEl?.value || '0', 10) || 0;
+    const seconds = parseInt(secEl?.value || '0', 10) || 0;
+    return Math.max(0, minutes * 60 + seconds);
+}
+
 // Přidání série
 function addSeries(exerciseId, sessionId) {
+    const isTimed = document.getElementById('time-min-' + exerciseId) !== null;
     const weightInput = document.getElementById('weight-' + exerciseId);
     const equipmentWeightInput = document.getElementById('equipment-weight-' + exerciseId);
     const repsInput   = document.getElementById('reps-' + exerciseId);
     const assistInput = document.getElementById('assist-' + exerciseId);
+    const timeMinInput = document.getElementById('time-min-' + exerciseId);
+    const timeSecInput = document.getElementById('time-sec-' + exerciseId);
 
-    const weight = parseFloat(weightInput.value) || 0;
+    const weight = isTimed ? 0 : (parseFloat(weightInput.value) || 0);
     const equipmentWeight = parseFloat(equipmentWeightInput.value) || 0;
-    const reps   = parseInt(repsInput.value) || 0;
-    const assist = parseInt(assistInput.value) || 0;
+    const reps   = isTimed ? 0 : (parseInt(repsInput.value) || 0);
+    const assist = isTimed ? 0 : (parseInt(assistInput.value) || 0);
+    const durationSeconds = isTimed ? durationFromMinuteSecondInputs(timeMinInput, timeSecInput) : 0;
 
-    if (weight <= 0 && reps <= 0) {
+    if (isTimed && durationSeconds <= 0) {
+        alert('Zadejte čas série pomocí minut a vteřin.');
+        return;
+    }
+
+    if (!isTimed && weight <= 0 && reps <= 0) {
         alert('Zadej alespoň váhu nebo opakování');
         return;
     }
@@ -829,7 +902,8 @@ function addSeries(exerciseId, sessionId) {
         weight: weight,
         equipment_weight: equipmentWeight,
         reps: reps,
-        assistance_reps: assist
+        assistance_reps: assist,
+        duration_seconds: durationSeconds
     };
     
     fetch('<?= BASE_URL ?>/api/save_series.php', {
@@ -850,6 +924,71 @@ function addSeries(exerciseId, sessionId) {
     .catch(err => {
         alert('Chyba: ' + err.message);
     });
+}
+
+function editSeriesPrompt(seriesId, exerciseId, isTimed, currentWeight, currentEquipmentWeight, currentReps, currentAssist, currentDurationSeconds) {
+    let weight = parseFloat(currentWeight) || 0;
+    let equipmentWeight = parseFloat(currentEquipmentWeight) || 0;
+    let reps = parseInt(currentReps, 10) || 0;
+    let assist = parseInt(currentAssist, 10) || 0;
+    let durationSeconds = parseInt(currentDurationSeconds, 10) || 0;
+
+    if (isTimed) {
+        const timeInput = prompt('Čas série (mm:ss)', durationSeconds > 0 ? formatSeriesDurationJs(durationSeconds) : '');
+        if (timeInput === null) return;
+        durationSeconds = parseSeriesDuration(timeInput);
+        if (durationSeconds <= 0) {
+            alert('Neplatný čas série.');
+            return;
+        }
+        const equipmentInput = prompt('Váha náčiní (kg, volitelně)', equipmentWeight > 0 ? String(equipmentWeight).replace('.', ',') : '');
+        if (equipmentInput === null) return;
+        equipmentWeight = parseFloat(String(equipmentInput).replace(',', '.')) || 0;
+        weight = 0;
+        reps = 0;
+        assist = 0;
+    } else {
+        const weightInput = prompt('Váha (kg)', String(weight).replace('.', ','));
+        if (weightInput === null) return;
+        weight = parseFloat(String(weightInput).replace(',', '.')) || 0;
+
+        const repsInput = prompt('Opakování', String(reps));
+        if (repsInput === null) return;
+        reps = parseInt(repsInput, 10) || 0;
+
+        const assistInput = prompt('Dopomoc', String(assist));
+        if (assistInput === null) return;
+        assist = parseInt(assistInput, 10) || 0;
+
+        const equipmentInput = prompt('Váha náčiní (kg, volitelně)', equipmentWeight > 0 ? String(equipmentWeight).replace('.', ',') : '');
+        if (equipmentInput === null) return;
+        equipmentWeight = parseFloat(String(equipmentInput).replace(',', '.')) || 0;
+        durationSeconds = 0;
+    }
+
+    fetch('<?= BASE_URL ?>/api/update_series.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            csrf_token: '<?= csrfToken() ?>',
+            series_id: seriesId,
+            weight: weight,
+            equipment_weight: equipmentWeight,
+            reps: reps,
+            assistance_reps: assist,
+            duration_seconds: durationSeconds
+        })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            allowEditModeLeave = true;
+            window.location.href = '<?= BASE_URL ?>/training_detail.php?id=<?= $sessionId ?>&edit=1';
+        } else {
+            alert('Chyba: ' + (data.error || 'Neznámá chyba'));
+        }
+    })
+    .catch(err => alert('Chyba: ' + err.message));
 }
 
 // Smazání série

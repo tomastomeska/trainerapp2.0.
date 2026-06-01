@@ -21,6 +21,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Přidat nový globální cvik
     if ($action === 'add') {
         $name = trim($_POST['name'] ?? '');
+        $isTimed = !empty($_POST['is_timed']) ? 1 : 0;
         if ($name === '') {
             flash('danger', 'Zadejte název cviku.');
             redirect(BASE_URL . '/admin/exercises.php');
@@ -40,8 +41,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 redirect(BASE_URL . '/admin/exercises.php');
             }
         }
-        $pdo->prepare('INSERT INTO exercises (coach_id, name, photo, is_global) VALUES (NULL, ?, ?, 1)')
-            ->execute([$name, $photo]);
+        $pdo->prepare('INSERT INTO exercises (coach_id, name, photo, is_global, is_timed) VALUES (NULL, ?, ?, 1, ?)')
+            ->execute([$name, $photo, $isTimed]);
         flash('success', 'Globální cvik byl přidán.');
         redirect(BASE_URL . '/admin/exercises.php');
     }
@@ -50,6 +51,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'rename') {
         $id   = intParam($_POST, 'exercise_id');
         $name = trim($_POST['new_name'] ?? '');
+        $isTimed = !empty($_POST['is_timed']) ? 1 : 0;
         if ($id <= 0 || $name === '') {
             flash('danger', 'Neplatná data.');
             redirect(BASE_URL . '/admin/exercises.php');
@@ -70,8 +72,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $photo = $newPhoto;
             }
         }
-        $pdo->prepare('UPDATE exercises SET name = ?, photo = ? WHERE id = ? AND is_global = 1')
-            ->execute([$name, $photo, $id]);
+        $pdo->prepare('UPDATE exercises SET name = ?, photo = ?, is_timed = ? WHERE id = ? AND is_global = 1')
+            ->execute([$name, $photo, $isTimed, $id]);
         flash('success', 'Cvik byl upraven.');
         redirect(BASE_URL . '/admin/exercises.php');
     }
@@ -151,6 +153,12 @@ renderAdminHeader('Globální cviky');
                 <label class="form-label small mb-1">Název cviku</label>
                 <input type="text" name="name" class="form-control" required placeholder="Název cviku...">
             </div>
+            <div class="col-md-2">
+                <div class="form-check mt-4 pt-2">
+                    <input class="form-check-input" type="checkbox" name="is_timed" value="1" id="global-exercise-timed">
+                    <label class="form-check-label fw-semibold" for="global-exercise-timed">Časový</label>
+                </div>
+            </div>
             <div class="col-md-4">
                 <label class="form-label small mb-1">Fotografie (nepovinné)</label>
                 <input type="file" name="photo" class="form-control" accept="image/*">
@@ -200,6 +208,9 @@ renderAdminHeader('Globální cviky');
                         <span class="exercise-name fw-semibold">
                             <?= h($ex['name']) ?>
                             <span class="badge ms-1" style="background:#e8e4ff;color:#7c3aed;font-size:.7em">globální</span>
+                            <?php if (!empty($ex['is_timed'])): ?>
+                            <span class="badge bg-warning text-dark ms-1" style="font-size:.7em">časový</span>
+                            <?php endif; ?>
                         </span>
                         <!-- Formulář editace (skrytý) -->
                         <form class="exercise-edit d-none" method="post" enctype="multipart/form-data">
@@ -209,6 +220,10 @@ renderAdminHeader('Globální cviky');
                             <div class="d-flex gap-2 flex-wrap align-items-center mt-1">
                                 <input type="text" name="new_name" class="form-control form-control-sm"
                                        value="<?= h($ex['name']) ?>" style="min-width:200px">
+                                <div class="form-check form-check-inline mb-0">
+                                    <input class="form-check-input" type="checkbox" name="is_timed" value="1" id="global-edit-timed-<?= $ex['id'] ?>" <?= !empty($ex['is_timed']) ? 'checked' : '' ?>>
+                                    <label class="form-check-label small" for="global-edit-timed-<?= $ex['id'] ?>">Časový</label>
+                                </div>
                                 <input type="file" name="photo" class="form-control form-control-sm"
                                        accept="image/*" style="max-width:200px"
                                        title="Změnit fotografii (nepovinné)">

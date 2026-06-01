@@ -37,12 +37,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     } else {
         $name = trim($_POST['name'] ?? '');
         $sportType = normalizeExerciseSportType($name, (string)($_POST['sport_type'] ?? 'standard'));
+        $isTimed = !empty($_POST['is_timed']) ? 1 : 0;
         if ($name === '') {
             $error = 'Zadejte název cviku.';
         } else {
             $photo = saveUploadedPhoto('photo', 'exercises');
-            $pdo->prepare('INSERT INTO exercises (coach_id, name, photo, sport_type) VALUES (?, ?, ?, ?)')
-                ->execute([$coachId, $name, $photo, $sportType]);
+            $pdo->prepare('INSERT INTO exercises (coach_id, name, photo, sport_type, is_timed) VALUES (?, ?, ?, ?, ?)')
+                ->execute([$coachId, $name, $photo, $sportType, $isTimed]);
             flash('success', "Cvik \"$name\" byl přidán.");
             redirect(BASE_URL . '/exercises.php');
         }
@@ -82,6 +83,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $exId    = intParam($_POST, 'exercise_id');
         $newName = trim($_POST['new_name'] ?? '');
         $sportType = normalizeExerciseSportType($newName, (string)($_POST['sport_type'] ?? 'standard'));
+        $isTimed = !empty($_POST['is_timed']) ? 1 : 0;
         if ($newName === '') {
             $error = 'Zadejte název cviku.';
         } else {
@@ -92,11 +94,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 $stmtOld->execute([$exId, $coachId]);
                 $oldRow = $stmtOld->fetch();
                 if ($oldRow) deleteUploadedPhoto($oldRow['photo'], 'exercises');
-                $pdo->prepare('UPDATE exercises SET name = ?, photo = ?, sport_type = ? WHERE id = ? AND coach_id = ?')
-                    ->execute([$newName, $newPhoto, $sportType, $exId, $coachId]);
+                $pdo->prepare('UPDATE exercises SET name = ?, photo = ?, sport_type = ?, is_timed = ? WHERE id = ? AND coach_id = ?')
+                    ->execute([$newName, $newPhoto, $sportType, $isTimed, $exId, $coachId]);
             } else {
-                $pdo->prepare('UPDATE exercises SET name = ?, sport_type = ? WHERE id = ? AND coach_id = ?')
-                    ->execute([$newName, $sportType, $exId, $coachId]);
+                $pdo->prepare('UPDATE exercises SET name = ?, sport_type = ?, is_timed = ? WHERE id = ? AND coach_id = ?')
+                    ->execute([$newName, $sportType, $isTimed, $exId, $coachId]);
             }
             flash('success', 'Cvik byl upraven.');
             redirect(BASE_URL . '/exercises.php');
@@ -164,6 +166,11 @@ renderHeader('Cviky');
                         </select>
                         <div class="form-text">Pokud název obsahuje pás nebo hala, aplikace automaticky nastaví běh na páse.</div>
                     </div>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" name="is_timed" value="1" id="add-exercise-is-timed">
+                        <label class="form-check-label fw-semibold" for="add-exercise-is-timed">Cvik měřený časem</label>
+                        <div class="form-text">Pro cviky jako plank zadávejte primárně čas, váhu jen při přidané zátěži.</div>
+                    </div>
                     <div class="mb-3">
                         <label class="form-label fw-semibold">Fotografie <span class="text-muted fw-normal">(nepovinné)</span></label>
                         <input type="file" name="photo" class="form-control" accept="image/*">
@@ -218,6 +225,9 @@ renderHeader('Cviky');
                                 $typeInfo = $typeLabels[$ex['sport_type']] ?? $typeLabels['standard'];
                             ?>
                             <span class="badge bg-<?= $typeInfo['color'] ?> ms-2 small"><?= $typeInfo['label'] ?></span>
+                                                        <?php if (!empty($ex['is_timed'])): ?>
+                                                        <span class="badge bg-warning text-dark ms-1 small">časový</span>
+                                                        <?php endif; ?>
                             <span class="exercise-edit d-none">
                                 <form method="post" enctype="multipart/form-data"
                                       class="d-flex flex-wrap gap-2 align-items-center mt-1">
@@ -232,6 +242,10 @@ renderHeader('Cviky');
                                         <option value="run_outdoor" <?= $ex['sport_type'] === 'run_outdoor' ? 'selected' : '' ?>>Běh venku</option>
                                         <option value="run_treadmill" <?= $ex['sport_type'] === 'run_treadmill' ? 'selected' : '' ?>>Běh na páse / v hale</option>
                                     </select>
+                                    <div class="form-check form-check-inline ms-1">
+                                        <input class="form-check-input js-exercise-is-timed" type="checkbox" name="is_timed" value="1" id="edit-timed-<?= $ex['id'] ?>" <?= !empty($ex['is_timed']) ? 'checked' : '' ?>>
+                                        <label class="form-check-label small" for="edit-timed-<?= $ex['id'] ?>">Čas</label>
+                                    </div>
                                     <input type="file" name="photo" class="form-control form-control-sm"
                                            accept="image/*" style="max-width:100%;flex:1;min-width:0"
                                            title="Změnit fotografii (nepovinné)">

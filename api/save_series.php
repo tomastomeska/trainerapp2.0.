@@ -29,6 +29,7 @@ $weight     = (float)($input['weight']    ?? 0);
 $equipmentWeight = (float)($input['equipment_weight'] ?? 0);
 $reps       = (int)($input['reps']        ?? 0);
 $assist     = (int)($input['assistance_reps'] ?? 0);
+$durationSeconds = (int)($input['duration_seconds'] ?? 0);
 
 $pdo = getDB();
 
@@ -46,18 +47,31 @@ if (!$stmt->fetch()) {
 }
 
 // Ověření cviku
-$stmt2 = $pdo->prepare('SELECT id FROM exercises WHERE id = ? AND (coach_id = ? OR is_global = 1)');
+$stmt2 = $pdo->prepare('SELECT id, is_timed FROM exercises WHERE id = ? AND (coach_id = ? OR is_global = 1)');
 $stmt2->execute([$exerciseId, $coachId]);
-if (!$stmt2->fetch()) {
+$exercise = $stmt2->fetch();
+if (!$exercise) {
     echo json_encode(['success' => false, 'error' => 'Cvik nenalezen']);
     exit;
 }
 
+$isTimed = (int)($exercise['is_timed'] ?? 0) === 1;
+if ($isTimed) {
+    if ($durationSeconds <= 0) {
+        echo json_encode(['success' => false, 'error' => 'Zadejte čas série']);
+        exit;
+    }
+    $reps = 0;
+    $assist = 0;
+} else {
+    $durationSeconds = null;
+}
+
 $stmt3 = $pdo->prepare(
-    'INSERT INTO session_series (session_id, exercise_id, series_order, weight, equipment_weight, reps, assistance_reps)
-     VALUES (?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO session_series (session_id, exercise_id, series_order, weight, equipment_weight, reps, assistance_reps, duration_seconds)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
 );
-$stmt3->execute([$sessionId, $exerciseId, $order, $weight, $equipmentWeight ?: null, $reps, $assist]);
+$stmt3->execute([$sessionId, $exerciseId, $order, $weight, $equipmentWeight ?: null, $reps, $assist, $durationSeconds]);
 $newId = (int)$pdo->lastInsertId();
 
 echo json_encode(['success' => true, 'id' => $newId]);

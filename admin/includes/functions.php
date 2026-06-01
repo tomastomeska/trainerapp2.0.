@@ -108,7 +108,7 @@ function getSeriesForExercise(int $sessionId, int $exerciseId): array {
 function getWorkoutSetExercises(int $setId): array {
     $pdo  = getDB();
     $stmt = $pdo->prepare(
-        'SELECT wse.*, e.name AS exercise_name
+        'SELECT wse.*, e.name AS exercise_name, e.sport_type, e.is_timed
          FROM workout_set_exercises wse
          JOIN exercises e ON wse.exercise_id = e.id
          WHERE wse.workout_set_id = ?
@@ -123,7 +123,7 @@ function getSessionExercises(int $sessionId, int $setId): array {
     $pdo = getDB();
 
     $snapshot = $pdo->prepare(
-        'SELECT tse.exercise_id, tse.exercise_order, tse.exercise_name
+        'SELECT tse.exercise_id, tse.exercise_order, tse.exercise_name, tse.sport_type, tse.is_timed
          FROM training_session_exercises tse
          WHERE tse.session_id = ?
          ORDER BY tse.exercise_order ASC'
@@ -131,6 +131,29 @@ function getSessionExercises(int $sessionId, int $setId): array {
     $snapshot->execute([$sessionId]);
     $snapshotRows = $snapshot->fetchAll();
     if (!empty($snapshotRows)) {
+        $ids = array_values(array_unique(array_map(fn($row) => (int)$row['exercise_id'], $snapshotRows)));
+        $metaById = [];
+        if (!empty($ids)) {
+            $inClause = implode(',', array_fill(0, count($ids), '?'));
+            $stmtTypes = $pdo->prepare("SELECT id, sport_type, is_timed FROM exercises WHERE id IN ($inClause)");
+            $stmtTypes->execute($ids);
+            foreach ($stmtTypes->fetchAll() as $typeRow) {
+                $metaById[(int)$typeRow['id']] = [
+                    'sport_type' => $typeRow['sport_type'] ?? 'standard',
+                    'is_timed' => (int)($typeRow['is_timed'] ?? 0),
+                ];
+            }
+        }
+        foreach ($snapshotRows as &$row) {
+            $meta = $metaById[(int)$row['exercise_id']] ?? ['sport_type' => 'standard', 'is_timed' => 0];
+            if (!isset($row['sport_type']) || $row['sport_type'] === '' || $row['sport_type'] === null) {
+                $row['sport_type'] = $meta['sport_type'];
+            }
+            if (!isset($row['is_timed']) || $row['is_timed'] === '' || $row['is_timed'] === null || ((int)$row['is_timed'] === 0 && $meta['is_timed'] === 1)) {
+                $row['is_timed'] = $meta['is_timed'];
+            }
+        }
+        unset($row);
         return $snapshotRows;
     }
 
@@ -144,6 +167,8 @@ function getSessionExercises(int $sessionId, int $setId): array {
             'exercise_id'    => $eid,
             'exercise_order' => $ord,
             'exercise_name'  => $row['exercise_name'],
+            'sport_type'     => $row['sport_type'] ?? 'standard',
+            'is_timed'       => (int)($row['is_timed'] ?? 0),
         ];
         if ($ord > $maxOrder) {
             $maxOrder = $ord;
@@ -152,7 +177,7 @@ function getSessionExercises(int $sessionId, int $setId): array {
 
     // Starší data bez snapshotu: doplň cviky, které už nejsou v sadě, ale mají série.
     $fromSeries = $pdo->prepare(
-        'SELECT DISTINCT ss.exercise_id, e.name AS exercise_name
+        'SELECT DISTINCT ss.exercise_id, e.name AS exercise_name, e.sport_type, e.is_timed
          FROM session_series ss
          JOIN exercises e ON e.id = ss.exercise_id
          WHERE ss.session_id = ?
@@ -167,6 +192,8 @@ function getSessionExercises(int $sessionId, int $setId): array {
                 'exercise_id'    => $eid,
                 'exercise_order' => $maxOrder,
                 'exercise_name'  => $row['exercise_name'],
+                'sport_type'     => $row['sport_type'] ?? 'standard',
+                'is_timed'       => (int)($row['is_timed'] ?? 0),
             ];
         }
     }

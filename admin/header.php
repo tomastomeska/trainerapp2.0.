@@ -5,6 +5,13 @@ function renderAdminHeader(string $title = ''): void {
 	$flash   = getFlash();
 	$appName = APP_NAME . ' Admin';
 	$fullTitle = $title ? "$title – $appName" : $appName;
+	$supportNewCount = 0;
+	try {
+		$pdo = getDB();
+		$supportNewCount = (int)$pdo->query("SELECT COUNT(*) FROM support_tickets WHERE status = 'new'")->fetchColumn();
+	} catch (Throwable $e) {
+		$supportNewCount = 0;
+	}
 	?>
 <!DOCTYPE html>
 <html lang="cs">
@@ -95,6 +102,13 @@ function renderAdminHeader(string $title = ''): void {
 				<a href="<?= BASE_URL ?>/admin/email_notifications.php"
 				   class="nav-link <?= basename($_SERVER['PHP_SELF']) === 'email_notifications.php' ? 'active' : '' ?>">
 					<i class="fas fa-envelope me-2"></i>E-mailové notifikace
+				</a>
+				<a href="<?= BASE_URL ?>/admin/podpora.php"
+				   class="nav-link <?= basename($_SERVER['PHP_SELF']) === 'podpora.php' ? 'active' : '' ?>">
+					<i class="fas fa-life-ring me-2"></i>Podpora
+					<?php if ($supportNewCount > 0): ?>
+					<span class="badge bg-danger ms-1"><?= $supportNewCount ?></span>
+					<?php endif; ?>
 				</a>
 				<a href="<?= BASE_URL ?>/admin/zpravy.php"
 				   class="nav-link <?= in_array(basename($_SERVER['PHP_SELF']), ['zpravy.php','zprava_nova.php','zprava_detail.php']) ? 'active' : '' ?>">

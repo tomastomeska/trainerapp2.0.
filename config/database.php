@@ -105,6 +105,12 @@ function ensureSchemaUpgrades(PDO $pdo): void {
         $pdo->exec("ALTER TABLE exercises ADD COLUMN sport_type ENUM('standard','golf','run_outdoor','run_treadmill') NOT NULL DEFAULT 'standard' AFTER photo");
     }
 
+    // Cvik měřený časem
+    $stmtExerciseTimed = $pdo->query("SHOW COLUMNS FROM exercises LIKE 'is_timed'");
+    if (!$stmtExerciseTimed->fetch()) {
+        $pdo->exec('ALTER TABLE exercises ADD COLUMN is_timed TINYINT(1) NOT NULL DEFAULT 0 AFTER sport_type');
+    }
+
     // Globalni cviky mohou mit coach_id = NULL
     $stmtCoachId = $pdo->query("SHOW COLUMNS FROM exercises LIKE 'coach_id'");
     $coachIdColumn = $stmtCoachId->fetch();
@@ -392,10 +398,19 @@ function ensureSchemaUpgrades(PDO $pdo): void {
         $pdo->exec("ALTER TABLE training_session_exercises ADD COLUMN sport_type ENUM('standard','golf','run_outdoor','run_treadmill') NOT NULL DEFAULT 'standard' AFTER exercise_name");
     }
 
+    $stmtTseTimed = $pdo->query("SHOW COLUMNS FROM training_session_exercises LIKE 'is_timed'");
+    if (!$stmtTseTimed->fetch()) {
+        $pdo->exec('ALTER TABLE training_session_exercises ADD COLUMN is_timed TINYINT(1) NOT NULL DEFAULT 0 AFTER sport_type');
+    }
+
     try {
         $stmtSeriesEquipmentWeight = $pdo->query("SHOW COLUMNS FROM session_series LIKE 'equipment_weight'");
         if (!$stmtSeriesEquipmentWeight->fetch()) {
             $pdo->exec('ALTER TABLE session_series ADD COLUMN equipment_weight DECIMAL(7,2) NULL AFTER weight');
+        }
+        $stmtSeriesDuration = $pdo->query("SHOW COLUMNS FROM session_series LIKE 'duration_seconds'");
+        if (!$stmtSeriesDuration->fetch()) {
+            $pdo->exec('ALTER TABLE session_series ADD COLUMN duration_seconds INT NULL AFTER equipment_weight');
         }
     } catch (Throwable $e) {
         // Tabulka session_series může v některých instalacích vznikat mimo bootstrap.
@@ -744,6 +759,37 @@ function ensureSchemaUpgrades(PDO $pdo): void {
             UNIQUE KEY `uq_action_coach` (`action_id`, `coach_id`),
             FOREIGN KEY (`action_id`) REFERENCES `message_actions`(`id`) ON DELETE CASCADE,
             FOREIGN KEY (`coach_id`)  REFERENCES `coaches`(`id`)          ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
+    // Tickety podpory od trenérů/sportovců
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS `support_tickets` (
+            `id`                  INT AUTO_INCREMENT PRIMARY KEY,
+            `reporter_type`       ENUM('coach','athlete') NOT NULL,
+            `coach_id`            INT NULL,
+            `athlete_id`          INT NULL,
+            `reporter_name`       VARCHAR(255) NOT NULL,
+            `reporter_email`      VARCHAR(255) NULL,
+            `subject`             VARCHAR(255) NOT NULL,
+            `issue_type`          VARCHAR(120) NOT NULL,
+            `description`         TEXT NOT NULL,
+            `page_url`            VARCHAR(500) NULL,
+            `screenshot_path`     VARCHAR(255) NULL,
+            `screenshot_name`     VARCHAR(255) NULL,
+            `ip_address`          VARCHAR(45) NULL,
+            `user_agent`          TEXT NULL,
+            `status`              ENUM('new','open','resolved') NOT NULL DEFAULT 'new',
+            `admin_note`          TEXT NULL,
+            `created_at`          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at`          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            KEY `idx_support_tickets_status_created` (`status`, `created_at`),
+            KEY `idx_support_tickets_coach` (`coach_id`),
+            KEY `idx_support_tickets_athlete` (`athlete_id`),
+            CONSTRAINT `fk_support_tickets_coach`
+                FOREIGN KEY (`coach_id`) REFERENCES `coaches`(`id`) ON DELETE SET NULL,
+            CONSTRAINT `fk_support_tickets_athlete`
+                FOREIGN KEY (`athlete_id`) REFERENCES `athletes`(`id`) ON DELETE SET NULL
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ");
 

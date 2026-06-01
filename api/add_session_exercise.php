@@ -39,7 +39,7 @@ if (!$stmtSession->fetch()) {
 }
 
 $stmtExercise = $pdo->prepare(
-    'SELECT id, name, sport_type
+    'SELECT id, name, sport_type, is_timed
      FROM exercises
      WHERE id = ? AND (coach_id = ? OR is_global = 1)'
 );
@@ -71,8 +71,8 @@ $stmtOrder->execute([$sessionId]);
 $nextOrder = (int)$stmtOrder->fetchColumn() + 1;
 
 $stmtInsert = $pdo->prepare(
-    'INSERT INTO training_session_exercises (session_id, exercise_id, exercise_order, exercise_name, sport_type)
-     VALUES (?, ?, ?, ?, ?)'
+    'INSERT INTO training_session_exercises (session_id, exercise_id, exercise_order, exercise_name, sport_type, is_timed)
+     VALUES (?, ?, ?, ?, ?, ?)'
 );
 $stmtInsert->execute([
     $sessionId,
@@ -80,6 +80,7 @@ $stmtInsert->execute([
     $nextOrder,
     $exercise['name'],
     $exercise['sport_type'] ?? 'standard',
+    (int)($exercise['is_timed'] ?? 0),
 ]);
 
 echo json_encode(['success' => true]);

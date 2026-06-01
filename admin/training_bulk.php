@@ -352,8 +352,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                      VALUES (?, ?, ?, ?, ?, ?)'
                 );
                 $snapshotStmt = $pdo->prepare(
-                    'INSERT INTO training_session_exercises (session_id, exercise_id, exercise_order, exercise_name)
-                     SELECT ?, wse.exercise_id, wse.exercise_order, e.name
+                    'INSERT INTO training_session_exercises (session_id, exercise_id, exercise_order, exercise_name, sport_type, is_timed)
+                     SELECT ?, wse.exercise_id, wse.exercise_order, e.name, e.sport_type, e.is_timed
                      FROM workout_set_exercises wse
                      JOIN exercises e ON e.id = wse.exercise_id
                      WHERE wse.workout_set_id = ?

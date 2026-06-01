@@ -150,11 +150,24 @@ function getSeriesForExercise(int $sessionId, int $exerciseId): array {
     return $stmt->fetchAll();
 }
 
+function formatSeriesDuration(int $seconds): string {
+  $seconds = max(0, $seconds);
+  $hours = intdiv($seconds, 3600);
+  $minutes = intdiv($seconds % 3600, 60);
+  $restSeconds = $seconds % 60;
+
+  if ($hours > 0) {
+    return sprintf('%d:%02d:%02d', $hours, $minutes, $restSeconds);
+  }
+
+  return sprintf('%d:%02d', $minutes, $restSeconds);
+}
+
 // Vrátí celý obsah sady (cviky seřazené)
 function getWorkoutSetExercises(int $setId): array {
     $pdo  = getDB();
     $stmt = $pdo->prepare(
-    'SELECT wse.*, e.name AS exercise_name, e.sport_type
+  'SELECT wse.*, e.name AS exercise_name, e.sport_type, e.is_timed
          FROM workout_set_exercises wse
          JOIN exercises e ON wse.exercise_id = e.id
          WHERE wse.workout_set_id = ?
@@ -190,7 +203,7 @@ function getSessionExercises(int $sessionId, int $setId): array {
     $pdo = getDB();
 
     $snapshot = $pdo->prepare(
-        'SELECT tse.exercise_id, tse.exercise_order, tse.exercise_name, tse.sport_type
+        'SELECT tse.exercise_id, tse.exercise_order, tse.exercise_name, tse.sport_type, tse.is_timed
          FROM training_session_exercises tse
          WHERE tse.session_id = ?
          ORDER BY tse.exercise_order ASC'
@@ -199,31 +212,56 @@ function getSessionExercises(int $sessionId, int $setId): array {
     $snapshotRows = $snapshot->fetchAll();
     if (!empty($snapshotRows)) {
       $needsSportType = false;
-      foreach ($snapshotRows as $row) {
-        if (!isset($row['sport_type']) || $row['sport_type'] === '' || $row['sport_type'] === null) {
-          $needsSportType = true;
-          break;
+      $needsTimed = false;
+        foreach ($snapshotRows as $row) {
+            if (!isset($row['sport_type']) || $row['sport_type'] === '' || $row['sport_type'] === null) {
+                $needsSportType = true;
+            }
+            if (!isset($row['is_timed']) || $row['is_timed'] === '' || $row['is_timed'] === null) {
+                $needsTimed = true;
+            }
         }
-      }
 
-      if ($needsSportType) {
+      // Kompatibilita: některé session byly založeny bez is_timed ve snapshotu (výchozí 0).
+      if (!$needsTimed) {
+        $hasTimedExerciseInDb = false;
         $ids = array_values(array_unique(array_map(fn($row) => (int)$row['exercise_id'], $snapshotRows)));
         if (!empty($ids)) {
           $inClause = implode(',', array_fill(0, count($ids), '?'));
-          $stmtTypes = $pdo->prepare("SELECT id, sport_type FROM exercises WHERE id IN ($inClause)");
-          $stmtTypes->execute($ids);
-          $typesById = [];
-          foreach ($stmtTypes->fetchAll() as $typeRow) {
-            $typesById[(int)$typeRow['id']] = $typeRow['sport_type'] ?? 'standard';
-          }
-          foreach ($snapshotRows as &$row) {
-            if (!isset($row['sport_type']) || $row['sport_type'] === '' || $row['sport_type'] === null) {
-              $row['sport_type'] = $typesById[(int)$row['exercise_id']] ?? 'standard';
-            }
-          }
-          unset($row);
+          $stmtAnyTimed = $pdo->prepare("SELECT COUNT(*) FROM exercises WHERE id IN ($inClause) AND is_timed = 1");
+          $stmtAnyTimed->execute($ids);
+          $hasTimedExerciseInDb = ((int)$stmtAnyTimed->fetchColumn()) > 0;
+        }
+        if ($hasTimedExerciseInDb) {
+          $needsTimed = true;
         }
       }
+
+        if ($needsSportType || $needsTimed) {
+            $ids = array_values(array_unique(array_map(fn($row) => (int)$row['exercise_id'], $snapshotRows)));
+            if (!empty($ids)) {
+                $inClause = implode(',', array_fill(0, count($ids), '?'));
+                $stmtTypes = $pdo->prepare("SELECT id, sport_type, is_timed FROM exercises WHERE id IN ($inClause)");
+                $stmtTypes->execute($ids);
+                $metaById = [];
+                foreach ($stmtTypes->fetchAll() as $typeRow) {
+                    $metaById[(int)$typeRow['id']] = [
+                        'sport_type' => $typeRow['sport_type'] ?? 'standard',
+                        'is_timed' => (int)($typeRow['is_timed'] ?? 0),
+                    ];
+                }
+                foreach ($snapshotRows as &$row) {
+                    $exerciseMeta = $metaById[(int)$row['exercise_id']] ?? ['sport_type' => 'standard', 'is_timed' => 0];
+                    if (!isset($row['sport_type']) || $row['sport_type'] === '' || $row['sport_type'] === null) {
+                        $row['sport_type'] = $exerciseMeta['sport_type'];
+                    }
+                    if (!isset($row['is_timed']) || $row['is_timed'] === '' || $row['is_timed'] === null) {
+                        $row['is_timed'] = $exerciseMeta['is_timed'];
+                    }
+                }
+                unset($row);
+            }
+        }
 
         return $snapshotRows;
     }
@@ -239,6 +277,7 @@ function getSessionExercises(int $sessionId, int $setId): array {
             'exercise_order' => $ord,
             'exercise_name'  => $row['exercise_name'],
             'sport_type'     => $row['sport_type'] ?? 'standard',
+            'is_timed'       => (int)($row['is_timed'] ?? 0),
         ];
         if ($ord > $maxOrder) {
             $maxOrder = $ord;
@@ -247,7 +286,7 @@ function getSessionExercises(int $sessionId, int $setId): array {
 
     // Starší data bez snapshotu: doplň cviky, které už nejsou v sadě, ale mají série.
     $fromSeries = $pdo->prepare(
-        'SELECT DISTINCT ss.exercise_id, e.name AS exercise_name, e.sport_type
+        'SELECT DISTINCT ss.exercise_id, e.name AS exercise_name, e.sport_type, e.is_timed
          FROM session_series ss
          JOIN exercises e ON e.id = ss.exercise_id
          WHERE ss.session_id = ?
@@ -263,6 +302,7 @@ function getSessionExercises(int $sessionId, int $setId): array {
                 'exercise_order' => $maxOrder,
                 'exercise_name'  => $row['exercise_name'],
                 'sport_type'     => $row['sport_type'] ?? 'standard',
+                'is_timed'       => (int)($row['is_timed'] ?? 0),
             ];
         }
     }
@@ -1584,6 +1624,89 @@ function createAthleteToCoachMessage(int $athleteId, int $coachId, string $subje
       ->execute([$messageId, $coachId]);
 
   return $messageId;
+}
+
+/**
+ * Odešle superadminům e-mailovou notifikaci o novém ticketu podpory.
+ * Vrací počet úspěšně odeslaných e-mailů.
+ */
+function sendSupportTicketNotificationEmail(int $ticketId, array $ticket): int {
+  $phpmailerSrc = dirname(__DIR__) . '/vendor/phpmailer/phpmailer/src';
+  if (!file_exists($phpmailerSrc . '/PHPMailer.php')) {
+    return 0;
+  }
+  require_once $phpmailerSrc . '/Exception.php';
+  require_once $phpmailerSrc . '/PHPMailer.php';
+  require_once $phpmailerSrc . '/SMTP.php';
+
+  $pdo = getDB();
+  $admins = $pdo->query("SELECT email FROM superadmins WHERE email IS NOT NULL AND email <> ''")->fetchAll();
+  if (empty($admins)) {
+    return 0;
+  }
+
+  $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (($_SERVER['SERVER_PORT'] ?? '') === '443');
+  $scheme = $isHttps ? 'https' : 'http';
+  $host = $_SERVER['HTTP_HOST'] ?? ($_SERVER['SERVER_NAME'] ?? 'localhost');
+  $ticketUrl = $scheme . '://' . $host . BASE_URL . '/admin/podpora.php?id=' . $ticketId;
+
+  $reporter = htmlspecialchars((string)($ticket['reporter_name'] ?? 'Uživatel'), ENT_QUOTES, 'UTF-8');
+  $reporterEmail = htmlspecialchars((string)($ticket['reporter_email'] ?? ''), ENT_QUOTES, 'UTF-8');
+  $subject = htmlspecialchars((string)($ticket['subject'] ?? ''), ENT_QUOTES, 'UTF-8');
+  $issueType = htmlspecialchars((string)($ticket['issue_type'] ?? ''), ENT_QUOTES, 'UTF-8');
+  $description = nl2br(htmlspecialchars((string)($ticket['description'] ?? ''), ENT_QUOTES, 'UTF-8'));
+  $pageUrl = htmlspecialchars((string)($ticket['page_url'] ?? ''), ENT_QUOTES, 'UTF-8');
+  $hasScreenshot = !empty($ticket['screenshot_path']);
+
+  $htmlBody = "<p>Dobrý den,</p>"
+    . "<p>v aplikaci byl vytvořen nový ticket podpory <strong>#{$ticketId}</strong>.</p>"
+    . "<p><strong>Odesílatel:</strong> {$reporter}"
+    . ($reporterEmail !== '' ? " ({$reporterEmail})" : '')
+    . "<br><strong>Předmět:</strong> {$subject}"
+    . "<br><strong>Typ problému:</strong> {$issueType}"
+    . ($pageUrl !== '' ? "<br><strong>Stránka:</strong> {$pageUrl}" : '')
+    . "<br><strong>Screenshot:</strong> " . ($hasScreenshot ? 'Ano' : 'Ne')
+    . "</p>"
+    . "<p><strong>Popis problému:</strong><br>{$description}</p>"
+    . "<p><a href=\"{$ticketUrl}\" style=\"background:#0d6efd;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none;display:inline-block\">"
+    . "Otevřít tiket v administraci</a></p>"
+    . "<hr><p style=\"color:#777;font-size:.9em\">TrainerApp – automatické notifikace</p>";
+
+  $altBody = "Dobrý den,\n\n"
+    . "v aplikaci byl vytvořen nový ticket podpory #{$ticketId}.\n\n"
+    . "Odesílatel: " . (string)($ticket['reporter_name'] ?? 'Uživatel')
+    . (!empty($ticket['reporter_email']) ? ' (' . (string)$ticket['reporter_email'] . ')' : '') . "\n"
+    . "Předmět: " . (string)($ticket['subject'] ?? '') . "\n"
+    . "Typ problému: " . (string)($ticket['issue_type'] ?? '') . "\n"
+    . (!empty($ticket['page_url']) ? "Stránka: " . (string)$ticket['page_url'] . "\n" : '')
+    . "Screenshot: " . ($hasScreenshot ? 'Ano' : 'Ne') . "\n\n"
+    . "Popis:\n" . (string)($ticket['description'] ?? '') . "\n\n"
+    . "Detail ticketu: {$ticketUrl}\n\n"
+    . "TrainerApp – automatické notifikace";
+
+  $sent = 0;
+  foreach ($admins as $admin) {
+    $to = trim((string)($admin['email'] ?? ''));
+    if ($to === '') {
+      continue;
+    }
+
+    $mail = new PHPMailer\PHPMailer\PHPMailer(true);
+    try {
+      _configureMail($mail);
+      $mail->addAddress($to);
+      $mail->isHTML(true);
+      $mail->Subject = 'Nový ticket podpory #' . $ticketId . ': ' . (string)($ticket['subject'] ?? '');
+      $mail->Body = $htmlBody;
+      $mail->AltBody = $altBody;
+      $mail->send();
+      $sent++;
+    } catch (\Exception $e) {
+      error_log('sendSupportTicketNotificationEmail error: ' . $mail->ErrorInfo . ' | ' . $e->getMessage());
+    }
+  }
+
+  return $sent;
 }
 
 function getAthleteWeightLogById(int $logId, int $athleteId = 0): ?array {

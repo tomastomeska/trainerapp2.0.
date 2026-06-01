@@ -1,4 +1,6 @@
 <?php
+require_once __DIR__ . '/support_widget.php';
+
 function renderAthleteHeader(string $title = '', bool $withCharts = false): void {
     $athlete = getCurrentAthlete();
     $flash = getFlash();
@@ -80,6 +82,7 @@ function renderAthleteFooter(): void {
 </footer>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script src="<?= BASE_URL ?>/assets/js/app.js"></script>
+<?php renderSupportWidget('athlete'); ?>
 </body>
 </html>
 <?php
