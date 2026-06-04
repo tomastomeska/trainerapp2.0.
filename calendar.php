@@ -454,13 +454,7 @@ renderHeader('Kalendář');
                             <input class="form-check-input" type="checkbox" role="switch" id="eventIsMakeup">
                             <label class="form-check-label fw-semibold" for="eventIsMakeup">Náhradní termín</label>
                         </div>
-                        <div class="small text-muted">Náhradní termín se může započítat do jiného hrazeného měsíce.</div>
-                    </div>
-
-                    <div class="mt-2 d-none" id="eventBillingMonthWrap">
-                        <label for="eventBillingMonth" class="form-label fw-semibold">Hrazený měsíc</label>
-                        <input type="month" id="eventBillingMonth" class="form-control">
-                        <div class="form-text">Použije se pro stránku Platby. Pokud je to náhrada za dříve zaplacený měsíc, vyberte ten původní.</div>
+                        <div class="small text-muted">Při označení jako náhrada se hrazený měsíc určí automaticky.</div>
                     </div>
 
                     <div class="alert alert-warning mt-3 mb-0 d-none" id="eventMakeupSuggestion">
@@ -598,8 +592,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const eventRepeatUntilInput = document.getElementById('eventRepeatUntil');
     const eventRepeatHint = document.getElementById('eventRepeatHint');
     const eventIsMakeupInput = document.getElementById('eventIsMakeup');
-    const eventBillingMonthWrap = document.getElementById('eventBillingMonthWrap');
-    const eventBillingMonthInput = document.getElementById('eventBillingMonth');
     const eventMakeupSuggestion = document.getElementById('eventMakeupSuggestion');
     const eventMakeupSuggestionText = document.getElementById('eventMakeupSuggestionText');
     const eventUseMakeupBtn = document.getElementById('eventUseMakeupBtn');
@@ -1021,18 +1013,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function updateBillingControls() {
-        const showBillingMonth = eventIsMakeupInput.checked && !eventIsLockInput.checked;
-        eventBillingMonthWrap.classList.toggle('d-none', !showBillingMonth);
-
-        if (!showBillingMonth && eventStartInput.value) {
-            const baseDate = new Date(eventStartInput.value);
-            if (!Number.isNaN(baseDate.getTime())) {
-                eventBillingMonthInput.value = toMonthKey(baseDate);
-            }
-        }
-    }
-
     function clearMakeupSuggestion() {
         currentMakeupSuggestion = null;
         eventMakeupSuggestion.classList.add('d-none');
@@ -1147,7 +1127,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         updateLockRepeatControls();
-        updateBillingControls();
     }
 
     function renderDayPilotCalendar() {
@@ -1485,7 +1464,6 @@ document.addEventListener('DOMContentLoaded', () => {
             eventRepeatModeInput.value = 'none';
             eventRepeatUntilInput.value = '';
             eventIsMakeupInput.checked = Number(event.is_makeup_session || 0) === 1;
-            eventBillingMonthInput.value = event.billing_month ? String(event.billing_month).slice(0, 7) : toMonthKey(fromSqlDateTime(event.starts_at));
             setRepeatControlsEnabled(false);
             updateRepeatControls();
             deleteEventBtn.classList.remove('d-none');
@@ -1537,7 +1515,6 @@ document.addEventListener('DOMContentLoaded', () => {
             eventRepeatModeInput.value = 'none';
             eventRepeatUntilInput.value = '';
             eventIsMakeupInput.checked = false;
-            eventBillingMonthInput.value = toMonthKey(base);
             setRepeatControlsEnabled(true);
             updateRepeatControls();
             deleteEventBtn.classList.add('d-none');
@@ -1585,7 +1562,6 @@ document.addEventListener('DOMContentLoaded', () => {
     lockEndMinuteInput.addEventListener('change', syncLockRangeFromControls);
     eventRepeatModeInput.addEventListener('change', updateRepeatControls);
     eventIsMakeupInput.addEventListener('change', () => {
-        updateBillingControls();
         if (eventIsMakeupInput.checked) {
             eventUseMakeupBtn.classList.add('d-none');
         } else if (currentMakeupSuggestion && currentMakeupSuggestion.has_outstanding) {
@@ -1601,10 +1577,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     eventUseMakeupBtn.addEventListener('click', () => {
         eventIsMakeupInput.checked = true;
-        if (!eventBillingMonthInput.value) {
-            eventBillingMonthInput.value = getSelectedStartMonth();
-        }
-        updateBillingControls();
         eventUseMakeupBtn.classList.add('d-none');
     });
 
@@ -1664,8 +1636,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const titleType = getSelectedEventTitleType();
         const repeatMode = eventRepeatModeInput.disabled ? 'none' : eventRepeatModeInput.value;
         const repeatUntil = eventRepeatUntilInput.value;
-        const isMakeupSession = eventIsMakeupInput.checked;
-        const billingMonth = eventBillingMonthInput.value;
 
         if (!startsAt) {
             showError(eventError, 'Vyberte datum a čas začátku tréninku.');
@@ -1674,11 +1644,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (repeatMode === 'weekly_until_date' && !repeatUntil) {
             showError(eventError, 'Vyberte datum, do kterého se má trénink opakovat.');
-            return;
-        }
-
-        if (isMakeupSession && !billingMonth) {
-            showError(eventError, 'Vyberte hrazený měsíc pro náhradní termín.');
             return;
         }
 
@@ -1702,9 +1667,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (confirmUse) {
                 eventIsMakeupInput.checked = true;
-                updateBillingControls();
             }
         }
+
+        const isMakeupSession = eventIsMakeupInput.checked;
 
         const payload = await fetchJson('<?= BASE_URL ?>/api/calendar_save_event.php', {
             method: 'POST',
@@ -1721,7 +1687,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 color_key: normalizeColorKey(eventColorInput.value),
                 starts_at: startsAt,
                 is_makeup_session: isMakeupSession,
-                billing_month: billingMonth,
                 repeat_mode: repeatMode,
                 repeat_until: repeatUntil,
             }),
@@ -1759,7 +1724,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 color_key: normalizeColorKey(eventColorInput.value),
                 starts_at: eventStartInput.value,
                 is_makeup_session: eventIsMakeupInput.checked,
-                billing_month: eventBillingMonthInput.value,
                 repeat_mode: 'none',
                 repeat_until: '',
                 approval_action: 'approve',

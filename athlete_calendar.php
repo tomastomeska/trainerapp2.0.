@@ -264,12 +264,7 @@ renderAthleteHeader('Muj kalendar');
                             <input class="form-check-input" type="checkbox" id="reserveUseMakeup">
                             <label class="form-check-label fw-semibold" for="reserveUseMakeup">Použít tento termín jako náhradu</label>
                         </div>
-                    </div>
-
-                    <div class="mt-2 d-none" id="reserveBillingMonthWrap">
-                        <label for="reserveBillingMonth" class="form-label fw-semibold">Hrazený měsíc</label>
-                        <input type="month" id="reserveBillingMonth" class="form-control">
-                        <div class="form-text">Vyberte měsíc, ze kterého chcete náhradní termín uplatnit.</div>
+                        <div class="small text-muted mt-2">Hrazený měsíc se při náhradě vybere automaticky.</div>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -297,8 +292,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const reserveMakeupSuggestion = document.getElementById('reserveMakeupSuggestion');
     const reserveMakeupSuggestionText = document.getElementById('reserveMakeupSuggestionText');
     const reserveUseMakeupInput = document.getElementById('reserveUseMakeup');
-    const reserveBillingMonthWrap = document.getElementById('reserveBillingMonthWrap');
-    const reserveBillingMonthInput = document.getElementById('reserveBillingMonth');
     const eventDetailTitleEl = document.getElementById('eventDetailTitle');
     const eventDetailWhenEl = document.getElementById('eventDetailWhen');
     const eventDetailLocationEl = document.getElementById('eventDetailLocation');
@@ -311,7 +304,6 @@ document.addEventListener('DOMContentLoaded', () => {
     let locks = [];
     let dayPilotCalendar = null;
     let selectedEventForDetail = null;
-    let reserveMakeupSuggestionPayload = null;
     const reserveMakeupSuggestionCache = new Map();
     const hourStart = 5;
     const hourEnd = 22;
@@ -586,16 +578,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function clearReserveMakeupSuggestion() {
-        reserveMakeupSuggestionPayload = null;
         reserveMakeupSuggestion.classList.add('d-none');
         reserveMakeupSuggestionText.textContent = '';
         reserveUseMakeupInput.checked = false;
-        reserveBillingMonthWrap.classList.add('d-none');
-        reserveBillingMonthInput.value = '';
-    }
-
-    function updateReserveBillingMonthVisibility() {
-        reserveBillingMonthWrap.classList.toggle('d-none', !reserveUseMakeupInput.checked);
     }
 
     function renderReserveMakeupSuggestion(payload, startDate) {
@@ -604,13 +589,10 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        reserveMakeupSuggestionPayload = payload;
         const targetMonthLabel = payload.target_month_label || `${String(startDate.getMonth() + 1).padStart(2, '0')}/${startDate.getFullYear()}`;
         reserveMakeupSuggestionText.textContent = `Máte ${payload.outstanding_sessions} nevyužitý(é) uhrazený(é) trénink(y). Můžete je použít jako náhradu pro ${targetMonthLabel}.`;
         reserveMakeupSuggestion.classList.remove('d-none');
         reserveUseMakeupInput.checked = false;
-        reserveBillingMonthInput.value = '';
-        updateReserveBillingMonthVisibility();
     }
 
     async function refreshReserveMakeupSuggestion(startDate) {
@@ -762,10 +744,6 @@ document.addEventListener('DOMContentLoaded', () => {
         updateReserveLocationHint();
     });
 
-    reserveUseMakeupInput.addEventListener('change', () => {
-        updateReserveBillingMonthVisibility();
-    });
-
     eventDetailCancelBtn.addEventListener('click', async () => {
         if (!selectedEventForDetail) {
             return;
@@ -794,13 +772,7 @@ document.addEventListener('DOMContentLoaded', () => {
             title_type: document.querySelector('input[name="reserveTitleType"]:checked')?.value || 'training',
             location: reserveLocationInput.value.trim(),
             is_makeup_session: reserveUseMakeupInput.checked ? 1 : 0,
-            billing_month: reserveUseMakeupInput.checked ? reserveBillingMonthInput.value : '',
         };
-
-        if (payload.is_makeup_session && !payload.billing_month) {
-            alert('Pro náhradní termín zvolte hrazený měsíc.');
-            return;
-        }
 
         const response = await fetch('<?= BASE_URL ?>/api/athlete_calendar_save_event.php', {
             method: 'POST',
