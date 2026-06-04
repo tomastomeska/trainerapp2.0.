@@ -539,6 +539,7 @@ renderHeader('Kalendář');
                     </div>
 
                     <div id="eventError" class="alert alert-danger py-2 px-3 mt-3 mb-0 d-none"></div>
+                    <div id="paymentInfo" class="alert alert-success py-2 px-3 mt-3 mb-0 d-none"></div>
                     <div id="requestInfo" class="request-banner mt-3 d-none"></div>
                 </div>
                 <div class="modal-footer d-flex justify-content-between">
@@ -610,6 +611,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const lockRepeatUntilInput = document.getElementById('lockRepeatUntil');
     const lockRepeatHint = document.getElementById('lockRepeatHint');
     const eventError = document.getElementById('eventError');
+    const paymentInfo = document.getElementById('paymentInfo');
     const requestInfo = document.getElementById('requestInfo');
     const deleteEventBtn = document.getElementById('deleteEventBtn');
     const approveEventBtn = document.getElementById('approveEventBtn');
@@ -774,17 +776,23 @@ document.addEventListener('DOMContentLoaded', () => {
         const statusMeta = getEventStatusMeta(event);
         const athleteInfo = athleteLabel && title !== athleteLabel ? `\nSportovci: ${athleteLabel}` : '';
         const statusLine = statusMeta.label ? `\nStav: ${statusMeta.label}` : '';
-        const detailLine = [timeLabel, statusMeta.label].filter(Boolean).join(' | ');
+        const paymentPaid = String(event.payment_status || '') === 'paid';
+        const paymentLabel = paymentPaid ? 'Uhrazeno' : '';
+        const detailLine = [timeLabel, event.location || '', statusMeta.label, paymentLabel].filter(Boolean).join(' | ');
+        const badgeHtml = [
+            statusMeta.label ? `<span class="badge text-bg-warning text-dark me-1">${escapeHtml(statusMeta.label)}</span>` : '',
+            paymentPaid ? '<span class="badge bg-success">Uhrazeno</span>' : '',
+        ].filter(Boolean).join(' ');
 
         return {
             id: String(event.id),
             text: isPairedTraining
-                ? [event.location || '', timeLabel, statusMeta.label].filter(Boolean).join('\n')
+                ? [event.location || '', timeLabel, statusMeta.label, paymentLabel].filter(Boolean).join('\n')
                 : [title, detailLine].filter(Boolean).join('\n'),
             html: isPairedTraining
-                ? `<div style="display:grid;grid-template-columns:1fr 1fr;column-gap:8px;font-weight:700;line-height:1.1;font-size:12px;margin-bottom:4px;"><div>${escapeHtml(athleteNames[0])}</div><div style="text-align:right;">${escapeHtml(athleteNames[1])}</div></div><div style="text-align:center;font-weight:600;line-height:1.2;">${escapeHtml(event.location || '')}</div><div style="text-align:center;font-weight:600;line-height:1.2;">${escapeHtml(timeLabel)}</div>`
-                : null,
-            toolTip: `${title}${time}${place}${athleteInfo}${statusLine}`,
+                ? `<div style="display:grid;grid-template-columns:1fr 1fr;column-gap:8px;font-weight:700;line-height:1.1;font-size:12px;margin-bottom:4px;"><div>${escapeHtml(athleteNames[0])}</div><div style="text-align:right;">${escapeHtml(athleteNames[1])}</div></div><div style="text-align:center;font-weight:600;line-height:1.2;">${escapeHtml(event.location || '')}</div><div style="text-align:center;font-weight:600;line-height:1.2;">${escapeHtml(timeLabel)}</div><div style="text-align:center;line-height:1.1;margin-top:3px;">${badgeHtml}</div>`
+                : `<div style="font-weight:700;line-height:1.15;font-size:12px;">${escapeHtml(title)}</div><div style="font-size:11px;line-height:1.15;margin-top:2px;">${escapeHtml(event.location || '')}</div><div style="font-size:11px;line-height:1.15;margin-top:2px;">${escapeHtml(timeLabel)}</div><div style="margin-top:3px;">${badgeHtml}</div>`,
+            toolTip: `${title}${time}${place}${athleteInfo}${statusLine}${paymentLabel ? `\nStav úhrady: ${paymentLabel}` : ''}`,
             start: toDateTimeSecondsValue(startDate),
             end: toDateTimeSecondsValue(endDate),
             backColor: color.backColor,
@@ -1355,12 +1363,14 @@ document.addEventListener('DOMContentLoaded', () => {
                         const athleteNames = athletesLabel ? athletesLabel.split(' + ') : [];
                         const isPairedTraining = athleteNames.length === 2;
                         const statusSuffix = statusMeta.label ? ` • ${statusMeta.label}` : '';
+                        const paymentPaid = String(event.payment_status || '') === 'paid';
+                        const paymentSuffix = paymentPaid ? ' • Uhrazeno' : '';
+                        const locationLine = event.location ? `<span class="where">${escapeHtml(event.location)}</span>` : '';
                         if (isPairedTraining) {
                             btn.classList.add('paired');
-                            const whereLine = event.location ? `<span class="where">${event.location}</span>` : '';
-                            btn.innerHTML = `<span class="paired-names"><span class="name-col">${athleteNames[0]}</span><span class="name-col">${athleteNames[1]}</span></span>${whereLine}<span class="time">${startTime}-${endTime}</span>`;
+                            btn.innerHTML = `<span class="paired-names"><span class="name-col">${escapeHtml(athleteNames[0])}</span><span class="name-col">${escapeHtml(athleteNames[1])}</span></span>${locationLine}<span class="time">${startTime}-${endTime}${paymentSuffix}</span>`;
                         } else {
-                            btn.innerHTML = `<span class="time">${startTime}-${endTime}</span> ${title}${statusSuffix}`;
+                            btn.innerHTML = `<span class="time">${startTime}-${endTime}${paymentSuffix}</span><div class="fw-semibold">${escapeHtml(title)}${statusSuffix}</div>${locationLine}`;
                         }
                         btn.addEventListener('click', (e) => {
                             e.stopPropagation();
@@ -1428,6 +1438,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function openEventModal(event = null, slotDate = null, lock = null) {
         clearError(eventError);
+        paymentInfo.textContent = '';
+        paymentInfo.classList.add('d-none');
         requestInfo.textContent = '';
         requestInfo.classList.add('d-none');
         approveEventBtn.classList.add('d-none');
@@ -1468,6 +1480,11 @@ document.addEventListener('DOMContentLoaded', () => {
             updateRepeatControls();
             deleteEventBtn.classList.remove('d-none');
             clearMakeupSuggestion();
+
+            if (String(event.payment_status || '') === 'paid') {
+                paymentInfo.textContent = 'Tato událost patří do již uhrazeného období.';
+                paymentInfo.classList.remove('d-none');
+            }
 
             const isPendingRequest = (event.approval_status || 'approved') === 'pending' && Number(event.requested_by_athlete_id || 0) > 0;
             if (isPendingRequest) {

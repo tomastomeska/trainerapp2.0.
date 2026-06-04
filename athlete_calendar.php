@@ -191,6 +191,7 @@ renderAthleteHeader('Muj kalendar');
                     <div class="small text-muted">Stav</div>
                     <div class="fw-semibold" id="eventDetailStatus">-</div>
                 </div>
+                <div class="alert alert-success border mt-3 mb-0 py-2 d-none" id="eventDetailPaymentInfo"></div>
                 <div class="alert alert-light border mt-3 mb-0 py-2" id="eventDetailCancelInfo">Tento termín lze zrušit.</div>
             </div>
             <div class="modal-footer">
@@ -296,6 +297,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const eventDetailWhenEl = document.getElementById('eventDetailWhen');
     const eventDetailLocationEl = document.getElementById('eventDetailLocation');
     const eventDetailStatusEl = document.getElementById('eventDetailStatus');
+    const eventDetailPaymentInfoEl = document.getElementById('eventDetailPaymentInfo');
     const eventDetailCancelInfoEl = document.getElementById('eventDetailCancelInfo');
     const eventDetailCancelBtn = document.getElementById('eventDetailCancelBtn');
 
@@ -476,6 +478,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const time = `\nČas: ${formatTimeCs(startDate)} - ${formatTimeCs(endDate)}`;
         const color = getEventColorScheme(event);
         const statusLine = (!event.is_foreign && statusMeta.label) ? `\nStav: ${statusMeta.label}` : '';
+        const paymentPaid = String(event.payment_status || '') === 'paid';
+        const paymentLabel = paymentPaid ? 'Uhrazeno' : '';
         const ownedByAthlete = Boolean(event.is_mine || event.is_requested_by_me);
         const canCancel = Boolean(event.can_cancel ?? ownedByAthlete);
         const nonCancelableOwnedEvent = ownedByAthlete && !canCancel;
@@ -487,6 +491,7 @@ document.addEventListener('DOMContentLoaded', () => {
             toolTip: isForeign
                 ? `${title}${time}`
                 : `${title}${time}${place}${statusLine}`
+                + (paymentLabel ? `\nStav úhrady: ${paymentLabel}` : '')
                 + (nonCancelableOwnedEvent ? '\nPoznámka: Tento termín už nelze zrušit.' : ''),
             start: toDateTimeSecondsValue(startDate),
             end: toDateTimeSecondsValue(endDate),
@@ -522,6 +527,14 @@ document.addEventListener('DOMContentLoaded', () => {
         eventDetailWhenEl.textContent = `${formatDateCs(startDate)} ${formatTimeCs(startDate)} - ${formatTimeCs(endDate)}`;
         eventDetailLocationEl.textContent = event.location || '-';
         eventDetailStatusEl.textContent = statusMeta.label || 'Schváleno';
+
+        if (String(event.payment_status || '') === 'paid') {
+            eventDetailPaymentInfoEl.textContent = 'Tato událost patří do již uhrazeného období.';
+            eventDetailPaymentInfoEl.classList.remove('d-none');
+        } else {
+            eventDetailPaymentInfoEl.textContent = '';
+            eventDetailPaymentInfoEl.classList.add('d-none');
+        }
 
         if (canCancel) {
             eventDetailCancelBtn.classList.remove('d-none');

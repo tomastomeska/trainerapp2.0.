@@ -209,6 +209,45 @@ function requireAutoMakeupBillingMonth(PDO $pdo, int $coachId, int $athleteId, s
     return $resolved;
 }
 
+function resolveOpenBillingMonth(PDO $pdo, int $coachId, int $athleteId, string $targetMonthSql): string
+{
+    if ($athleteId <= 0) {
+        return $targetMonthSql;
+    }
+
+    $hasPaymentsTable = saveEventTableExists($pdo, 'athlete_monthly_payments');
+    if (!$hasPaymentsTable) {
+        return $targetMonthSql;
+    }
+
+    $month = DateTime::createFromFormat('Y-m-d', $targetMonthSql) ?: new DateTime($targetMonthSql);
+    if (!$month) {
+        return $targetMonthSql;
+    }
+
+    $checkStmt = $pdo->prepare(
+        'SELECT status
+         FROM athlete_monthly_payments
+         WHERE coach_id = ?
+           AND athlete_id = ?
+           AND billing_month = ?
+         LIMIT 1'
+    );
+
+    for ($i = 0; $i < 24; $i++) {
+        $monthSql = $month->format('Y-m-01');
+        $checkStmt->execute([$coachId, $athleteId, $monthSql]);
+        $status = (string)($checkStmt->fetchColumn() ?: '');
+        if ($status !== 'paid') {
+            return $monthSql;
+        }
+
+        $month->modify('first day of next month');
+    }
+
+    return $targetMonthSql;
+}
+
 $eventId = (int)($input['event_id'] ?? 0);
 $athleteId = (int)($input['athlete_id'] ?? 0);
 $secondAthleteId = (int)($input['second_athlete_id'] ?? 0);
@@ -369,6 +408,8 @@ if ($isMakeupSession) {
         echo json_encode(['success' => false, 'error' => $e->getMessage()]);
         exit;
     }
+} elseif ($athleteId > 0) {
+    $billingMonthSql = resolveOpenBillingMonth($pdo, $coachId, (int)$athleteId, $targetMonthSql);
 }
 
 if ($eventId > 0) {
@@ -543,7 +584,9 @@ try {
             throw new RuntimeException('V tomto čase už máte trénink: ' . $occurrenceStart->format('d.m.Y H:i'));
         }
 
-        $occurrenceBillingMonthSql = $isMakeupSession ? $billingMonthSql : $occurrenceStart->format('Y-m-01');
+        $occurrenceBillingMonthSql = $isMakeupSession
+            ? $billingMonthSql
+            : resolveOpenBillingMonth($pdo, $coachId, (int)($athleteId ?? 0), $occurrenceStart->format('Y-m-01'));
 
         $insertStmt->execute([
             $coachId,

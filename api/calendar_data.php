@@ -32,6 +32,9 @@ $eventsStmt = $pdo->prepare(
             e.location,
             e.starts_at,
             e.ends_at,
+        p.status AS payment_status,
+        p.paid_at AS payment_paid_at,
+        p.billed_amount AS payment_billed_amount,
                  a.first_name,
                  a.last_name,
                  a2.first_name AS second_first_name,
@@ -39,6 +42,10 @@ $eventsStmt = $pdo->prepare(
      FROM coach_calendar_events e
      LEFT JOIN athletes a ON a.id = e.athlete_id
              LEFT JOIN athletes a2 ON a2.id = e.second_athlete_id
+     LEFT JOIN athlete_monthly_payments p
+        ON p.coach_id = e.coach_id
+       AND p.athlete_id = e.athlete_id
+       AND p.billing_month = COALESCE(e.billing_month, DATE_FORMAT(e.starts_at, "%Y-%m-01"))
      WHERE e.coach_id = ?
        AND e.starts_at < ?
        AND e.ends_at > ?
