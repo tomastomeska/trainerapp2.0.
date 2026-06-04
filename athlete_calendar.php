@@ -256,6 +256,21 @@ renderAthleteHeader('Muj kalendar');
                         </div>
                         <div class="small text-muted mt-1" id="reserveLocationHint"></div>
                     </div>
+
+                    <div class="alert alert-warning mt-3 mb-0 d-none" id="reserveMakeupSuggestion">
+                        <div class="fw-semibold mb-1"><i class="fas fa-circle-exclamation me-1"></i>Nevyužitý uhrazený trénink</div>
+                        <div class="small" id="reserveMakeupSuggestionText"></div>
+                        <div class="form-check mt-2">
+                            <input class="form-check-input" type="checkbox" id="reserveUseMakeup">
+                            <label class="form-check-label fw-semibold" for="reserveUseMakeup">Použít tento termín jako náhradu</label>
+                        </div>
+                    </div>
+
+                    <div class="mt-2 d-none" id="reserveBillingMonthWrap">
+                        <label for="reserveBillingMonth" class="form-label fw-semibold">Hrazený měsíc</label>
+                        <input type="month" id="reserveBillingMonth" class="form-control">
+                        <div class="form-text">Vyberte měsíc, ze kterého chcete náhradní termín uplatnit.</div>
+                    </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Zrušit</button>
@@ -279,6 +294,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const reserveModal = new bootstrap.Modal(reserveModalEl);
     const reserveLocationInput = document.getElementById('reserveLocation');
     const reserveLocationHint = document.getElementById('reserveLocationHint');
+    const reserveMakeupSuggestion = document.getElementById('reserveMakeupSuggestion');
+    const reserveMakeupSuggestionText = document.getElementById('reserveMakeupSuggestionText');
+    const reserveUseMakeupInput = document.getElementById('reserveUseMakeup');
+    const reserveBillingMonthWrap = document.getElementById('reserveBillingMonthWrap');
+    const reserveBillingMonthInput = document.getElementById('reserveBillingMonth');
     const eventDetailTitleEl = document.getElementById('eventDetailTitle');
     const eventDetailWhenEl = document.getElementById('eventDetailWhen');
     const eventDetailLocationEl = document.getElementById('eventDetailLocation');
@@ -291,6 +311,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let locks = [];
     let dayPilotCalendar = null;
     let selectedEventForDetail = null;
+    let reserveMakeupSuggestionPayload = null;
+    const reserveMakeupSuggestionCache = new Map();
     const hourStart = 5;
     const hourEnd = 22;
     const isCompactMobile = window.matchMedia('(max-width: 991.98px)').matches;
@@ -390,6 +412,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const h = String(date.getHours()).padStart(2, '0');
         const min = String(date.getMinutes()).padStart(2, '0');
         return `${y}-${m}-${d}T${h}:${min}`;
+    }
+
+    function toMonthKey(date) {
+        const y = date.getFullYear();
+        const m = String(date.getMonth() + 1).padStart(2, '0');
+        return `${y}-${m}`;
     }
 
     function toDateTimeSecondsValue(date) {
@@ -557,11 +585,71 @@ document.addEventListener('DOMContentLoaded', () => {
         reserveLocationHint.textContent = parts.length ? parts.join(' • ') : 'Místo je načtené z katalogu training_venues.';
     }
 
+    function clearReserveMakeupSuggestion() {
+        reserveMakeupSuggestionPayload = null;
+        reserveMakeupSuggestion.classList.add('d-none');
+        reserveMakeupSuggestionText.textContent = '';
+        reserveUseMakeupInput.checked = false;
+        reserveBillingMonthWrap.classList.add('d-none');
+        reserveBillingMonthInput.value = '';
+    }
+
+    function updateReserveBillingMonthVisibility() {
+        reserveBillingMonthWrap.classList.toggle('d-none', !reserveUseMakeupInput.checked);
+    }
+
+    function renderReserveMakeupSuggestion(payload, startDate) {
+        if (!payload || !payload.success || !payload.has_outstanding) {
+            clearReserveMakeupSuggestion();
+            return;
+        }
+
+        reserveMakeupSuggestionPayload = payload;
+        const targetMonthLabel = payload.target_month_label || `${String(startDate.getMonth() + 1).padStart(2, '0')}/${startDate.getFullYear()}`;
+        reserveMakeupSuggestionText.textContent = `Máte ${payload.outstanding_sessions} nevyužitý(é) uhrazený(é) trénink(y). Můžete je použít jako náhradu pro ${targetMonthLabel}.`;
+        reserveMakeupSuggestion.classList.remove('d-none');
+        reserveUseMakeupInput.checked = false;
+        reserveBillingMonthInput.value = '';
+        updateReserveBillingMonthVisibility();
+    }
+
+    async function refreshReserveMakeupSuggestion(startDate) {
+        clearReserveMakeupSuggestion();
+        if (!(startDate instanceof Date) || Number.isNaN(startDate.getTime())) {
+            return;
+        }
+
+        const monthKey = toMonthKey(startDate);
+        if (reserveMakeupSuggestionCache.has(monthKey)) {
+            renderReserveMakeupSuggestion(reserveMakeupSuggestionCache.get(monthKey), startDate);
+            return;
+        }
+
+        const payload = await fetch('<?= BASE_URL ?>/api/athlete_calendar_makeup_hint.php', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                csrf_token: csrfToken,
+                starts_at: toDateTimeInputValue(startDate),
+            }),
+        }).then((response) => response.json());
+
+        if (!payload.success) {
+            return;
+        }
+
+        reserveMakeupSuggestionCache.set(monthKey, payload);
+        renderReserveMakeupSuggestion(payload, startDate);
+    }
+
     function openReserveModal(startDate) {
         document.getElementById('reserveStart').value = toDateTimeInputValue(startDate);
         document.getElementById('reserveStartLabel').value = `${formatDateCs(startDate)} ${formatTimeCs(startDate)}`;
         reserveLocationInput.value = '';
         updateReserveLocationHint();
+        clearReserveMakeupSuggestion();
+        refreshReserveMakeupSuggestion(startDate);
         reserveModal.show();
     }
 
@@ -674,6 +762,10 @@ document.addEventListener('DOMContentLoaded', () => {
         updateReserveLocationHint();
     });
 
+    reserveUseMakeupInput.addEventListener('change', () => {
+        updateReserveBillingMonthVisibility();
+    });
+
     eventDetailCancelBtn.addEventListener('click', async () => {
         if (!selectedEventForDetail) {
             return;
@@ -701,7 +793,14 @@ document.addEventListener('DOMContentLoaded', () => {
             starts_at: document.getElementById('reserveStart').value,
             title_type: document.querySelector('input[name="reserveTitleType"]:checked')?.value || 'training',
             location: reserveLocationInput.value.trim(),
+            is_makeup_session: reserveUseMakeupInput.checked ? 1 : 0,
+            billing_month: reserveUseMakeupInput.checked ? reserveBillingMonthInput.value : '',
         };
+
+        if (payload.is_makeup_session && !payload.billing_month) {
+            alert('Pro náhradní termín zvolte hrazený měsíc.');
+            return;
+        }
 
         const response = await fetch('<?= BASE_URL ?>/api/athlete_calendar_save_event.php', {
             method: 'POST',
