@@ -139,11 +139,15 @@ function athletePaymentsQrUrl(string $bankAccount, float $amount, string $note):
 
 $hasBillingMonth = athletePaymentsColumnExists($pdo, 'coach_calendar_events', 'billing_month');
 $hasIsMakeup = athletePaymentsColumnExists($pdo, 'coach_calendar_events', 'is_makeup_session');
+$hasSecondAthlete = athletePaymentsColumnExists($pdo, 'coach_calendar_events', 'second_athlete_id');
 $hasCoachBankAccount = athletePaymentsColumnExists($pdo, 'coaches', 'bank_account');
 $hasCarryoverUsed = athletePaymentsColumnExists($pdo, 'athlete_monthly_payments', 'carryover_used_sessions');
+$hasPairedTrainingRate = athletePaymentsColumnExists($pdo, 'athletes', 'paired_training_rate');
 
 $athleteStmt = $pdo->prepare(
-    'SELECT a.id, a.first_name, a.last_name, a.training_rate, c.id AS coach_id, c.name AS coach_name, c.username AS coach_username'
+    'SELECT a.id, a.first_name, a.last_name, a.training_rate'
+    . ($hasPairedTrainingRate ? ', a.paired_training_rate' : '')
+    . ', c.id AS coach_id, c.name AS coach_name, c.username AS coach_username'
     . ($hasCoachBankAccount ? ', c.bank_account' : '') . '
      FROM athletes a
      JOIN coaches c ON c.id = a.coach_id
@@ -176,19 +180,44 @@ $transferredExpr = $hasBillingMonth
     : '0';
 $makeupExpr = $hasIsMakeup ? 'SUM(CASE WHEN is_makeup_session = 1 THEN 1 ELSE 0 END)' : '0';
 
-$statsStmt = $pdo->prepare(
-    "SELECT {$billingSelect} AS billing_month,
-            COUNT(*) AS billed_sessions,
-            {$makeupExpr} AS makeup_sessions,
-            {$transferredExpr} AS transferred_sessions
-     FROM coach_calendar_events
-     WHERE athlete_id = ?
-       AND approval_status = 'approved'
-       AND {$billingFilter}
-     GROUP BY {$billingSelect}
-     ORDER BY {$billingSelect} DESC"
-);
-$statsStmt->execute([$athleteId]);
+$statsSql = "
+    SELECT t.billing_month,
+           COUNT(*) AS billed_sessions,
+           SUM(CASE WHEN t.is_paired = 1 THEN 1 ELSE 0 END) AS paired_sessions,
+           SUM(CASE WHEN t.is_paired = 0 THEN 1 ELSE 0 END) AS single_sessions,
+           {$makeupExpr} AS makeup_sessions,
+           {$transferredExpr} AS transferred_sessions
+    FROM (
+        SELECT {$billingSelect} AS billing_month,
+               starts_at,
+               " . ($hasIsMakeup ? 'is_makeup_session' : '0') . " AS is_makeup_session,
+               " . ($hasSecondAthlete ? 'CASE WHEN second_athlete_id IS NOT NULL THEN 1 ELSE 0 END' : '0') . " AS is_paired
+        FROM coach_calendar_events
+        WHERE approval_status = 'approved'
+          AND athlete_id = ?
+          AND {$billingFilter}
+" . ($hasSecondAthlete ? "
+        UNION ALL
+        SELECT {$billingSelect} AS billing_month,
+               starts_at,
+               " . ($hasIsMakeup ? 'is_makeup_session' : '0') . " AS is_makeup_session,
+               1 AS is_paired
+        FROM coach_calendar_events
+        WHERE approval_status = 'approved'
+          AND second_athlete_id = ?
+          AND {$billingFilter}
+" : '') . "
+    ) t
+    GROUP BY t.billing_month
+    ORDER BY t.billing_month DESC
+";
+
+$statsStmt = $pdo->prepare($statsSql);
+if ($hasSecondAthlete) {
+    $statsStmt->execute([$athleteId, $athleteId]);
+} else {
+    $statsStmt->execute([$athleteId]);
+}
 $statsRows = $statsStmt->fetchAll();
 
 $paymentRows = [];
@@ -217,6 +246,8 @@ foreach ($statsRows as $row) {
     $rowsByMonth[$month] = [
         'billing_month' => $month,
         'billed_sessions' => (int)$row['billed_sessions'],
+        'paired_sessions' => (int)($row['paired_sessions'] ?? 0),
+        'single_sessions' => (int)($row['single_sessions'] ?? 0),
         'makeup_sessions' => (int)$row['makeup_sessions'],
         'transferred_sessions' => (int)$row['transferred_sessions'],
     ];
@@ -227,6 +258,8 @@ foreach ($paymentsByMonth as $month => $payment) {
         $rowsByMonth[$month] = [
             'billing_month' => $month,
             'billed_sessions' => (int)($payment['planned_sessions'] ?? 0),
+            'paired_sessions' => 0,
+            'single_sessions' => (int)($payment['planned_sessions'] ?? 0),
             'makeup_sessions' => 0,
             'transferred_sessions' => 0,
         ];
@@ -264,23 +297,38 @@ foreach ($monthsAsc as $monthKey) {
 }
 
 $rate = isset($athlete['training_rate']) && $athlete['training_rate'] !== null ? (float)$athlete['training_rate'] : null;
+$pairedRate = ($hasPairedTrainingRate && array_key_exists('paired_training_rate', $athlete) && $athlete['paired_training_rate'] !== null)
+    ? (float)$athlete['paired_training_rate']
+    : $rate;
 $paymentRowsForView = [];
 $openPaymentCount = 0;
 
 foreach ($rowsByMonth as $month => $stats) {
     $payment = $paymentsByMonth[$month] ?? null;
+    $paymentStatus = (string)($payment['status'] ?? '');
     $rawSessions = (int)$stats['billed_sessions'];
+    $rawSingleSessions = (int)($stats['single_sessions'] ?? $rawSessions);
+    $rawPairedSessions = (int)($stats['paired_sessions'] ?? 0);
     $carryoverApplied = min((int)($outstandingBeforeByMonth[$month] ?? 0), $rawSessions);
-    $billableSessions = max(0, $rawSessions - $carryoverApplied);
-    $amount = $rate !== null ? $billableSessions * $rate : null;
-    $note = athletePaymentsAscii($coachLastName . ' ' . date('m/Y', strtotime($month)));
-    $isReleased = (($releasesByMonth[$month] ?? 'draft') === 'released');
-    $qrUrl = ($isReleased && $coachBankAccount !== null && $amount !== null && $amount > 0)
-        ? athletePaymentsQrUrl($coachBankAccount, $amount, $note)
+    $billableSingle = max(0, $rawSingleSessions - $carryoverApplied);
+    $remainingCarryover = max(0, $carryoverApplied - $rawSingleSessions);
+    $billablePaired = max(0, $rawPairedSessions - $remainingCarryover);
+    $billableSessions = $billableSingle + $billablePaired;
+    $amount = ($rate !== null && $pairedRate !== null)
+        ? (($billableSingle * $rate) + ($billablePaired * $pairedRate))
         : null;
-    $isPaid = $payment && ($payment['status'] ?? '') === 'paid';
+    $displayAmount = ($payment && isset($payment['billed_amount']))
+        ? (float)$payment['billed_amount']
+        : $amount;
+    $note = athletePaymentsAscii($coachLastName . ' ' . date('m/Y', strtotime($month)));
+    $isReleased = (($releasesByMonth[$month] ?? 'draft') === 'released') || $paymentStatus === 'pending' || $paymentStatus === 'paid';
+    $qrUrl = ($isReleased && $coachBankAccount !== null && $displayAmount !== null && $displayAmount > 0)
+        ? athletePaymentsQrUrl($coachBankAccount, $displayAmount, $note)
+        : null;
+    $isPaid = $paymentStatus === 'paid';
+    $isPending = $paymentStatus === 'pending';
 
-    if (!$isPaid && $isReleased && $amount !== null && $amount > 0) {
+    if ((!$isPaid) && ($isPending || $isReleased) && $displayAmount !== null && $displayAmount > 0) {
         $openPaymentCount++;
     }
 
@@ -290,11 +338,17 @@ foreach ($rowsByMonth as $month => $stats) {
         'stats' => $stats,
         'payment' => $payment,
         'amount' => $amount,
+        'display_amount' => $displayAmount,
         'billable_sessions' => $billableSessions,
+        'billable_single_sessions' => $billableSingle,
+        'billable_paired_sessions' => $billablePaired,
+        'paired_sessions' => $rawPairedSessions,
+        'single_sessions' => $rawSingleSessions,
         'carryover_applied' => $carryoverApplied,
         'note' => $note,
         'qr_url' => $qrUrl,
         'is_released' => $isReleased,
+        'is_pending' => $isPending,
         'is_paid' => $isPaid,
     ];
 }
@@ -334,6 +388,9 @@ renderAthleteHeader('Platby');
             <div class="card-body">
                 <div class="text-muted small">Sazba za trénink</div>
                 <div class="fs-5 fw-bold"><?= $rate !== null ? number_format($rate, 0, ',', ' ') . ' Kč' : 'Nenastavena' ?></div>
+                <?php if ($pairedRate !== null && $rate !== null && abs($pairedRate - $rate) > 0.0001): ?>
+                    <div class="small text-muted mt-1">Párový trénink: <?= number_format($pairedRate, 0, ',', ' ') ?> Kč</div>
+                <?php endif; ?>
             </div>
         </div>
     </div>
@@ -374,13 +431,22 @@ renderAthleteHeader('Platby');
                                 <td>
                                     <span class="fw-semibold"><?= (int)$row['billable_sessions'] ?></span>
                                     <div class="small text-muted">započítaných tréninků</div>
+                                    <?php if ((int)($row['paired_sessions'] ?? 0) > 0): ?>
+                                        <div class="small text-muted">párové: <?= (int)$row['paired_sessions'] ?>x</div>
+                                    <?php endif; ?>
+                                    <?php if ((int)($row['single_sessions'] ?? 0) > 0): ?>
+                                        <div class="small text-muted">individuální: <?= (int)$row['single_sessions'] ?>x</div>
+                                    <?php endif; ?>
                                     <?php if ((int)$row['carryover_applied'] > 0): ?>
                                         <div class="small text-warning">Zápočet z dříve uhrazených: -<?= (int)$row['carryover_applied'] ?></div>
                                     <?php endif; ?>
                                 </td>
                                 <td>
-                                    <?php if ($row['amount'] !== null): ?>
-                                        <span class="fw-semibold"><?= number_format((float)($row['is_paid'] ? ($row['payment']['billed_amount'] ?? $row['amount']) : $row['amount']), 0, ',', ' ') ?> Kč</span>
+                                    <?php if ($row['display_amount'] !== null): ?>
+                                        <span class="fw-semibold"><?= number_format((float)$row['display_amount'], 0, ',', ' ') ?> Kč</span>
+                                        <?php if ((float)$row['display_amount'] <= 0.0001): ?>
+                                            <div class="small text-success">Fakturovaná částka: 0 Kč</div>
+                                        <?php endif; ?>
                                     <?php else: ?>
                                         <span class="text-muted">Nelze spočítat</span>
                                     <?php endif; ?>
@@ -402,6 +468,9 @@ renderAthleteHeader('Platby');
                                     <?php endif; ?>
                                 </td>
                                 <td class="text-end">
+                                    <a href="<?= BASE_URL ?>/payment_receipt.php?month=<?= urlencode((string)$row['billing_month']) ?>" target="_blank" class="btn btn-outline-primary btn-sm me-1 mb-1">
+                                        <i class="fas fa-receipt me-1"></i>Účtenka
+                                    </a>
                                     <?php if (!$row['is_paid'] && $row['qr_url'] !== null): ?>
                                         <button
                                             type="button"
@@ -409,15 +478,13 @@ renderAthleteHeader('Platby');
                                             data-bs-toggle="modal"
                                             data-bs-target="#athletePaymentQrModal"
                                             data-month-label="<?= h($row['month_label']) ?>"
-                                            data-amount="<?= h(number_format((float)$row['amount'], 0, ',', ' ') . ' Kč') ?>"
+                                            data-amount="<?= h(number_format((float)$row['display_amount'], 0, ',', ' ') . ' Kč') ?>"
                                             data-account="<?= h($coachBankAccount ?? '') ?>"
                                             data-note="<?= h($row['note']) ?>"
                                             data-qr-url="<?= h($row['qr_url']) ?>"
                                         >
                                             <i class="fas fa-qrcode me-1"></i>Zobrazit QR
                                         </button>
-                                    <?php else: ?>
-                                        <span class="text-muted small">Bez akce</span>
                                     <?php endif; ?>
                                 </td>
                             </tr>

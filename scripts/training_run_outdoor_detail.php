@@ -5,9 +5,15 @@ require_once __DIR__ . '/includes/header.php';
 
 requireLogin();
 
+$sessionId = intParam($_GET, 'id', 0);
+flash('warning', 'Režim běhu venku byl z aplikace odstraněn.');
+if ($sessionId > 0) {
+    redirect(BASE_URL . '/training_session.php?id=' . $sessionId);
+}
+redirect(BASE_URL . '/dashboard.php');
+
 $coachId = getCurrentCoachId();
 $pdo = getDB();
-$sessionId = intParam($_GET, 'id', 0);
 
 if ($sessionId <= 0) {
     flash('danger', 'Session nenalezena.');

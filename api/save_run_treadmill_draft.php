@@ -5,6 +5,9 @@ require_once __DIR__ . '/../includes/functions.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
+echo json_encode(['success' => false, 'error' => 'Režim běhu na páse byl z aplikace odstraněn.']);
+exit;
+
 if (!isLoggedIn()) {
     echo json_encode(['success' => false, 'error' => 'Nepřihlášen']);
     exit;

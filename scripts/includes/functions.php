@@ -115,7 +115,14 @@ function getWorkoutSetExercises(int $setId): array {
          ORDER BY wse.exercise_order ASC'
     );
     $stmt->execute([$setId]);
-    return $stmt->fetchAll();
+    $rows = $stmt->fetchAll();
+    foreach ($rows as &$row) {
+      if (in_array(($row['sport_type'] ?? 'standard'), ['golf', 'run_outdoor', 'run_treadmill'], true)) {
+        $row['sport_type'] = 'standard';
+      }
+    }
+    unset($row);
+    return $rows;
 }
 
 // Vrátí cviky konkrétní session ze snapshotu; fallback pro starší data.
@@ -153,10 +160,20 @@ function getSessionExercises(int $sessionId, int $setId): array {
             if (!isset($row['sport_type']) || $row['sport_type'] === '' || $row['sport_type'] === null) {
               $row['sport_type'] = $typesById[(int)$row['exercise_id']] ?? 'standard';
             }
+            if (in_array(($row['sport_type'] ?? 'standard'), ['golf', 'run_outdoor', 'run_treadmill'], true)) {
+              $row['sport_type'] = 'standard';
+            }
           }
           unset($row);
         }
       }
+
+      foreach ($snapshotRows as &$row) {
+        if (in_array(($row['sport_type'] ?? 'standard'), ['golf', 'run_outdoor', 'run_treadmill'], true)) {
+          $row['sport_type'] = 'standard';
+        }
+      }
+      unset($row);
 
         return $snapshotRows;
     }
@@ -171,7 +188,7 @@ function getSessionExercises(int $sessionId, int $setId): array {
             'exercise_id'    => $eid,
             'exercise_order' => $ord,
             'exercise_name'  => $row['exercise_name'],
-            'sport_type'     => $row['sport_type'] ?? 'standard',
+          'sport_type'     => in_array(($row['sport_type'] ?? 'standard'), ['golf', 'run_outdoor', 'run_treadmill'], true) ? 'standard' : ($row['sport_type'] ?? 'standard'),
         ];
         if ($ord > $maxOrder) {
             $maxOrder = $ord;
@@ -195,7 +212,7 @@ function getSessionExercises(int $sessionId, int $setId): array {
                 'exercise_id'    => $eid,
                 'exercise_order' => $maxOrder,
                 'exercise_name'  => $row['exercise_name'],
-                'sport_type'     => $row['sport_type'] ?? 'standard',
+              'sport_type'     => in_array(($row['sport_type'] ?? 'standard'), ['golf', 'run_outdoor', 'run_treadmill'], true) ? 'standard' : ($row['sport_type'] ?? 'standard'),
             ];
         }
     }

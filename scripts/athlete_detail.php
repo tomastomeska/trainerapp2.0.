@@ -115,22 +115,6 @@ if ($lastUpdated !== null) {
     }
 }
 
-// Zobrazení váhy pouze v detailu sportovce
-if ($currentWeight !== null) {
-    echo '<div class="weight-info">';
-    echo '<strong>Aktuální váha:</strong> ' . h($currentWeight) . ' kg';
-    if ($weightTrend === 'up') {
-        echo ' <span class="text-danger">&uarr;</span>';
-    } elseif ($weightTrend === 'down') {
-        echo ' <span class="text-success">&darr;</span>';
-    }
-    echo '</div>';
-}
-
-if ($weightWarning !== null) {
-    echo '<div class="alert alert-warning">' . h($weightWarning) . '</div>';
-}
-
 // Historie tréninků
 $stmt = $pdo->prepare(
     'SELECT ts.*, ws.name AS set_name,
@@ -337,8 +321,8 @@ renderHeader(h($athlete['first_name'] . ' ' . $athlete['last_name']), true);
                     <?= csrfField() ?>
                     <input type="hidden" name="athlete_id" value="<?= $athleteId ?>">
                     <div class="mb-3">
-                        <label class="form-label fw-semibold">Vyberte sadu</label>
-                        <select name="workout_set_id" class="form-select" required>
+                        <label class="form-label fw-semibold" for="workout_set_id">Vyberte sadu</label>
+                        <select name="workout_set_id" id="workout_set_id" class="form-select" required>
                             <option value="">– vyberte sadu –</option>
                             <?php foreach ($workoutSets as $ws): ?>
                             <option value="<?= $ws['id'] ?>">
@@ -372,13 +356,13 @@ renderHeader(h($athlete['first_name'] . ' ' . $athlete['last_name']), true);
                     <?= csrfField() ?>
                     <input type="hidden" name="action" value="save_weight">
                     <div class="mb-2">
-                        <label class="form-label fw-semibold">Datum vážení</label>
-                        <input type="date" name="measured_at" class="form-control"
+                        <label class="form-label fw-semibold" for="measured_at">Datum vážení</label>
+                        <input type="date" id="measured_at" name="measured_at" class="form-control"
                                value="<?= date('Y-m-d') ?>" required>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label fw-semibold">Aktuální váha (kg)</label>
-                        <input type="number" name="weight_kg" class="form-control"
+                        <label class="form-label fw-semibold" for="weight_kg">Aktuální váha (kg)</label>
+                        <input type="number" id="weight_kg" name="weight_kg" class="form-control"
                                min="20" max="400" step="0.1"
                                value="<?= $weightStats['current_weight'] !== null ? h((string)$weightStats['current_weight']) : '' ?>"
                                placeholder="např. 78.4" required>

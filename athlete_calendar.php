@@ -311,6 +311,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function getEventColorScheme(event) {
+        if (event.is_foreign) {
+            return { backColor: '#1f2937', barColor: '#111827', fontColor: '#ffffff' };
+        }
+
         if ((event.approval_status || 'approved') === 'pending') {
             return { backColor: '#f97316', barColor: '#ea580c', fontColor: '#ffffff' };
         }
@@ -340,11 +344,19 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function getEventTitle(event) {
+        if (event.is_foreign) {
+            return 'Obsazeno';
+        }
+
+        if (event.second_athlete_id) {
+            return 'Párový trénink';
+        }
+
         if (event.custom_title) {
             return event.custom_title;
         }
-        if (event.athlete_id && event.first_name && event.last_name) {
-            return `${event.last_name} ${event.first_name}`;
+        if (event.athlete_id) {
+            return 'Trénink';
         }
         return 'Rezervace';
     }
@@ -437,19 +449,24 @@ document.addEventListener('DOMContentLoaded', () => {
         const title = getEventTitle(event);
         const statusMeta = getEventStatusMeta(event);
         const timeLabel = `${formatTimeCs(startDate)} - ${formatTimeCs(endDate)}`;
-        const detailLine = [timeLabel, event.location ? `Místo: ${event.location}` : 'Místo: -'].filter(Boolean).join('\n');
-        const place = event.location ? `\nMísto: ${event.location}` : '';
+        const detailLine = event.is_foreign
+            ? timeLabel
+            : [timeLabel, event.location ? `Místo: ${event.location}` : 'Místo: -'].filter(Boolean).join('\n');
+        const place = event.is_foreign ? '' : (event.location ? `\nMísto: ${event.location}` : '');
         const time = `\nČas: ${formatTimeCs(startDate)} - ${formatTimeCs(endDate)}`;
         const color = getEventColorScheme(event);
-        const statusLine = statusMeta.label ? `\nStav: ${statusMeta.label}` : '';
+        const statusLine = (!event.is_foreign && statusMeta.label) ? `\nStav: ${statusMeta.label}` : '';
         const ownedByAthlete = Boolean(event.is_mine || event.is_requested_by_me);
         const canCancel = Boolean(event.can_cancel ?? ownedByAthlete);
         const nonCancelableOwnedEvent = ownedByAthlete && !canCancel;
+        const isForeign = Boolean(event.is_foreign);
 
         return {
             id: String(event.id),
             text: [title, detailLine].filter(Boolean).join('\n'),
-            toolTip: `${title}${time}${place}${statusLine}`
+            toolTip: isForeign
+                ? `${title}${time}`
+                : `${title}${time}${place}${statusLine}`
                 + (nonCancelableOwnedEvent ? '\nPoznámka: Tento termín už nelze zrušit.' : ''),
             start: toDateTimeSecondsValue(startDate),
             end: toDateTimeSecondsValue(endDate),
@@ -462,10 +479,11 @@ document.addEventListener('DOMContentLoaded', () => {
             ].filter(Boolean).join(' '),
             moveDisabled: true,
             resizeDisabled: true,
-            clickDisabled: false,
+            clickDisabled: isForeign,
             mine: canCancel,
             data: {
                 mine: canCancel,
+                is_foreign: isForeign,
             },
         };
     }
@@ -615,6 +633,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const eventId = String(args.e.id());
                     const srcEvent = events.find((item) => String(item.id) === eventId) || null;
                     if (!srcEvent) return;
+                    if (srcEvent.is_foreign) return;
                     openEventDetailModal(srcEvent);
                 },
             });

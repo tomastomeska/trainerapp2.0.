@@ -17,14 +17,7 @@ $athleteStmt = $pdo->prepare(
 $athleteStmt->execute([$coachId]);
 $athletes = $athleteStmt->fetchAll();
 
-$venueStmt = $pdo->prepare(
-    'SELECT DISTINCT location
-     FROM coach_calendar_events
-     WHERE coach_id = ? AND location IS NOT NULL
-     ORDER BY location ASC'
-);
-$venueStmt->execute([$coachId]);
-$venues = array_map(fn($row) => $row['location'], $venueStmt->fetchAll());
+$venues = array_values(array_filter(getTrainingVenues(), fn($row) => !empty($row['name'])));
 
 renderHeader('Kalendář');
 ?>
@@ -112,6 +105,28 @@ renderHeader('Kalendář');
 
 .slot-event.updated {
     box-shadow: inset 0 0 0 2px rgba(255,255,255,.45);
+}
+
+.slot-event.paired {
+    padding-top: .25rem;
+}
+
+.slot-event .paired-names {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: .35rem;
+    margin-bottom: .2rem;
+}
+
+.slot-event .paired-names .name-col {
+    font-size: .68rem;
+    line-height: 1.08;
+    font-weight: 700;
+    word-break: break-word;
+}
+
+.slot-event .paired-names .name-col:last-child {
+    text-align: right;
 }
 
 #daypilotCalendar .coach-calendar-pending {
@@ -267,7 +282,8 @@ renderHeader('Kalendář');
             <div class="text-muted small">Klikněte do slotu pro přidání tréninku nebo uzamčení času.</div>
         </div>
         <div class="d-flex align-items-center gap-2 small flex-wrap">
-            <span class="badge text-bg-info">Trénink</span>
+            <span class="badge" style="background:#22c55e;color:#fff">Trénink (1 sportovec)</span>
+            <span class="badge" style="background:#0ea5e9;color:#fff">Párový trénink (2 sportovci)</span>
             <span class="badge" style="background:#f97316;color:#fff">Ke schválení</span>
             <span class="lock-chip">Uzamčeno</span>
         </div>
@@ -324,8 +340,40 @@ renderHeader('Kalendář');
                     </div>
 
                     <div class="mb-3">
+                        <label for="eventSecondAthlete" class="form-label fw-semibold">Druhý sportovec (párový trénink)</label>
+                        <select id="eventSecondAthlete" class="form-select">
+                            <option value="">-- Bez druhého sportovce --</option>
+                            <?php foreach ($athletes as $a): ?>
+                            <option value="<?= (int)$a['id'] ?>">
+                                <?= h($a['last_name'] . ' ' . $a['first_name']) ?>
+                            </option>
+                            <?php endforeach; ?>
+                        </select>
+                        <div class="form-text">Vyberte druhého účastníka pro párovou hodinu.</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold d-block">Typ události</label>
+                        <div class="d-flex flex-column gap-2">
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="eventTitleType" id="eventTitleTraining" value="training" checked>
+                                <label class="form-check-label" for="eventTitleTraining">Trénink</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="eventTitleType" id="eventTitleConsultation" value="consultation">
+                                <label class="form-check-label" for="eventTitleConsultation">Konzultační hodina</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="eventTitleType" id="eventTitleOther" value="other">
+                                <label class="form-check-label" for="eventTitleOther">Jiné</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
                         <label for="eventCustomTitle" class="form-label fw-semibold">Název vlastní</label>
                         <input type="text" id="eventCustomTitle" class="form-control" maxlength="140" placeholder="Např. Konzultace / regenerace / soukromý trénink">
+                        <div class="form-text">Vlastní název je volitelný a přepíše zvolený typ události.</div>
                     </div>
 
                     <div class="mb-3">
@@ -334,12 +382,20 @@ renderHeader('Kalendář');
                             <select id="eventLocationMode" class="form-select" style="flex: 0 0 140px">
                                 <option value="custom">Napsat sám</option>
                                 <?php foreach ($venues as $venue): ?>
-                                <option value="<?= h($venue) ?>"><?= h($venue) ?></option>
+                                <option value="<?= h((string)$venue['name']) ?>"
+                                        data-address="<?= h((string)($venue['address'] ?? '')) ?>"
+                                        data-note="<?= h((string)($venue['note'] ?? '')) ?>">
+                                    <?= h((string)$venue['name']) ?>
+                                    <?php if (!empty($venue['address'])): ?>
+                                    - <?= h((string)$venue['address']) ?>
+                                    <?php endif; ?>
+                                </option>
                                 <?php endforeach; ?>
                             </select>
                             <input type="text" id="eventLocation" class="form-control" maxlength="255" placeholder="Např. Stadion, fitko, hala, venku...">
                         </div>
-                        <div class="form-text">Vyberte existující místo, nebo zadejte vlastní.</div>
+                        <div class="form-text">Vyberte existující místo ze sportovišť, nebo zadejte vlastní.</div>
+                        <div class="small text-muted mt-1" id="eventLocationHint"></div>
                     </div>
 
                     <div class="mb-3">
@@ -405,6 +461,14 @@ renderHeader('Kalendář');
                         <label for="eventBillingMonth" class="form-label fw-semibold">Hrazený měsíc</label>
                         <input type="month" id="eventBillingMonth" class="form-control">
                         <div class="form-text">Použije se pro stránku Platby. Pokud je to náhrada za dříve zaplacený měsíc, vyberte ten původní.</div>
+                    </div>
+
+                    <div class="alert alert-warning mt-3 mb-0 d-none" id="eventMakeupSuggestion">
+                        <div class="fw-semibold mb-1"><i class="fas fa-circle-exclamation me-1"></i>Možná náhrada z dříve uhrazených tréninků</div>
+                        <div class="small" id="eventMakeupSuggestionText"></div>
+                        <button type="button" class="btn btn-sm btn-outline-dark mt-2" id="eventUseMakeupBtn">
+                            <i class="fas fa-check me-1"></i>Označit tento termín jako náhradu
+                        </button>
                     </div>
 
                     </div>
@@ -519,9 +583,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const eventTrainingFields = document.getElementById('eventTrainingFields');
     const lockFields = document.getElementById('lockFields');
     const eventAthleteInput = document.getElementById('eventAthlete');
+    const eventSecondAthleteInput = document.getElementById('eventSecondAthlete');
     const eventCustomTitleInput = document.getElementById('eventCustomTitle');
     const eventLocationModeInput = document.getElementById('eventLocationMode');
     const eventLocationInput = document.getElementById('eventLocation');
+    const eventLocationHint = document.getElementById('eventLocationHint');
     const eventColorInput = document.getElementById('eventColor');
     const eventDateInput = document.getElementById('eventDate');
     const eventHourInput = document.getElementById('eventHour');
@@ -534,6 +600,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const eventIsMakeupInput = document.getElementById('eventIsMakeup');
     const eventBillingMonthWrap = document.getElementById('eventBillingMonthWrap');
     const eventBillingMonthInput = document.getElementById('eventBillingMonth');
+    const eventMakeupSuggestion = document.getElementById('eventMakeupSuggestion');
+    const eventMakeupSuggestionText = document.getElementById('eventMakeupSuggestionText');
+    const eventUseMakeupBtn = document.getElementById('eventUseMakeupBtn');
     const lockUnlockModeInput = document.getElementById('lockUnlockMode');
     const lockNoteInlineInput = document.getElementById('lockNoteInline');
     const lockStartDateInput = document.getElementById('lockStartDate');
@@ -567,12 +636,19 @@ document.addEventListener('DOMContentLoaded', () => {
         purple: { backColor: '#8b5cf6', barColor: '#7c3aed', fontColor: '#ffffff' },
         gray: { backColor: '#6b7280', barColor: '#4b5563', fontColor: '#ffffff' },
     };
+    const titleTypeLabels = {
+        training: 'Trénink',
+        consultation: 'Konzultační hodina',
+        other: 'Jiné',
+    };
 
     let currentWeekStart = getMonday(new Date());
     let events = [];
     let locks = [];
     let dayPilotCalendar = null;
     let activeEvent = null;
+    let currentMakeupSuggestion = null;
+    const makeupSuggestionCache = new Map();
 
     function normalizeColorKey(colorKey) {
         if (typeof colorKey !== 'string') {
@@ -584,6 +660,17 @@ document.addEventListener('DOMContentLoaded', () => {
     function getEventColorScheme(event) {
         if ((event.approval_status || 'approved') === 'pending') {
             return { backColor: '#f97316', barColor: '#ea580c', fontColor: '#ffffff' };
+        }
+
+        const isPairedTraining = Number(event.athlete_id || 0) > 0 && Number(event.second_athlete_id || 0) > 0;
+        const isSingleAthleteTraining = Number(event.athlete_id || 0) > 0 && Number(event.second_athlete_id || 0) === 0;
+
+        if (isPairedTraining) {
+            return eventColorSchemes.blue;
+        }
+
+        if (isSingleAthleteTraining) {
+            return eventColorSchemes.green;
         }
 
         return eventColorSchemes[normalizeColorKey(event.color_key)];
@@ -664,6 +751,15 @@ document.addEventListener('DOMContentLoaded', () => {
         return new Date(raw.replace(' ', 'T'));
     }
 
+    function escapeHtml(value) {
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
     function isRangeLocked(start, end) {
         return locks.some((lock) => {
             const lockStart = fromSqlDateTime(lock.starts_at);
@@ -677,26 +773,91 @@ document.addEventListener('DOMContentLoaded', () => {
         const endDate = fromSqlDateTime(event.ends_at);
         const title = getEventTitle(event);
         const timeLabel = `${formatTimeCs(startDate)} - ${formatTimeCs(endDate)}`;
-        const placeLabel = event.location ? `${event.location}` : '';
-        const athleteLabel = event.athlete_id && event.first_name && event.last_name ? `${event.last_name} ${event.first_name}` : '';
+        const athleteLabel = getEventAthletesLabel(event);
+        const athleteNames = athleteLabel ? athleteLabel.split(' + ') : [];
+        const isPairedTraining = athleteNames.length === 2;
         const place = event.location ? `\nMísto: ${event.location}` : '';
         const time = `\nČas: ${formatTimeCs(startDate)} - ${formatTimeCs(endDate)}`;
         const color = getEventColorScheme(event);
         const statusMeta = getEventStatusMeta(event);
+        const athleteInfo = athleteLabel && title !== athleteLabel ? `\nSportovci: ${athleteLabel}` : '';
         const statusLine = statusMeta.label ? `\nStav: ${statusMeta.label}` : '';
-        const detailLine = [statusMeta.label, timeLabel, placeLabel, athleteLabel].filter(Boolean).join(' | ');
+        const detailLine = [timeLabel, statusMeta.label].filter(Boolean).join(' | ');
 
         return {
             id: String(event.id),
-            text: [title, detailLine].filter(Boolean).join('\n'),
-            toolTip: `${title}${time}${place}${statusLine}`,
+            text: isPairedTraining
+                ? [event.location || '', timeLabel, statusMeta.label].filter(Boolean).join('\n')
+                : [title, detailLine].filter(Boolean).join('\n'),
+            html: isPairedTraining
+                ? `<div style="display:grid;grid-template-columns:1fr 1fr;column-gap:8px;font-weight:700;line-height:1.1;font-size:12px;margin-bottom:4px;"><div>${escapeHtml(athleteNames[0])}</div><div style="text-align:right;">${escapeHtml(athleteNames[1])}</div></div><div style="text-align:center;font-weight:600;line-height:1.2;">${escapeHtml(event.location || '')}</div><div style="text-align:center;font-weight:600;line-height:1.2;">${escapeHtml(timeLabel)}</div>`
+                : null,
+            toolTip: `${title}${time}${place}${athleteInfo}${statusLine}`,
             start: toDateTimeSecondsValue(startDate),
             end: toDateTimeSecondsValue(endDate),
             backColor: color.backColor,
             barColor: color.barColor,
             fontColor: color.fontColor,
-            cssClass: statusMeta.className === 'pending' ? 'coach-calendar-pending' : '',
+            cssClass: [
+                statusMeta.className === 'pending' ? 'coach-calendar-pending' : '',
+                isPairedTraining ? 'coach-calendar-paired' : '',
+            ].filter(Boolean).join(' '),
         };
+    }
+
+    function getSelectedEventTitleType() {
+        return document.querySelector('input[name="eventTitleType"]:checked')?.value || 'training';
+    }
+
+    function setSelectedEventTitleType(type) {
+        const target = document.querySelector(`input[name="eventTitleType"][value="${type}"]`) || document.querySelector('input[name="eventTitleType"][value="training"]');
+        if (target) {
+            target.checked = true;
+        }
+    }
+
+    function inferTitleTypeFromEvent(event) {
+        const normalizedTitle = String(event?.custom_title || '').trim().toLowerCase();
+        if (normalizedTitle === titleTypeLabels.consultation.toLowerCase()) {
+            return 'consultation';
+        }
+        if (normalizedTitle === titleTypeLabels.other.toLowerCase()) {
+            return 'other';
+        }
+        return 'training';
+    }
+
+    function updateEventLocationHint() {
+        const selectedOption = eventLocationModeInput.options[eventLocationModeInput.selectedIndex] || null;
+
+        if (!selectedOption || eventLocationModeInput.value === 'custom') {
+            eventLocationHint.textContent = 'Můžete napsat vlastní místo nebo vybrat ze sportovišť.';
+            return;
+        }
+
+        const address = selectedOption.dataset.address || '';
+        const note = selectedOption.dataset.note || '';
+        const parts = [];
+
+        if (address) parts.push(address);
+        if (note) parts.push(note);
+
+        eventLocationHint.textContent = parts.length ? parts.join(' • ') : 'Místo je načtené ze sportovišť.';
+    }
+
+    function syncSecondAthleteOptions() {
+        const primaryValue = eventAthleteInput.value;
+        Array.from(eventSecondAthleteInput.options).forEach((option) => {
+            if (!option.value) {
+                option.disabled = false;
+                return;
+            }
+            option.disabled = option.value === primaryValue;
+        });
+
+        if (eventSecondAthleteInput.value && eventSecondAthleteInput.value === primaryValue) {
+            eventSecondAthleteInput.value = '';
+        }
     }
 
     function toDayPilotLockEvent(lock) {
@@ -872,6 +1033,81 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    function clearMakeupSuggestion() {
+        currentMakeupSuggestion = null;
+        eventMakeupSuggestion.classList.add('d-none');
+        eventMakeupSuggestionText.textContent = '';
+        eventUseMakeupBtn.classList.add('d-none');
+    }
+
+    function getSelectedStartMonth() {
+        const date = eventDateInput.value;
+        if (!date) {
+            return '';
+        }
+        const parsed = new Date(`${date}T00:00`);
+        if (Number.isNaN(parsed.getTime())) {
+            return '';
+        }
+        return toMonthKey(parsed);
+    }
+
+    function renderMakeupSuggestion(payload) {
+        if (!payload || !payload.success || !payload.has_outstanding) {
+            clearMakeupSuggestion();
+            return;
+        }
+
+        currentMakeupSuggestion = payload;
+        const targetMonth = payload.target_month_label || getSelectedStartMonth();
+        eventMakeupSuggestionText.textContent = `Sportovec má ${payload.outstanding_sessions} nevyčerpaný(é) trénink(y) z dříve uhrazených období. Pro ${targetMonth} můžete tento termín označit jako náhradu.`;
+        eventMakeupSuggestion.classList.remove('d-none');
+        eventUseMakeupBtn.classList.toggle('d-none', eventIsMakeupInput.checked);
+    }
+
+    async function refreshMakeupSuggestion() {
+        const isNewEvent = !eventIdInput.value;
+        const isLockMode = eventIsLockInput.checked;
+        const athleteId = eventAthleteInput.value ? Number(eventAthleteInput.value) : 0;
+        const startsAt = eventStartInput.value;
+
+        if (!isNewEvent || isLockMode || athleteId <= 0 || !startsAt) {
+            clearMakeupSuggestion();
+            return;
+        }
+
+        const monthKey = getSelectedStartMonth();
+        if (!monthKey) {
+            clearMakeupSuggestion();
+            return;
+        }
+
+        const cacheKey = `${athleteId}|${monthKey}`;
+        if (makeupSuggestionCache.has(cacheKey)) {
+            renderMakeupSuggestion(makeupSuggestionCache.get(cacheKey));
+            return;
+        }
+
+        const payload = await fetchJson('<?= BASE_URL ?>/api/calendar_makeup_hint.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({
+                csrf_token: csrfToken,
+                athlete_id: athleteId,
+                starts_at: startsAt,
+            }),
+        });
+
+        if (!payload.success) {
+            clearMakeupSuggestion();
+            return;
+        }
+
+        makeupSuggestionCache.set(cacheKey, payload);
+        renderMakeupSuggestion(payload);
+    }
+
     function updateLockRepeatControls() {
         const mode = lockRepeatModeInput.value;
         const unlockMode = lockUnlockModeInput.checked;
@@ -903,6 +1139,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (lockMode) {
             eventModalTitle.innerHTML = '<i class="fas fa-lock me-2 text-warning"></i>Uzamčení času';
             deleteEventBtn.innerHTML = '<i class="fas fa-trash me-1"></i>Smazat uzamčení';
+            clearMakeupSuggestion();
         } else {
             eventModalTitle.innerHTML = '<i class="fas fa-calendar-plus me-2 text-warning"></i>Trénink';
             deleteEventBtn.innerHTML = '<i class="fas fa-trash me-1"></i>Smazat';
@@ -924,7 +1161,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 viewType: 'Week',
                 weekStarts: 1,
                 cellDuration: 60,
-                cellHeight: isCompactMobile ? 56 : 68,
+                cellHeight: isCompactMobile ? 62 : 84,
                 eventArrangement: 'SideBySide',
                 useEventBoxes: 'Never',
                 showNonBusiness: false,
@@ -1043,12 +1280,24 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    function getEventAthletesLabel(event) {
+        const names = [];
+        if (event.athlete_id && event.first_name && event.last_name) {
+            names.push(`${event.last_name} ${event.first_name}`);
+        }
+        if (event.second_athlete_id && event.second_first_name && event.second_last_name) {
+            names.push(`${event.second_last_name} ${event.second_first_name}`);
+        }
+        return names.join(' + ');
+    }
+
     function getEventTitle(event) {
         if (event.custom_title) {
             return event.custom_title;
         }
-        if (event.athlete_id && event.first_name && event.last_name) {
-            return `${event.last_name} ${event.first_name}`;
+        const athletesLabel = getEventAthletesLabel(event);
+        if (athletesLabel) {
+            return athletesLabel;
         }
         return 'Trénink';
     }
@@ -1123,9 +1372,17 @@ document.addEventListener('DOMContentLoaded', () => {
                         const endTime = eventEnd.toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' });
                         
                         const title = getEventTitle(event);
-                        const statusBadge = statusMeta.label ? `<span class="badge bg-light text-dark ms-1">${statusMeta.label}</span>` : '';
-                        const where = event.location ? `<span class="where"><i class="fas fa-location-dot me-1"></i>${event.location}</span>` : '';
-                        btn.innerHTML = `<span class="time">${startTime}-${endTime}</span> ${title}${statusBadge}${where}`;
+                        const athletesLabel = getEventAthletesLabel(event);
+                        const athleteNames = athletesLabel ? athletesLabel.split(' + ') : [];
+                        const isPairedTraining = athleteNames.length === 2;
+                        const statusSuffix = statusMeta.label ? ` • ${statusMeta.label}` : '';
+                        if (isPairedTraining) {
+                            btn.classList.add('paired');
+                            const whereLine = event.location ? `<span class="where">${event.location}</span>` : '';
+                            btn.innerHTML = `<span class="paired-names"><span class="name-col">${athleteNames[0]}</span><span class="name-col">${athleteNames[1]}</span></span>${whereLine}<span class="time">${startTime}-${endTime}</span>`;
+                        } else {
+                            btn.innerHTML = `<span class="time">${startTime}-${endTime}</span> ${title}${statusSuffix}`;
+                        }
                         btn.addEventListener('click', (e) => {
                             e.stopPropagation();
                             openEventModal(event);
@@ -1210,14 +1467,18 @@ document.addEventListener('DOMContentLoaded', () => {
             lockRepeatUntilInput.value = '';
 
             deleteEventBtn.classList.remove('d-none');
+            clearMakeupSuggestion();
         } else if (event) {
             eventIsLockInput.checked = false;
             eventIsLockInput.disabled = true;
             lockIdInput.value = '';
             eventIdInput.value = event.id;
+            setSelectedEventTitleType(inferTitleTypeFromEvent(event));
             eventAthleteInput.value = event.athlete_id ? String(event.athlete_id) : '';
-            eventCustomTitleInput.value = event.custom_title || '';
-            eventLocationModeInput.value = event.location || 'custom';
+            eventSecondAthleteInput.value = event.second_athlete_id ? String(event.second_athlete_id) : '';
+            eventCustomTitleInput.value = inferTitleTypeFromEvent(event) === 'training' ? (event.custom_title || '') : '';
+            const hasLocationOption = !!Array.from(eventLocationModeInput.options).find((option) => option.value === String(event.location || ''));
+            eventLocationModeInput.value = hasLocationOption ? String(event.location) : 'custom';
             eventLocationInput.value = event.location || '';
             eventColorInput.value = normalizeColorKey(event.color_key);
             setEventStartControls(fromSqlDateTime(event.starts_at));
@@ -1228,6 +1489,7 @@ document.addEventListener('DOMContentLoaded', () => {
             setRepeatControlsEnabled(false);
             updateRepeatControls();
             deleteEventBtn.classList.remove('d-none');
+            clearMakeupSuggestion();
 
             const isPendingRequest = (event.approval_status || 'approved') === 'pending' && Number(event.requested_by_athlete_id || 0) > 0;
             if (isPendingRequest) {
@@ -1243,7 +1505,9 @@ document.addEventListener('DOMContentLoaded', () => {
             eventIsLockInput.disabled = false;
             lockIdInput.value = '';
             eventIdInput.value = '';
+            setSelectedEventTitleType('training');
             eventAthleteInput.value = '';
+            eventSecondAthleteInput.value = '';
             eventCustomTitleInput.value = '';
             eventLocationModeInput.value = 'custom';
             eventLocationInput.value = '';
@@ -1278,9 +1542,13 @@ document.addEventListener('DOMContentLoaded', () => {
             updateRepeatControls();
             deleteEventBtn.classList.add('d-none');
             deleteEventBtn.innerHTML = '<i class="fas fa-trash me-1"></i>Smazat';
+            clearMakeupSuggestion();
         }
 
+    syncSecondAthleteOptions();
+        updateEventLocationHint();
         updateModeUI();
+        refreshMakeupSuggestion();
 
         eventModal.show();
     }
@@ -1289,11 +1557,26 @@ document.addEventListener('DOMContentLoaded', () => {
         if (e.target.value !== 'custom') {
             eventLocationInput.value = e.target.value;
         }
+        updateEventLocationHint();
+    });
+    eventLocationInput.addEventListener('input', updateEventLocationHint);
+    eventAthleteInput.addEventListener('change', () => {
+        syncSecondAthleteOptions();
+        refreshMakeupSuggestion();
     });
 
-    eventDateInput.addEventListener('change', syncEventStartFromControls);
-    eventHourInput.addEventListener('change', syncEventStartFromControls);
-    eventMinuteInput.addEventListener('change', syncEventStartFromControls);
+    eventDateInput.addEventListener('change', () => {
+        syncEventStartFromControls();
+        refreshMakeupSuggestion();
+    });
+    eventHourInput.addEventListener('change', () => {
+        syncEventStartFromControls();
+        refreshMakeupSuggestion();
+    });
+    eventMinuteInput.addEventListener('change', () => {
+        syncEventStartFromControls();
+        refreshMakeupSuggestion();
+    });
     lockStartDateInput.addEventListener('change', syncLockRangeFromControls);
     lockStartHourInput.addEventListener('change', syncLockRangeFromControls);
     lockStartMinuteInput.addEventListener('change', syncLockRangeFromControls);
@@ -1301,10 +1584,29 @@ document.addEventListener('DOMContentLoaded', () => {
     lockEndHourInput.addEventListener('change', syncLockRangeFromControls);
     lockEndMinuteInput.addEventListener('change', syncLockRangeFromControls);
     eventRepeatModeInput.addEventListener('change', updateRepeatControls);
-    eventIsMakeupInput.addEventListener('change', updateBillingControls);
-    eventIsLockInput.addEventListener('change', updateModeUI);
+    eventIsMakeupInput.addEventListener('change', () => {
+        updateBillingControls();
+        if (eventIsMakeupInput.checked) {
+            eventUseMakeupBtn.classList.add('d-none');
+        } else if (currentMakeupSuggestion && currentMakeupSuggestion.has_outstanding) {
+            eventUseMakeupBtn.classList.remove('d-none');
+        }
+    });
+    eventIsLockInput.addEventListener('change', () => {
+        updateModeUI();
+        refreshMakeupSuggestion();
+    });
     lockUnlockModeInput.addEventListener('change', updateModeUI);
     lockRepeatModeInput.addEventListener('change', updateLockRepeatControls);
+
+    eventUseMakeupBtn.addEventListener('click', () => {
+        eventIsMakeupInput.checked = true;
+        if (!eventBillingMonthInput.value) {
+            eventBillingMonthInput.value = getSelectedStartMonth();
+        }
+        updateBillingControls();
+        eventUseMakeupBtn.classList.add('d-none');
+    });
 
     eventForm.addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -1357,7 +1659,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const startsAt = eventStartInput.value;
         const athleteId = eventAthleteInput.value ? Number(eventAthleteInput.value) : 0;
+        const secondAthleteId = eventSecondAthleteInput.value ? Number(eventSecondAthleteInput.value) : 0;
         const customTitle = eventCustomTitleInput.value.trim();
+        const titleType = getSelectedEventTitleType();
         const repeatMode = eventRepeatModeInput.disabled ? 'none' : eventRepeatModeInput.value;
         const repeatUntil = eventRepeatUntilInput.value;
         const isMakeupSession = eventIsMakeupInput.checked;
@@ -1378,9 +1682,28 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        if (!athleteId && !customTitle) {
+        if (titleType === 'training' && !athleteId && !customTitle) {
             showError(eventError, 'Vyberte sportovce nebo vyplňte vlastní název.');
             return;
+        }
+
+        if (athleteId > 0 && secondAthleteId > 0 && athleteId === secondAthleteId) {
+            showError(eventError, 'Párový trénink vyžaduje dva různé sportovce.');
+            return;
+        }
+
+        if (!eventIsMakeupInput.checked && currentMakeupSuggestion && currentMakeupSuggestion.has_outstanding) {
+            const outstandingCount = Number(currentMakeupSuggestion.outstanding_sessions || 0);
+            const confirmUse = confirm(
+                `Sportovec má k dispozici ${outstandingCount} náhradní trénink(y) z dřívější úhrady.\n` +
+                'Chcete tento termín označit jako náhradu?\n\n' +
+                'OK = označit jako náhradu\nStorno = uložit bez náhrady'
+            );
+
+            if (confirmUse) {
+                eventIsMakeupInput.checked = true;
+                updateBillingControls();
+            }
         }
 
         const payload = await fetchJson('<?= BASE_URL ?>/api/calendar_save_event.php', {
@@ -1391,6 +1714,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 csrf_token: csrfToken,
                 event_id: eventIdInput.value ? Number(eventIdInput.value) : 0,
                 athlete_id: athleteId,
+                second_athlete_id: secondAthleteId,
+                title_type: titleType,
                 custom_title: customTitle,
                 location: eventLocationInput.value.trim(),
                 color_key: normalizeColorKey(eventColorInput.value),
@@ -1427,6 +1752,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 csrf_token: csrfToken,
                 event_id: eventId,
                 athlete_id: eventAthleteInput.value ? Number(eventAthleteInput.value) : 0,
+                second_athlete_id: eventSecondAthleteInput.value ? Number(eventSecondAthleteInput.value) : 0,
+                title_type: getSelectedEventTitleType(),
                 custom_title: eventCustomTitleInput.value.trim(),
                 location: eventLocationInput.value.trim(),
                 color_key: normalizeColorKey(eventColorInput.value),
@@ -1547,6 +1874,8 @@ document.addEventListener('DOMContentLoaded', () => {
     populateEventHourOptions();
     populateLockHourOptions(lockStartHourInput);
     populateLockHourOptions(lockEndHourInput);
+    syncSecondAthleteOptions();
+    updateEventLocationHint();
     updateModeUI();
 
     loadWeekData();

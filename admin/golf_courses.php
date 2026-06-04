@@ -4,6 +4,9 @@ require_once __DIR__ . '/header.php';
 
 requireAdminLogin();
 
+flash('warning', 'Golfová sekce byla z aplikace odstraněna.');
+redirect(BASE_URL . '/admin/dashboard.php');
+
 $pdo = getDB();
 $importPreview = null;
 

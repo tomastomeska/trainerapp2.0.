@@ -39,19 +39,6 @@ $availableExercises = $stmtAvailableExercises->fetchAll();
 // Načtení cviků v session snapshotu (fallback pro starší data)
 $exercises = getSessionExercises($sessionId, (int)$session['workout_set_id']);
 
-if (count($exercises) === 1) {
-    $primarySportType = $exercises[0]['sport_type'] ?? 'standard';
-    if ($primarySportType === 'golf') {
-        redirect(BASE_URL . '/training_golf_detail.php?id=' . $sessionId);
-    }
-    if ($primarySportType === 'run_outdoor') {
-        redirect(BASE_URL . '/training_run_outdoor_detail.php?id=' . $sessionId);
-    }
-    if ($primarySportType === 'run_treadmill') {
-        redirect(BASE_URL . '/training_run_treadmill_detail.php?id=' . $sessionId);
-    }
-}
-
 // Načtení existujících sérií pro každý cvik
 $seriesByExercise = [];
 $lastCompletedByExercise = [];
@@ -88,9 +75,6 @@ renderHeader('Aktivní trénink');
                     <?= h($availableExercise['name']) ?>
                     <?php
                     $exerciseTypeLabels = [
-                        'golf' => 'Golf',
-                        'run_outdoor' => 'Běh venku',
-                        'run_treadmill' => 'Běh na páse',
                         'standard' => 'Cvik',
                     ];
                     $label = $exerciseTypeLabels[$availableExercise['sport_type'] ?? 'standard'] ?? 'Cvik';
@@ -136,9 +120,6 @@ renderHeader('Aktivní trénink');
         <span class="badge bg-info ms-2">
             <?php
             $typeLabels = [
-                'golf' => '⛳ Golf',
-                'run_outdoor' => '🏃 Běh venku',
-                'run_treadmill' => '🏃‍♂️ Běh na páse',
             ];
             echo $typeLabels[$sportType] ?? 'Speciální';
             ?>
@@ -161,7 +142,7 @@ renderHeader('Aktivní trénink');
             <?php endif; ?>
             <button type="button"
                     class="btn btn-outline-danger btn-sm"
-                    onclick="removeExerciseFromSession(this, <?= (int)$sessionId ?>, <?= (int)$ex['exercise_id'] ?>, <?= json_encode((string)$ex['exercise_name']) ?>)">
+                    onclick="removeExerciseFromSession(this, <?= (int)$sessionId ?>, <?= (int)$ex['exercise_id'] ?>, <?= htmlspecialchars(json_encode((string)$ex['exercise_name'], JSON_HEX_QUOT | JSON_HEX_APOS), ENT_QUOTES, 'UTF-8') ?>)">
                 <i class="fas fa-trash me-1"></i>Odebrat
             </button>
         </div>
@@ -171,31 +152,7 @@ renderHeader('Aktivní trénink');
         </span>
     </div>
     <div class="card-body p-0">
-        <?php if ($sportType === 'golf'): ?>
-        <!-- Golfový formulář -->
-        <div class="p-3">
-            <div class="alert alert-info">
-                <i class="fas fa-golf-ball me-2"></i>
-                Golf - otevřete <a href="<?= BASE_URL ?>/training_golf_detail.php?id=<?= $sessionId ?>" class="alert-link">detail golfu</a> pro jamky, par a skóre.
-            </div>
-        </div>
-        <?php elseif ($sportType === 'run_treadmill'): ?>
-        <!-- Běh na páse formulář -->
-        <div class="p-3">
-            <div class="alert alert-info">
-                <i class="fas fa-person-running me-2"></i>
-                Běh na páse - otevřete <a href="<?= BASE_URL ?>/training_run_treadmill_detail.php?id=<?= $sessionId ?>" class="alert-link">detail běhu</a> pro zadání metrik po doběhu.
-            </div>
-        </div>
-        <?php elseif ($sportType === 'run_outdoor'): ?>
-        <!-- Běh venku formulář -->
-        <div class="p-3">
-            <div class="alert alert-info">
-                <i class="fas fa-person-hiking me-2"></i>
-                Běh venku - otevřete <a href="<?= BASE_URL ?>/training_run_outdoor_detail.php?id=<?= $sessionId ?>" class="alert-link">detail běhu venku</a> pro splity a metriky.
-            </div>
-        </div>
-        <?php elseif (!empty($ex['is_timed'])): ?>
+        <?php if (!empty($ex['is_timed'])): ?>
         <!-- Časový formulář -->
         <div class="table-responsive">
             <table class="table table-bordered mb-0 align-middle text-center" id="series-table-<?= $ex['exercise_id'] ?>">
@@ -700,14 +657,20 @@ async function updateSessionExercise(button, payload) {
                 csrf_token: '<?= csrfToken() ?>'
             })
         });
-        const data = await response.json();
+        const raw = await response.text();
+        let data;
+        try {
+            data = JSON.parse(raw);
+        } catch (_parseError) {
+            throw new Error('Server vrátil neplatnou odpověď: ' + raw.slice(0, 180));
+        }
         if (!data.success) {
             alert('Chyba při úpravě cviku: ' + (data.error || 'Neznámá chyba'));
             return false;
         }
         return true;
     } catch (error) {
-        alert('Chyba připojení k serveru.');
+        alert('Chyba při komunikaci se serverem: ' + (error?.message || 'Neznámá chyba'));
         return false;
     } finally {
         if (button) {
@@ -780,7 +743,13 @@ async function addExerciseToSession(sessionId) {
                 csrf_token: '<?= csrfToken() ?>'
             })
         });
-        const data = await resp.json();
+        const raw = await resp.text();
+        let data;
+        try {
+            data = JSON.parse(raw);
+        } catch (_parseError) {
+            throw new Error('Server vrátil neplatnou odpověď: ' + raw.slice(0, 180));
+        }
         if (!data.success) {
             alert('Chyba při přidání cviku: ' + (data.error || 'Neznámá chyba'));
             return;
@@ -788,7 +757,7 @@ async function addExerciseToSession(sessionId) {
 
         window.location.reload();
     } catch (error) {
-        alert('Chyba připojení k serveru.');
+        alert('Chyba při komunikaci se serverem: ' + (error?.message || 'Neznámá chyba'));
     } finally {
         button.disabled = false;
         button.innerHTML = originalHtml;

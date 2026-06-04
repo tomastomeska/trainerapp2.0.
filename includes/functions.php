@@ -174,7 +174,14 @@ function getWorkoutSetExercises(int $setId): array {
          ORDER BY wse.exercise_order ASC'
     );
     $stmt->execute([$setId]);
-    return $stmt->fetchAll();
+    $rows = $stmt->fetchAll();
+    foreach ($rows as &$row) {
+      if (in_array(($row['sport_type'] ?? 'standard'), ['golf', 'run_outdoor', 'run_treadmill'], true)) {
+        $row['sport_type'] = 'standard';
+      }
+    }
+    unset($row);
+    return $rows;
 }
 
   function ensureFlexibleWorkoutSet(int $coachId): int {
@@ -255,6 +262,9 @@ function getSessionExercises(int $sessionId, int $setId): array {
                     if (!isset($row['sport_type']) || $row['sport_type'] === '' || $row['sport_type'] === null) {
                         $row['sport_type'] = $exerciseMeta['sport_type'];
                     }
+                  if (in_array(($row['sport_type'] ?? 'standard'), ['golf', 'run_outdoor', 'run_treadmill'], true)) {
+                    $row['sport_type'] = 'standard';
+                  }
                     if (!isset($row['is_timed']) || $row['is_timed'] === '' || $row['is_timed'] === null) {
                         $row['is_timed'] = $exerciseMeta['is_timed'];
                     }
@@ -262,6 +272,13 @@ function getSessionExercises(int $sessionId, int $setId): array {
                 unset($row);
             }
         }
+
+            foreach ($snapshotRows as &$row) {
+              if (in_array(($row['sport_type'] ?? 'standard'), ['golf', 'run_outdoor', 'run_treadmill'], true)) {
+                $row['sport_type'] = 'standard';
+              }
+            }
+            unset($row);
 
         return $snapshotRows;
     }
@@ -276,7 +293,7 @@ function getSessionExercises(int $sessionId, int $setId): array {
             'exercise_id'    => $eid,
             'exercise_order' => $ord,
             'exercise_name'  => $row['exercise_name'],
-            'sport_type'     => $row['sport_type'] ?? 'standard',
+          'sport_type'     => in_array(($row['sport_type'] ?? 'standard'), ['golf', 'run_outdoor', 'run_treadmill'], true) ? 'standard' : ($row['sport_type'] ?? 'standard'),
             'is_timed'       => (int)($row['is_timed'] ?? 0),
         ];
         if ($ord > $maxOrder) {
@@ -301,7 +318,7 @@ function getSessionExercises(int $sessionId, int $setId): array {
                 'exercise_id'    => $eid,
                 'exercise_order' => $maxOrder,
                 'exercise_name'  => $row['exercise_name'],
-                'sport_type'     => $row['sport_type'] ?? 'standard',
+              'sport_type'     => in_array(($row['sport_type'] ?? 'standard'), ['golf', 'run_outdoor', 'run_treadmill'], true) ? 'standard' : ($row['sport_type'] ?? 'standard'),
                 'is_timed'       => (int)($row['is_timed'] ?? 0),
             ];
         }

@@ -160,9 +160,6 @@ renderHeader('Párový trénink');
             $lastComp = $sd['lastComp'][$eid] ?? null;
             $sportType = $ex['sport_type'] ?? 'standard';
             $typeLabels = [
-                'golf' => 'Golf',
-                'run_outdoor' => 'Běh venku',
-                'run_treadmill' => 'Běh na páse',
             ];
         ?>
            <div class="card border-0 shadow-sm mb-3 exercise-sort-item"
@@ -189,7 +186,7 @@ renderHeader('Párový trénink');
                     <?php endif; ?>
                     <button type="button"
                             class="btn btn-outline-danger btn-sm"
-                            onclick="removeExerciseFromPairedSession(this, <?= $sid ?>, <?= $eid ?>, <?= json_encode((string)$ex['exercise_name']) ?>)">
+                            onclick="removeExerciseFromPairedSession(this, <?= $sid ?>, <?= $eid ?>, <?= htmlspecialchars(json_encode((string)$ex['exercise_name'], JSON_HEX_QUOT | JSON_HEX_APOS), ENT_QUOTES, 'UTF-8') ?>)">
                         <i class="fas fa-trash me-1"></i>Odebrat
                     </button>
                 </div>
@@ -308,22 +305,7 @@ renderHeader('Párový trénink');
                 <div class="p-3">
                     <div class="alert alert-info mb-2">
                         <i class="fas fa-circle-info me-1"></i>
-                        Tento cvik je speciální sport. Použijte dedikovaný formulář pro <?= h($typeLabels[$sportType] ?? 'speciální sport') ?>.
-                    </div>
-                    <div class="d-flex flex-wrap gap-2">
-                        <?php if ($sportType === 'golf'): ?>
-                        <a href="<?= BASE_URL ?>/training_golf_detail.php?id=<?= $sid ?>" class="btn btn-success btn-sm fw-bold">
-                            <i class="fas fa-golf-ball me-1"></i>Otevřít golf
-                        </a>
-                        <?php elseif ($sportType === 'run_outdoor'): ?>
-                        <a href="<?= BASE_URL ?>/training_run_outdoor_detail.php?id=<?= $sid ?>" class="btn btn-success btn-sm fw-bold">
-                            <i class="fas fa-person-hiking me-1"></i>Otevřít běh venku
-                        </a>
-                        <?php elseif ($sportType === 'run_treadmill'): ?>
-                        <a href="<?= BASE_URL ?>/training_run_treadmill_detail.php?id=<?= $sid ?>" class="btn btn-success btn-sm fw-bold">
-                            <i class="fas fa-person-running me-1"></i>Otevřít běh na páse
-                        </a>
-                        <?php endif; ?>
+                        Tento cvik má speciální typ, který není v této verzi podporován.
                     </div>
                 </div>
                 <?php endif; ?>
@@ -521,14 +503,20 @@ async function updatePairedSessionExercise(button, payload) {
                 csrf_token: '<?= csrfToken() ?>'
             })
         });
-        const data = await response.json();
+        const raw = await response.text();
+        let data;
+        try {
+            data = JSON.parse(raw);
+        } catch (_parseError) {
+            throw new Error('Server vrátil neplatnou odpověď: ' + raw.slice(0, 180));
+        }
         if (!data.success) {
             alert('Chyba při úpravě cviku: ' + (data.error || 'Neznámá chyba'));
             return false;
         }
         return true;
     } catch (error) {
-        alert('Chyba připojení k serveru.');
+        alert('Chyba při komunikaci se serverem: ' + (error?.message || 'Neznámá chyba'));
         return false;
     } finally {
         if (button) {
@@ -562,14 +550,20 @@ async function addExerciseToPairedSession(button, sessionId) {
                 csrf_token: '<?= csrfToken() ?>'
             })
         });
-        const data = await resp.json();
+        const raw = await resp.text();
+        let data;
+        try {
+            data = JSON.parse(raw);
+        } catch (_parseError) {
+            throw new Error('Server vrátil neplatnou odpověď: ' + raw.slice(0, 180));
+        }
         if (!data.success) {
             alert('Chyba při přidání cviku: ' + (data.error || 'Neznámá chyba'));
             return;
         }
         window.location.reload();
     } catch (error) {
-        alert('Chyba připojení k serveru.');
+        alert('Chyba při komunikaci se serverem: ' + (error?.message || 'Neznámá chyba'));
     } finally {
         if (button) {
             button.disabled = false;

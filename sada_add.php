@@ -36,6 +36,19 @@ if ((int)$stmt->fetchColumn() !== count($exIds)) {
     redirect(BASE_URL . '/sady.php');
 }
 
+$stmtRunTypes = $pdo->prepare(
+    "SELECT COUNT(*)
+     FROM exercises
+     WHERE id IN ($inClause)
+       AND sport_type IN ('run_outdoor', 'run_treadmill')"
+);
+$stmtRunTypes->execute($exIds);
+$runCount = (int)$stmtRunTypes->fetchColumn();
+if ($runCount > 0 && count($exIds) !== 1) {
+    flash('danger', 'Běh (venku i na páse) může být v sadě pouze jako samostatný cvik.');
+    redirect(BASE_URL . '/sady.php');
+}
+
 $pdo->beginTransaction();
 try {
     $pdo->prepare('INSERT INTO workout_sets (coach_id, name) VALUES (?, ?)')

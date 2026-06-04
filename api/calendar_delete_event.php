@@ -52,13 +52,18 @@ $eventStmt = $pdo->prepare(
             e.series_id,
             e.starts_at,
             e.athlete_id,
+            e.second_athlete_id,
         e.requested_by_athlete_id,
         e.approval_status,
             a.email AS athlete_email,
             a.first_name,
-            a.last_name
+            a.last_name,
+            a2.email AS second_athlete_email,
+            a2.first_name AS second_first_name,
+            a2.last_name AS second_last_name
     FROM coach_calendar_events e
      LEFT JOIN athletes a ON a.id = e.athlete_id
+     LEFT JOIN athletes a2 ON a2.id = e.second_athlete_id
      WHERE e.id = ? AND e.coach_id = ?
      LIMIT 1'
 );
@@ -147,9 +152,23 @@ if ($del->rowCount() === 0) {
     exit;
 }
 
+$participants = [];
 if (!empty($event['athlete_id'])) {
-    $athleteId = (int)$event['athlete_id'];
-    $athleteName = trim((string)$event['first_name'] . ' ' . (string)$event['last_name']);
+    $participants[] = [
+        'id' => (int)$event['athlete_id'],
+        'email' => (string)($event['athlete_email'] ?? ''),
+        'name' => trim((string)($event['first_name'] ?? '') . ' ' . (string)($event['last_name'] ?? '')),
+    ];
+}
+if (!empty($event['second_athlete_id'])) {
+    $participants[] = [
+        'id' => (int)$event['second_athlete_id'],
+        'email' => (string)($event['second_athlete_email'] ?? ''),
+        'name' => trim((string)($event['second_first_name'] ?? '') . ' ' . (string)($event['second_last_name'] ?? '')),
+    ];
+}
+
+if (!empty($participants)) {
     $isPendingRequest = (($event['approval_status'] ?? 'approved') === 'pending') && !empty($event['requested_by_athlete_id']);
     if ($isPendingRequest) {
         $subject = 'Požadavek termínu byl zamítnut';
@@ -166,9 +185,15 @@ if (!empty($event['athlete_id'])) {
         $body .= ' Šlo o již uhrazený termín, který aplikace automaticky započte do další fakturace jako zápočet.';
     }
 
-    createAthleteNotification($athleteId, $subject, $body);
-    if (!empty($event['athlete_email'])) {
-        sendAthleteCalendarNotificationEmail((string)$event['athlete_email'], $athleteName, $subject, $body);
+    foreach ($participants as $participant) {
+        if (($participant['id'] ?? 0) <= 0) {
+            continue;
+        }
+        createAthleteNotification((int)$participant['id'], $subject, $body);
+        if (!empty($participant['email'])) {
+            $name = $participant['name'] !== '' ? $participant['name'] : 'sportovec';
+            sendAthleteCalendarNotificationEmail((string)$participant['email'], $name, $subject, $body);
+        }
     }
 }
 

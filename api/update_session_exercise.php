@@ -60,7 +60,7 @@ try {
     }
 
     $stmtSnapshot = $pdo->prepare(
-        'SELECT exercise_order
+        'SELECT exercise_order, sport_type
          FROM training_session_exercises
          WHERE session_id = ? AND exercise_id = ?
          LIMIT 1'

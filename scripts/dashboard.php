@@ -95,12 +95,6 @@ foreach ($activeSessions as $session) {
     $activeIndividualSessions[] = $session;
 }
 
-// Kontrola a zobrazení obrázku sportovce
-$athletePhotoPath = BASE_URL . '/uploads/athletes/' . ($athlete['photo'] ?? 'default.jpg');
-if (!file_exists(__DIR__ . '/../uploads/athletes/' . ($athlete['photo'] ?? 'default.jpg'))) {
-    $athletePhotoPath = BASE_URL . '/uploads/athletes/default.jpg';
-}
-
 renderHeader('Dashboard');
 ?>
 

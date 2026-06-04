@@ -30,19 +30,6 @@ if (!$session) {
 // Načtení cviků v session snapshotu (fallback pro starší data)
 $exercises = getSessionExercises($sessionId, (int)$session['workout_set_id']);
 
-if (count($exercises) === 1) {
-    $primarySportType = $exercises[0]['sport_type'] ?? 'standard';
-    if ($primarySportType === 'golf') {
-        redirect(BASE_URL . '/training_golf_detail.php?id=' . $sessionId);
-    }
-    if ($primarySportType === 'run_outdoor') {
-        redirect(BASE_URL . '/training_run_outdoor_detail.php?id=' . $sessionId);
-    }
-    if ($primarySportType === 'run_treadmill') {
-        redirect(BASE_URL . '/training_run_treadmill_detail.php?id=' . $sessionId);
-    }
-}
-
 // Načtení existujících sérií pro každý cvik
 $seriesByExercise = [];
 $lastCompletedByExercise = [];
@@ -94,9 +81,6 @@ renderHeader('Aktivní trénink');
         <span class="badge bg-info ms-2">
             <?php
             $typeLabels = [
-                'golf' => '⛳ Golf',
-                'run_outdoor' => '🏃 Běh venku',
-                'run_treadmill' => '🏃‍♂️ Běh na páse',
             ];
             echo $typeLabels[$sportType] ?? 'Speciální';
             ?>
@@ -108,31 +92,7 @@ renderHeader('Aktivní trénink');
         </span>
     </div>
     <div class="card-body p-0">
-        <?php if ($sportType === 'golf'): ?>
-        <!-- Golfový formulář -->
-        <div class="p-3">
-            <div class="alert alert-info">
-                <i class="fas fa-golf-ball me-2"></i>
-                Golf - otevřete <a href="<?= BASE_URL ?>/training_golf_detail.php?id=<?= $sessionId ?>" class="alert-link">detail golfu</a> pro jamky, par a skóre.
-            </div>
-        </div>
-        <?php elseif ($sportType === 'run_treadmill'): ?>
-        <!-- Běh na páse formulář -->
-        <div class="p-3">
-            <div class="alert alert-info">
-                <i class="fas fa-person-running me-2"></i>
-                Běh na páse - otevřete <a href="<?= BASE_URL ?>/training_run_treadmill_detail.php?id=<?= $sessionId ?>" class="alert-link">detail běhu</a> pro zadání metrik po doběhu.
-            </div>
-        </div>
-        <?php elseif ($sportType === 'run_outdoor'): ?>
-        <!-- Běh venku formulář -->
-        <div class="p-3">
-            <div class="alert alert-info">
-                <i class="fas fa-person-hiking me-2"></i>
-                Běh venku - otevřete <a href="<?= BASE_URL ?>/training_run_outdoor_detail.php?id=<?= $sessionId ?>" class="alert-link">detail běhu venku</a> pro splity a metriky.
-            </div>
-        </div>
-        <?php else: ?>
+        <?php // Standardní formulář (váha, opakování, dopomoc) ?>
         <!-- Standardní formulář (váha, opakování, dopomoc) -->
         <div class="table-responsive">
             <table class="table table-bordered mb-0 align-middle text-center" id="series-table-<?= $ex['exercise_id'] ?>">
@@ -170,7 +130,6 @@ renderHeader('Aktivní trénink');
                 </tbody>
             </table>
         </div>
-        <?php endif; ?>
 
         <div class="p-3 border-top bg-light">
             <?php if ($lastCompleted): ?>

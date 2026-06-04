@@ -48,6 +48,22 @@ function ensurePaymentsRuntimeSchema(PDO $pdo): array
     }
 
     try {
+        if (!columnExists($pdo, 'athletes', 'paired_training_rate')) {
+            $pdo->exec('ALTER TABLE athletes ADD COLUMN paired_training_rate DECIMAL(10,2) NULL AFTER training_rate');
+        }
+    } catch (Throwable $e) {
+        $warnings[] = 'Sloupec athletes.paired_training_rate se nepodařilo doplnit.';
+    }
+
+    try {
+        if (!columnExists($pdo, 'coach_calendar_events', 'second_athlete_id')) {
+            $pdo->exec('ALTER TABLE coach_calendar_events ADD COLUMN second_athlete_id INT NULL AFTER athlete_id');
+        }
+    } catch (Throwable $e) {
+        $warnings[] = 'Sloupec coach_calendar_events.second_athlete_id se nepodařilo doplnit.';
+    }
+
+    try {
         if (!columnExists($pdo, 'coach_calendar_events', 'is_makeup_session')) {
             $pdo->exec('ALTER TABLE coach_calendar_events ADD COLUMN is_makeup_session TINYINT(1) NOT NULL DEFAULT 0 AFTER coach_modified_at');
         }
@@ -126,6 +142,8 @@ function ensurePaymentsRuntimeSchema(PDO $pdo): array
     return [
         'warnings' => $warnings,
         'has_training_rate' => columnExists($pdo, 'athletes', 'training_rate'),
+        'has_paired_training_rate' => columnExists($pdo, 'athletes', 'paired_training_rate'),
+        'has_second_athlete' => columnExists($pdo, 'coach_calendar_events', 'second_athlete_id'),
         'has_is_makeup_session' => columnExists($pdo, 'coach_calendar_events', 'is_makeup_session'),
         'has_billing_month' => columnExists($pdo, 'coach_calendar_events', 'billing_month'),
         'has_coach_bank_account' => columnExists($pdo, 'coaches', 'bank_account'),
@@ -257,33 +275,70 @@ function buildPaymentQrUrl(string $bankAccount, float $amount, string $note): st
     return 'https://quickchart.io/qr?size=220&text=' . rawurlencode($spd);
 }
 
-function fetchBillingStats(PDO $pdo, int $coachId, string $billingMonthSql, bool $hasIsMakeupSession, bool $hasBillingMonth, ?int $athleteId = null): array
+function fetchBillingStats(PDO $pdo, int $coachId, string $billingMonthSql, bool $hasIsMakeupSession, bool $hasBillingMonth, bool $hasSecondAthlete, ?int $athleteId = null): array
 {
-    $makeupExpr = $hasIsMakeupSession ? 'SUM(CASE WHEN is_makeup_session = 1 THEN 1 ELSE 0 END)' : '0';
+    $makeupExpr = $hasIsMakeupSession ? 'SUM(CASE WHEN t.is_makeup_session = 1 THEN 1 ELSE 0 END)' : '0';
     $transferredExpr = $hasBillingMonth
-        ? "SUM(CASE WHEN DATE_FORMAT(starts_at, '%Y-%m-01') <> DATE_FORMAT(billing_month, '%Y-%m-01') THEN 1 ELSE 0 END)"
+        ? "SUM(CASE WHEN DATE_FORMAT(t.starts_at, '%Y-%m-01') <> DATE_FORMAT(t.billing_month, '%Y-%m-01') THEN 1 ELSE 0 END)"
         : '0';
     $billingFilter = $hasBillingMonth
-        ? 'AND billing_month = ?'
-        : "AND DATE_FORMAT(starts_at, '%Y-%m-01') = ?";
+        ? 'AND t.billing_month = ?'
+        : "AND DATE_FORMAT(t.starts_at, '%Y-%m-01') = ?";
 
-    $sql = "SELECT athlete_id,
-                   COUNT(*) AS billed_sessions,
-                   {$makeupExpr} AS makeup_sessions,
-                   {$transferredExpr} AS transferred_sessions
+    if ($hasSecondAthlete) {
+        $participantsSql = "
+            SELECT athlete_id AS participant_id,
+                   starts_at,
+                   billing_month,
+                   is_makeup_session,
+                   CASE WHEN second_athlete_id IS NOT NULL THEN 1 ELSE 0 END AS is_paired
             FROM coach_calendar_events
             WHERE coach_id = ?
               AND athlete_id IS NOT NULL
               AND approval_status = 'approved'
+            UNION ALL
+            SELECT second_athlete_id AS participant_id,
+                   starts_at,
+                   billing_month,
+                   is_makeup_session,
+                   1 AS is_paired
+            FROM coach_calendar_events
+            WHERE coach_id = ?
+              AND second_athlete_id IS NOT NULL
+              AND approval_status = 'approved'
+        ";
+        $params = [$coachId, $coachId, $billingMonthSql];
+    } else {
+        $participantsSql = "
+            SELECT athlete_id AS participant_id,
+                   starts_at,
+                   billing_month,
+                   is_makeup_session,
+                   0 AS is_paired
+            FROM coach_calendar_events
+            WHERE coach_id = ?
+              AND athlete_id IS NOT NULL
+              AND approval_status = 'approved'
+        ";
+        $params = [$coachId, $billingMonthSql];
+    }
+
+    $sql = "SELECT t.participant_id AS athlete_id,
+                   COUNT(*) AS billed_sessions,
+                   SUM(CASE WHEN t.is_paired = 1 THEN 1 ELSE 0 END) AS paired_sessions,
+                   SUM(CASE WHEN t.is_paired = 0 THEN 1 ELSE 0 END) AS single_sessions,
+                   {$makeupExpr} AS makeup_sessions,
+                   {$transferredExpr} AS transferred_sessions
+            FROM ({$participantsSql}) t
+            WHERE 1=1
               {$billingFilter}";
-    $params = [$coachId, $billingMonthSql];
 
     if ($athleteId !== null) {
-        $sql .= ' AND athlete_id = ?';
+        $sql .= ' AND t.participant_id = ?';
         $params[] = $athleteId;
     }
 
-    $sql .= ' GROUP BY athlete_id';
+    $sql .= ' GROUP BY t.participant_id';
 
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
@@ -293,6 +348,8 @@ function fetchBillingStats(PDO $pdo, int $coachId, string $billingMonthSql, bool
     foreach ($rows as $row) {
         $result[(int)$row['athlete_id']] = [
             'billed_sessions' => (int)$row['billed_sessions'],
+            'paired_sessions' => (int)($row['paired_sessions'] ?? 0),
+            'single_sessions' => (int)($row['single_sessions'] ?? 0),
             'makeup_sessions' => (int)$row['makeup_sessions'],
             'transferred_sessions' => (int)$row['transferred_sessions'],
         ];
@@ -301,23 +358,46 @@ function fetchBillingStats(PDO $pdo, int $coachId, string $billingMonthSql, bool
     return $result;
 }
 
-function fetchHistoricalActualSessionsByMonth(PDO $pdo, int $coachId, string $beforeMonthSql, bool $hasBillingMonth): array
+function fetchHistoricalActualSessionsByMonth(PDO $pdo, int $coachId, string $beforeMonthSql, bool $hasBillingMonth, bool $hasSecondAthlete): array
 {
-    $monthExpr = $hasBillingMonth ? 'billing_month' : "DATE_FORMAT(starts_at, '%Y-%m-01')";
-    $monthFilter = $hasBillingMonth ? 'billing_month IS NOT NULL AND billing_month < ?' : "DATE_FORMAT(starts_at, '%Y-%m-01') < ?";
+        $monthExpr = $hasBillingMonth ? 't.billing_month' : "DATE_FORMAT(t.starts_at, '%Y-%m-01')";
+        $monthFilter = $hasBillingMonth ? 't.billing_month IS NOT NULL AND t.billing_month < ?' : "DATE_FORMAT(t.starts_at, '%Y-%m-01') < ?";
 
-    $stmt = $pdo->prepare(
-        "SELECT athlete_id,
-                {$monthExpr} AS billing_month,
-                COUNT(*) AS billed_sessions
-         FROM coach_calendar_events
-         WHERE coach_id = ?
-           AND athlete_id IS NOT NULL
-           AND approval_status = 'approved'
-           AND {$monthFilter}
-         GROUP BY athlete_id, {$monthExpr}"
-    );
-    $stmt->execute([$coachId, $beforeMonthSql]);
+        if ($hasSecondAthlete) {
+                $participantsSql = "
+                        SELECT athlete_id AS participant_id, starts_at, billing_month
+                        FROM coach_calendar_events
+                        WHERE coach_id = ?
+                            AND athlete_id IS NOT NULL
+                            AND approval_status = 'approved'
+                        UNION ALL
+                        SELECT second_athlete_id AS participant_id, starts_at, billing_month
+                        FROM coach_calendar_events
+                        WHERE coach_id = ?
+                            AND second_athlete_id IS NOT NULL
+                            AND approval_status = 'approved'
+                ";
+                $params = [$coachId, $coachId, $beforeMonthSql];
+        } else {
+                $participantsSql = "
+                        SELECT athlete_id AS participant_id, starts_at, billing_month
+                        FROM coach_calendar_events
+                        WHERE coach_id = ?
+                            AND athlete_id IS NOT NULL
+                            AND approval_status = 'approved'
+                ";
+                $params = [$coachId, $beforeMonthSql];
+        }
+
+        $stmt = $pdo->prepare(
+                "SELECT t.participant_id AS athlete_id,
+                                {$monthExpr} AS billing_month,
+                                COUNT(*) AS billed_sessions
+                 FROM ({$participantsSql}) t
+                 WHERE {$monthFilter}
+                 GROUP BY t.participant_id, {$monthExpr}"
+        );
+        $stmt->execute($params);
 
     $result = [];
     foreach ($stmt->fetchAll() as $row) {
@@ -327,6 +407,39 @@ function fetchHistoricalActualSessionsByMonth(PDO $pdo, int $coachId, string $be
     }
 
     return $result;
+}
+
+function computeBillableBreakdown(array $stats, int $carryoverUsed, ?float $singleRate, ?float $pairedRate): array
+{
+    $singleSessions = max(0, (int)($stats['single_sessions'] ?? 0));
+    $pairedSessions = max(0, (int)($stats['paired_sessions'] ?? 0));
+    $totalSessions = $singleSessions + $pairedSessions;
+
+    $carryoverUsed = min(max(0, $carryoverUsed), $totalSessions);
+    $billableSingle = max(0, $singleSessions - $carryoverUsed);
+    $remainingCarryover = max(0, $carryoverUsed - $singleSessions);
+    $billablePaired = max(0, $pairedSessions - $remainingCarryover);
+
+    $effectiveSingleRate = $singleRate;
+    $effectivePairedRate = $pairedRate ?? $singleRate;
+    $amount = null;
+
+    if ($effectiveSingleRate !== null && $effectivePairedRate !== null) {
+        $amount = ($billableSingle * $effectiveSingleRate) + ($billablePaired * $effectivePairedRate);
+    }
+
+    return [
+        'single_sessions' => $singleSessions,
+        'paired_sessions' => $pairedSessions,
+        'total_sessions' => $totalSessions,
+        'carryover_used' => $carryoverUsed,
+        'billable_single_sessions' => $billableSingle,
+        'billable_paired_sessions' => $billablePaired,
+        'billable_sessions' => $billableSingle + $billablePaired,
+        'amount' => $amount,
+        'single_rate' => $effectiveSingleRate,
+        'paired_rate' => $effectivePairedRate,
+    ];
 }
 
 function fetchPaidHistoryBeforeMonth(PDO $pdo, int $coachId, string $beforeMonthSql): array
@@ -368,6 +481,8 @@ function computeOutstandingCarryoverByAthlete(array $paidHistoryRows, array $act
 $schema = ensurePaymentsRuntimeSchema($pdo);
 $schemaWarnings = $schema['warnings'];
 $hasTrainingRate = (bool)$schema['has_training_rate'];
+$hasPairedTrainingRate = (bool)($schema['has_paired_training_rate'] ?? false);
+$hasSecondAthlete = (bool)($schema['has_second_athlete'] ?? false);
 $hasIsMakeupSession = (bool)$schema['has_is_makeup_session'];
 $hasBillingMonth = (bool)$schema['has_billing_month'];
 $hasCoachBankAccount = (bool)$schema['has_coach_bank_account'];
@@ -443,7 +558,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     $athleteStmt = $pdo->prepare(
-        'SELECT id, first_name, last_name, email, training_rate
+        'SELECT id, first_name, last_name, email, training_rate'
+        . ($hasPairedTrainingRate ? ', paired_training_rate' : '') . '
          FROM athletes
          WHERE id = ? AND coach_id = ?
          LIMIT 1'
@@ -475,27 +591,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             redirect(BASE_URL . '/payments.php?month=' . urlencode($selectedMonthParam));
         }
 
-        $stats = fetchBillingStats($pdo, $coachId, $selectedMonthSql, $hasIsMakeupSession, $hasBillingMonth, $athleteId);
+        $stats = fetchBillingStats($pdo, $coachId, $selectedMonthSql, $hasIsMakeupSession, $hasBillingMonth, $hasSecondAthlete, $athleteId);
         $athleteStats = $stats[$athleteId] ?? [
             'billed_sessions' => 0,
+            'single_sessions' => 0,
+            'paired_sessions' => 0,
             'makeup_sessions' => 0,
             'transferred_sessions' => 0,
         ];
 
         $rate = $hasTrainingRate && $athlete['training_rate'] !== null ? (float)$athlete['training_rate'] : null;
+        $pairedRate = $hasPairedTrainingRate && array_key_exists('paired_training_rate', $athlete) && $athlete['paired_training_rate'] !== null
+            ? (float)$athlete['paired_training_rate']
+            : $rate;
         if ($rate === null) {
             flash('danger', 'Sportovec nemá nastavenou sazbu za trénink.');
             redirect(BASE_URL . '/payments.php?month=' . urlencode($selectedMonthParam));
         }
 
-        $actualByAthleteMonth = fetchHistoricalActualSessionsByMonth($pdo, $coachId, $selectedMonthSql, $hasBillingMonth);
+        $actualByAthleteMonth = fetchHistoricalActualSessionsByMonth($pdo, $coachId, $selectedMonthSql, $hasBillingMonth, $hasSecondAthlete);
         $paidHistoryRows = fetchPaidHistoryBeforeMonth($pdo, $coachId, $selectedMonthSql);
         $outstandingByAthlete = computeOutstandingCarryoverByAthlete($paidHistoryRows, $actualByAthleteMonth);
 
         $currentSessions = (int)$athleteStats['billed_sessions'];
         $carryoverUsedNow = min((int)($outstandingByAthlete[$athleteId] ?? 0), $currentSessions);
-        $billableSessions = max(0, $currentSessions - $carryoverUsedNow);
-        $currentAmount = $billableSessions * $rate;
+        $billable = computeBillableBreakdown($athleteStats, $carryoverUsedNow, $rate, $pairedRate);
+        $billableSessions = (int)$billable['billable_sessions'];
+        $currentAmount = (float)($billable['amount'] ?? 0.0);
         if ($currentAmount <= 0) {
             flash('danger', 'Není co fakturovat. Částka je 0 Kč.');
             redirect(BASE_URL . '/payments.php?month=' . urlencode($selectedMonthParam));
@@ -539,27 +661,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             redirect(BASE_URL . '/payments.php?month=' . urlencode($selectedMonthParam));
         }
 
-        $stats = fetchBillingStats($pdo, $coachId, $selectedMonthSql, $hasIsMakeupSession, $hasBillingMonth, $athleteId);
+        $stats = fetchBillingStats($pdo, $coachId, $selectedMonthSql, $hasIsMakeupSession, $hasBillingMonth, $hasSecondAthlete, $athleteId);
         $athleteStats = $stats[$athleteId] ?? [
             'billed_sessions' => 0,
+            'single_sessions' => 0,
+            'paired_sessions' => 0,
             'makeup_sessions' => 0,
             'transferred_sessions' => 0,
         ];
 
         $rate = $hasTrainingRate && $athlete['training_rate'] !== null ? (float)$athlete['training_rate'] : null;
+        $pairedRate = $hasPairedTrainingRate && array_key_exists('paired_training_rate', $athlete) && $athlete['paired_training_rate'] !== null
+            ? (float)$athlete['paired_training_rate']
+            : $rate;
         if ($rate === null) {
             flash('danger', 'Sportovec nemá nastavenou sazbu za trénink.');
             redirect(BASE_URL . '/payments.php?month=' . urlencode($selectedMonthParam));
         }
 
-        $actualByAthleteMonth = fetchHistoricalActualSessionsByMonth($pdo, $coachId, $selectedMonthSql, $hasBillingMonth);
+        $actualByAthleteMonth = fetchHistoricalActualSessionsByMonth($pdo, $coachId, $selectedMonthSql, $hasBillingMonth, $hasSecondAthlete);
         $paidHistoryRows = fetchPaidHistoryBeforeMonth($pdo, $coachId, $selectedMonthSql);
         $outstandingByAthlete = computeOutstandingCarryoverByAthlete($paidHistoryRows, $actualByAthleteMonth);
 
         $rawSessions = (int)$athleteStats['billed_sessions'];
         $carryoverUsedNow = min((int)($outstandingByAthlete[$athleteId] ?? 0), $rawSessions);
-        $plannedSessions = max(0, $rawSessions - $carryoverUsedNow);
-        $billedAmount = $plannedSessions * $rate;
+        $billable = computeBillableBreakdown($athleteStats, $carryoverUsedNow, $rate, $pairedRate);
+        $plannedSessions = (int)$billable['billable_sessions'];
+        $billedAmount = (float)($billable['amount'] ?? 0.0);
 
         $upsert = $pdo->prepare(
             "INSERT INTO athlete_monthly_payments (coach_id, athlete_id, billing_month, session_rate, planned_sessions, carryover_used_sessions, billed_amount, status, paid_at)
@@ -621,7 +749,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $athletesStmt = $pdo->prepare(
-    'SELECT id, first_name, last_name, email, phone_contact' . ($hasTrainingRate ? ', training_rate' : '') . '
+    'SELECT id, first_name, last_name, email, phone_contact'
+    . ($hasTrainingRate ? ', training_rate' : '')
+    . ($hasPairedTrainingRate ? ', paired_training_rate' : '') . '
      FROM athletes
      WHERE coach_id = ?
      ORDER BY last_name ASC, first_name ASC'
@@ -629,7 +759,7 @@ $athletesStmt = $pdo->prepare(
 $athletesStmt->execute([$coachId]);
 $athletes = $athletesStmt->fetchAll();
 
-$statsByAthlete = fetchBillingStats($pdo, $coachId, $selectedMonthSql, $hasIsMakeupSession, $hasBillingMonth);
+$statsByAthlete = fetchBillingStats($pdo, $coachId, $selectedMonthSql, $hasIsMakeupSession, $hasBillingMonth, $hasSecondAthlete);
 
 $paymentsRows = [];
 if ($hasPaymentsTable) {
@@ -647,7 +777,7 @@ foreach ($paymentsRows as $row) {
 }
 
 $actualByAthleteMonth = $hasPaymentsTable
-    ? fetchHistoricalActualSessionsByMonth($pdo, $coachId, $selectedMonthSql, $hasBillingMonth)
+    ? fetchHistoricalActualSessionsByMonth($pdo, $coachId, $selectedMonthSql, $hasBillingMonth, $hasSecondAthlete)
     : [];
 $paidHistoryRows = $hasPaymentsTable
     ? fetchPaidHistoryBeforeMonth($pdo, $coachId, $selectedMonthSql)
@@ -665,24 +795,37 @@ foreach ($athletes as $athlete) {
     $athleteId = (int)$athlete['id'];
     $stats = $statsByAthlete[$athleteId] ?? [
         'billed_sessions' => 0,
+        'single_sessions' => 0,
+        'paired_sessions' => 0,
         'makeup_sessions' => 0,
         'transferred_sessions' => 0,
     ];
     $rate = $hasTrainingRate && array_key_exists('training_rate', $athlete) && $athlete['training_rate'] !== null
         ? (float)$athlete['training_rate']
         : null;
+    $pairedRate = $hasPairedTrainingRate && array_key_exists('paired_training_rate', $athlete) && $athlete['paired_training_rate'] !== null
+        ? (float)$athlete['paired_training_rate']
+        : $rate;
 
     $rawSessions = (int)$stats['billed_sessions'];
     $carryoverUsedNow = min((int)($outstandingByAthlete[$athleteId] ?? 0), $rawSessions);
-    $billableSessions = max(0, $rawSessions - $carryoverUsedNow);
+    $billable = computeBillableBreakdown($stats, $carryoverUsedNow, $rate, $pairedRate);
+    $billableSessions = (int)$billable['billable_sessions'];
+    $payment = $paymentsByAthlete[$athleteId] ?? null;
+    $isPaid = $payment && (($payment['status'] ?? '') === 'paid');
 
-    $totalSessions += $billableSessions;
-    if ($rate !== null) {
-        $totalAmount += $billableSessions * $rate;
+    $displaySessions = $isPaid ? (int)($payment['planned_sessions'] ?? $billableSessions) : $billableSessions;
+    $displayAmount = $isPaid
+        ? (float)($payment['billed_amount'] ?? 0)
+        : ($billable['amount'] !== null ? (float)$billable['amount'] : null);
+
+    $totalSessions += $displaySessions;
+    if ($displayAmount !== null) {
+        $totalAmount += $displayAmount;
     }
 
-    if (isset($paymentsByAthlete[$athleteId]) && ($paymentsByAthlete[$athleteId]['status'] ?? '') === 'paid') {
-        $totalPaidAmount += (float)$paymentsByAthlete[$athleteId]['billed_amount'];
+    if ($isPaid) {
+        $totalPaidAmount += (float)$payment['billed_amount'];
         $totalPaidAthletes++;
     }
 }
@@ -803,21 +946,34 @@ renderHeader('Platby');
                         $athleteId = (int)$athlete['id'];
                         $stats = $statsByAthlete[$athleteId] ?? [
                             'billed_sessions' => 0,
+                            'single_sessions' => 0,
+                            'paired_sessions' => 0,
                             'makeup_sessions' => 0,
                             'transferred_sessions' => 0,
                         ];
                         $payment = $paymentsByAthlete[$athleteId] ?? null;
                         $rate = $athlete['training_rate'] !== null ? (float)$athlete['training_rate'] : null;
+                        $pairedRate = ($hasPairedTrainingRate && array_key_exists('paired_training_rate', $athlete) && $athlete['paired_training_rate'] !== null)
+                            ? (float)$athlete['paired_training_rate']
+                            : $rate;
                         $rawSessions = (int)$stats['billed_sessions'];
+                        $rawSingleSessions = (int)($stats['single_sessions'] ?? 0);
+                        $rawPairedSessions = (int)($stats['paired_sessions'] ?? 0);
                         $carryoverUsedNow = min((int)($outstandingByAthlete[$athleteId] ?? 0), $rawSessions);
-                        $currentSessions = max(0, $rawSessions - $carryoverUsedNow);
-                        $currentAmount = $rate !== null ? $currentSessions * $rate : null;
+                        $billable = computeBillableBreakdown($stats, $carryoverUsedNow, $rate, $pairedRate);
+                        $currentSessions = (int)$billable['billable_sessions'];
+                        $currentAmount = $billable['amount'];
+                        $isPaid = $payment && (($payment['status'] ?? '') === 'paid');
+                        $displaySessions = $isPaid ? (int)($payment['planned_sessions'] ?? $currentSessions) : $currentSessions;
+                        $displayAmount = $isPaid
+                            ? (float)($payment['billed_amount'] ?? 0)
+                            : ($currentAmount !== null ? (float)$currentAmount : null);
                         $paymentNote = paymentAsciiText($coachLastName . ' ' . $selectedMonth->format('m/Y'));
                         $athleteName = trim((string)$athlete['last_name'] . ' ' . (string)$athlete['first_name']);
                         $athleteEmail = trim((string)($athlete['email'] ?? ''));
                         $athletePhone = preg_replace('/\s+/', '', trim((string)($athlete['phone_contact'] ?? ''))) ?? '';
-                        $shareAmountText = $currentAmount !== null
-                            ? number_format($currentAmount, 0, ',', ' ') . ' Kč'
+                        $shareAmountText = $displayAmount !== null
+                            ? number_format($displayAmount, 0, ',', ' ') . ' Kč'
                             : '0 Kč';
                         $shareText = 'Výzva k platbě za tréninky ' . $selectedMonth->format('m/Y')
                             . ' pro ' . $athleteName
@@ -825,8 +981,8 @@ renderHeader('Platby');
                             . '. Účet: ' . ($coachBankAccount ?? '')
                             . '. Poznámka: ' . $paymentNote
                             . '. QR: ';
-                        $paymentQrUrl = ($isMonthReleased && $coachBankAccount !== null && $currentAmount !== null && $currentAmount > 0)
-                            ? buildPaymentQrUrl($coachBankAccount, $currentAmount, $paymentNote)
+                        $paymentQrUrl = ($isMonthReleased && $coachBankAccount !== null && $displayAmount !== null && $displayAmount > 0)
+                            ? buildPaymentQrUrl($coachBankAccount, $displayAmount, $paymentNote)
                             : null;
                         $hasDiff = $payment && (((int)$payment['planned_sessions'] !== $currentSessions) || ((float)$payment['billed_amount'] !== (float)($currentAmount ?? 0)));
                         ?>
@@ -843,27 +999,42 @@ renderHeader('Platby');
                             <td>
                                 <?php if ($rate !== null): ?>
                                     <span class="fw-semibold"><?= number_format($rate, 0, ',', ' ') ?> Kč</span>
+                                    <?php if ($pairedRate !== null && abs($pairedRate - $rate) > 0.0001): ?>
+                                        <div class="small text-muted">Párová sazba: <?= number_format($pairedRate, 0, ',', ' ') ?> Kč</div>
+                                    <?php endif; ?>
                                 <?php else: ?>
                                     <span class="badge bg-danger">Chybí sazba</span>
                                 <?php endif; ?>
                             </td>
                             <td>
-                                <span class="fw-semibold"><?= $currentSessions ?></span>
+                                <span class="fw-semibold"><?= $displaySessions ?></span>
                                 <div class="small text-muted">započítaných do platby</div>
                                 <div class="small text-muted">celkem v měsíci: <?= $rawSessions ?></div>
+                                <?php if ($rawPairedSessions > 0): ?>
+                                    <div class="small text-muted">z toho párové: <?= $rawPairedSessions ?>x</div>
+                                <?php endif; ?>
+                                <?php if ($rawSingleSessions > 0): ?>
+                                    <div class="small text-muted">z toho individuální: <?= $rawSingleSessions ?>x</div>
+                                <?php endif; ?>
                                 <?php if ($carryoverUsedNow > 0): ?>
                                     <div class="small text-warning">Zápočet z minulých úhrad: -<?= $carryoverUsedNow ?> tréninků</div>
                                 <?php endif; ?>
+                                <?php if ($isPaid): ?>
+                                    <div class="small text-muted">Uhrazená evidence je uzamčená.</div>
+                                <?php endif; ?>
                             </td>
                             <td>
-                                <?php if ($currentAmount !== null): ?>
-                                    <span class="fw-semibold"><?= number_format($currentAmount, 0, ',', ' ') ?> Kč</span>
+                                <?php if ($displayAmount !== null): ?>
+                                    <span class="fw-semibold"><?= number_format($displayAmount, 0, ',', ' ') ?> Kč</span>
+                                    <?php if ((float)$displayAmount <= 0.0001): ?>
+                                        <div class="small text-success">Fakturovaná částka: 0 Kč</div>
+                                    <?php endif; ?>
                                 <?php else: ?>
                                     <span class="text-muted">Nelze spočítat</span>
                                 <?php endif; ?>
                             </td>
                             <td>
-                                <?php if ($payment && ($payment['status'] ?? '') === 'paid'): ?>
+                                <?php if ($isPaid): ?>
                                     <span class="badge bg-success">Uhrazeno</span>
                                     <?php if (!empty($payment['paid_at'])): ?>
                                         <div class="small text-muted mt-1"><?= h(date('d.m.Y H:i', strtotime((string)$payment['paid_at']))) ?></div>
@@ -882,6 +1053,9 @@ renderHeader('Platby');
                             </td>
                             <td class="text-end">
                                 <div class="d-flex justify-content-end gap-2 flex-wrap">
+                                    <a href="<?= BASE_URL ?>/payment_receipt.php?month=<?= urlencode($selectedMonthParam) ?>&athlete_id=<?= $athleteId ?>" target="_blank" class="btn btn-outline-primary btn-sm">
+                                        <i class="fas fa-receipt me-1"></i>Účtenka
+                                    </a>
                                     <?php if ($paymentQrUrl !== null): ?>
                                         <button
                                             type="button"

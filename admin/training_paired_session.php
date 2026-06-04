@@ -182,7 +182,7 @@ renderHeader('Párový trénink');
                     <?php endif; ?>
                     <button type="button"
                             class="btn btn-outline-danger btn-sm"
-                            onclick="removeExerciseFromPairedSession(this, <?= $sid ?>, <?= $eid ?>, <?= json_encode((string)$ex['exercise_name']) ?>)">
+                            onclick="removeExerciseFromPairedSession(this, <?= $sid ?>, <?= $eid ?>, <?= htmlspecialchars(json_encode((string)$ex['exercise_name'], JSON_HEX_QUOT | JSON_HEX_APOS), ENT_QUOTES, 'UTF-8') ?>)">
                         <i class="fas fa-trash me-1"></i>Odebrat
                     </button>
                 </div>
@@ -471,14 +471,20 @@ async function updatePairedSessionExercise(button, payload) {
                 csrf_token: '<?= csrfToken() ?>'
             })
         });
-        const data = await response.json();
+        const raw = await response.text();
+        let data;
+        try {
+            data = JSON.parse(raw);
+        } catch (_parseError) {
+            throw new Error('Server vrátil neplatnou odpověď: ' + raw.slice(0, 180));
+        }
         if (!data.success) {
             alert('Chyba při úpravě cviku: ' + (data.error || 'Neznámá chyba'));
             return false;
         }
         return true;
     } catch (error) {
-        alert('Chyba připojení k serveru.');
+        alert('Chyba při komunikaci se serverem: ' + (error?.message || 'Neznámá chyba'));
         return false;
     } finally {
         if (button) {
@@ -512,14 +518,20 @@ async function addExerciseToPairedSession(button, sessionId) {
                 csrf_token: '<?= csrfToken() ?>'
             })
         });
-        const data = await resp.json();
+        const raw = await resp.text();
+        let data;
+        try {
+            data = JSON.parse(raw);
+        } catch (_parseError) {
+            throw new Error('Server vrátil neplatnou odpověď: ' + raw.slice(0, 180));
+        }
         if (!data.success) {
             alert('Chyba při přidání cviku: ' + (data.error || 'Neznámá chyba'));
             return;
         }
         window.location.reload();
     } catch (error) {
-        alert('Chyba připojení k serveru.');
+        alert('Chyba při komunikaci se serverem: ' + (error?.message || 'Neznámá chyba'));
     } finally {
         if (button) {
             button.disabled = false;

@@ -9,13 +9,17 @@ $coachId = getCurrentCoachId();
 $pdo     = getDB();
 $error   = null;
 
+function normalizeExerciseSportTypeLegacy(string $selectedSportType): string {
+    return 'standard';
+}
+
 // Přidání cviku – formulář odesílá multipart
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'add') {
     if (!verifyCsrf($_POST['csrf_token'] ?? '')) {
         $error = 'Neplatný bezpečnostní token.';
     } else {
         $name = trim($_POST['name'] ?? '');
-        $sportType = $_POST['sport_type'] ?? 'standard';
+        $sportType = 'standard';
         if ($name === '') {
             $error = 'Zadejte název cviku.';
         } else {
@@ -38,11 +42,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $stmt = $pdo->prepare('SELECT id FROM exercises WHERE id = ? AND coach_id = ?');
         $stmt->execute([$exId, $coachId]);
         if ($stmt->fetch()) {
-            // Zkontroluj, zda cvik není použit v sadě
+            // Zkontroluj, zda cvik není použit v sadě nebo ve snapshotu tréninku
             $stmt2 = $pdo->prepare('SELECT COUNT(*) FROM workout_set_exercises WHERE exercise_id = ?');
             $stmt2->execute([$exId]);
-            if ((int)$stmt2->fetchColumn() > 0) {
-                $error = 'Tento cvik nelze smazat, protože je použit v sadě.';
+            $setUsage = (int)$stmt2->fetchColumn();
+
+            $stmt3 = $pdo->prepare('SELECT COUNT(*) FROM training_session_exercises WHERE exercise_id = ?');
+            $stmt3->execute([$exId]);
+            $sessionUsage = (int)$stmt3->fetchColumn();
+
+            if ($setUsage > 0 || $sessionUsage > 0) {
+                $error = 'Tento cvik nelze smazat, protože je použit v sadě nebo v historii tréninků.';
             } else {
                 $pdo->prepare('DELETE FROM exercises WHERE id = ? AND coach_id = ?')
                     ->execute([$exId, $coachId]);
@@ -60,7 +70,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     } else {
         $exId    = intParam($_POST, 'exercise_id');
         $newName = trim($_POST['new_name'] ?? '');
-        $sportType = $_POST['sport_type'] ?? 'standard';
+        $sportType = 'standard';
         if ($newName === '') {
             $error = 'Zadejte název cviku.';
         } else {
@@ -137,9 +147,6 @@ renderHeader('Cviky');
                         <label class="form-label fw-semibold">Typ cviku</label>
                         <select name="sport_type" class="form-select">
                             <option value="standard" selected>Standardní cvik (váha, opakování)</option>
-                            <option value="golf">Golf (jamky, par)</option>
-                            <option value="run_outdoor">Běh venku (tempo, splity)</option>
-                            <option value="run_treadmill">Běh na páse (čas, km)</option>
                         </select>
                     </div>
                     <div class="mb-3">
@@ -189,9 +196,6 @@ renderHeader('Cviky');
                             <?php
                                 $typeLabels = [
                                     'standard' => ['label' => 'Cvik', 'color' => 'secondary'],
-                                    'golf' => ['label' => 'Golf', 'color' => 'info'],
-                                    'run_outdoor' => ['label' => 'Běh venku', 'color' => 'success'],
-                                    'run_treadmill' => ['label' => 'Běh na páse', 'color' => 'primary'],
                                 ];
                                 $typeInfo = $typeLabels[$ex['sport_type']] ?? $typeLabels['standard'];
                             ?>
@@ -206,9 +210,6 @@ renderHeader('Cviky');
                                            value="<?= h($ex['name']) ?>" style="min-width:180px">
                                     <select name="sport_type" class="form-select form-select-sm" style="max-width:200px">
                                         <option value="standard" <?= $ex['sport_type'] === 'standard' ? 'selected' : '' ?>>Standardní</option>
-                                        <option value="golf" <?= $ex['sport_type'] === 'golf' ? 'selected' : '' ?>>Golf</option>
-                                        <option value="run_outdoor" <?= $ex['sport_type'] === 'run_outdoor' ? 'selected' : '' ?>>Běh venku</option>
-                                        <option value="run_treadmill" <?= $ex['sport_type'] === 'run_treadmill' ? 'selected' : '' ?>>Běh na páse</option>
                                     </select>
                                     <input type="file" name="photo" class="form-control form-control-sm"
                                            accept="image/*" style="max-width:100%;flex:1;min-width:0"

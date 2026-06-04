@@ -10,24 +10,7 @@ $pdo     = getDB();
 $error   = null;
 
 function normalizeExerciseSportType(string $name, string $selectedSportType): string {
-    $selectedSportType = trim($selectedSportType);
-    if (!in_array($selectedSportType, ['standard', 'golf', 'run_outdoor', 'run_treadmill'], true)) {
-        $selectedSportType = 'standard';
-    }
-
-    $normalizedName = mb_strtolower(trim($name), 'UTF-8');
-    if ($normalizedName === '') {
-        return $selectedSportType;
-    }
-
-    $treadmillHints = ['pás', 'pas', 'treadmill', 'běh v hale', 'beh v hale', 'chůze v hale', 'chuze v hale'];
-    foreach ($treadmillHints as $hint) {
-        if (mb_strpos($normalizedName, $hint, 0, 'UTF-8') !== false) {
-            return 'run_treadmill';
-        }
-    }
-
-    return $selectedSportType;
+    return 'standard';
 }
 
 // Přidání cviku – formulář odesílá multipart
@@ -60,11 +43,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $stmt = $pdo->prepare('SELECT id FROM exercises WHERE id = ? AND coach_id = ?');
         $stmt->execute([$exId, $coachId]);
         if ($stmt->fetch()) {
-            // Zkontroluj, zda cvik není použit v sadě
+            // Zkontroluj, zda cvik není použit v sadě nebo ve snapshotu tréninku
             $stmt2 = $pdo->prepare('SELECT COUNT(*) FROM workout_set_exercises WHERE exercise_id = ?');
             $stmt2->execute([$exId]);
-            if ((int)$stmt2->fetchColumn() > 0) {
-                $error = 'Tento cvik nelze smazat, protože je použit v sadě.';
+            $setUsage = (int)$stmt2->fetchColumn();
+
+            $stmt3 = $pdo->prepare('SELECT COUNT(*) FROM training_session_exercises WHERE exercise_id = ?');
+            $stmt3->execute([$exId]);
+            $sessionUsage = (int)$stmt3->fetchColumn();
+
+            if ($setUsage > 0 || $sessionUsage > 0) {
+                $error = 'Tento cvik nelze smazat, protože je použit v sadě nebo v historii tréninků.';
             } else {
                 $pdo->prepare('DELETE FROM exercises WHERE id = ? AND coach_id = ?')
                     ->execute([$exId, $coachId]);
@@ -160,11 +149,7 @@ renderHeader('Cviky');
                         <label class="form-label fw-semibold">Typ cviku</label>
                         <select name="sport_type" class="form-select" id="add-exercise-sport-type">
                             <option value="standard" selected>Standardní cvik (váha, opakování)</option>
-                            <option value="golf">Golf (jamky, par)</option>
-                            <option value="run_outdoor">Běh venku (silnice, terén, splity)</option>
-                            <option value="run_treadmill">Běh na páse / v hale (čas, km)</option>
                         </select>
-                        <div class="form-text">Pokud název obsahuje pás nebo hala, aplikace automaticky nastaví běh na páse.</div>
                     </div>
                     <div class="form-check mb-3">
                         <input class="form-check-input" type="checkbox" name="is_timed" value="1" id="add-exercise-is-timed">
@@ -218,9 +203,6 @@ renderHeader('Cviky');
                             <?php
                                 $typeLabels = [
                                     'standard' => ['label' => 'Cvik', 'color' => 'secondary'],
-                                    'golf' => ['label' => 'Golf', 'color' => 'info'],
-                                    'run_outdoor' => ['label' => 'Běh venku', 'color' => 'success'],
-                                    'run_treadmill' => ['label' => 'Běh na páse', 'color' => 'primary'],
                                 ];
                                 $typeInfo = $typeLabels[$ex['sport_type']] ?? $typeLabels['standard'];
                             ?>
@@ -238,9 +220,6 @@ renderHeader('Cviky');
                                            value="<?= h($ex['name']) ?>" style="min-width:180px">
                                     <select name="sport_type" class="form-select form-select-sm js-exercise-sport-type" style="max-width:200px">
                                         <option value="standard" <?= $ex['sport_type'] === 'standard' ? 'selected' : '' ?>>Standardní</option>
-                                        <option value="golf" <?= $ex['sport_type'] === 'golf' ? 'selected' : '' ?>>Golf</option>
-                                        <option value="run_outdoor" <?= $ex['sport_type'] === 'run_outdoor' ? 'selected' : '' ?>>Běh venku</option>
-                                        <option value="run_treadmill" <?= $ex['sport_type'] === 'run_treadmill' ? 'selected' : '' ?>>Běh na páse / v hale</option>
                                     </select>
                                     <div class="form-check form-check-inline ms-1">
                                         <input class="form-check-input js-exercise-is-timed" type="checkbox" name="is_timed" value="1" id="edit-timed-<?= $ex['id'] ?>" <?= !empty($ex['is_timed']) ? 'checked' : '' ?>>
@@ -305,14 +284,6 @@ renderHeader('Cviky');
 
 <script>
 function inferExerciseSportType(name) {
-    const normalized = String(name || '').trim().toLowerCase();
-    if (!normalized) return null;
-
-    const treadmillHints = ['pás', 'pas', 'treadmill', 'běh v hale', 'beh v hale', 'chůze v hale', 'chuze v hale'];
-    if (treadmillHints.some((hint) => normalized.includes(hint))) {
-        return 'run_treadmill';
-    }
-
     return null;
 }
 

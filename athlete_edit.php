@@ -36,8 +36,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $phone     = trim($_POST['phone_contact'] ?? '');
         $email     = trim($_POST['email'] ?? '');
         $trainingRateRaw = trim($_POST['training_rate'] ?? '');
+        $pairedTrainingRateRaw = trim($_POST['paired_training_rate'] ?? '');
         $notes     = trim($_POST['notes'] ?? '');
         $trainingRate = null;
+        $pairedTrainingRate = null;
 
         if ($trainingRateRaw !== '') {
             $normalizedRate = str_replace(',', '.', $trainingRateRaw);
@@ -45,6 +47,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $error = 'Zadejte platnou sazbu za trénink.';
             } else {
                 $trainingRate = number_format((float)$normalizedRate, 2, '.', '');
+            }
+        }
+
+        if ($error === null && $pairedTrainingRateRaw !== '') {
+            $normalizedPairedRate = str_replace(',', '.', $pairedTrainingRateRaw);
+            if (!is_numeric($normalizedPairedRate) || (float)$normalizedPairedRate < 0) {
+                $error = 'Zadejte platnou sazbu za párový trénink.';
+            } else {
+                $pairedTrainingRate = number_format((float)$normalizedPairedRate, 2, '.', '');
             }
         }
 
@@ -61,20 +72,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($newPhoto !== null) {
                 deleteUploadedPhoto($athlete['photo'] ?? null, 'athletes');
                 $stmt = $pdo->prepare(
-                    'UPDATE athletes SET first_name=?, last_name=?, birth_date=?, phone_contact=?, email=?, training_rate=?, notes=?, photo=?
+                    'UPDATE athletes SET first_name=?, last_name=?, birth_date=?, phone_contact=?, email=?, training_rate=?, paired_training_rate=?, notes=?, photo=?
                      WHERE id=? AND coach_id=?'
                 );
                 $stmt->execute([
-                    $firstName, $lastName, $birthDate, $phone ?: null, $email ?: null, $trainingRate, $notes ?: null,
+                    $firstName, $lastName, $birthDate, $phone ?: null, $email ?: null, $trainingRate, $pairedTrainingRate, $notes ?: null,
                     $newPhoto, $athleteId, $coachId,
                 ]);
             } else {
                 $stmt = $pdo->prepare(
-                    'UPDATE athletes SET first_name=?, last_name=?, birth_date=?, phone_contact=?, email=?, training_rate=?, notes=?
+                    'UPDATE athletes SET first_name=?, last_name=?, birth_date=?, phone_contact=?, email=?, training_rate=?, paired_training_rate=?, notes=?
                      WHERE id=? AND coach_id=?'
                 );
                 $stmt->execute([
-                    $firstName, $lastName, $birthDate, $phone ?: null, $email ?: null, $trainingRate, $notes ?: null,
+                    $firstName, $lastName, $birthDate, $phone ?: null, $email ?: null, $trainingRate, $pairedTrainingRate, $notes ?: null,
                     $athleteId, $coachId,
                 ]);
             }
@@ -150,6 +161,16 @@ renderHeader('Upravit sportovce');
                             <span class="input-group-text">Kč</span>
                         </div>
                         <div class="form-text">Částka se používá na stránce Platby pro měsíční výpočet.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Sazba za párový trénink</label>
+                        <div class="input-group">
+                            <input type="number" name="paired_training_rate" class="form-control"
+                                   value="<?= h($d['paired_training_rate'] ?? '') ?>"
+                                   min="0" step="0.01" placeholder="Např. 450">
+                            <span class="input-group-text">Kč</span>
+                        </div>
+                        <div class="form-text">Volitelné. Pokud je prázdné, používá se základní sazba za trénink.</div>
                     </div>
                     <div class="mb-4">
                         <label class="form-label fw-semibold">Poznámky</label>

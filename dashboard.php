@@ -217,12 +217,6 @@ if ($firstTomorrowEvent) {
     $firstTomorrowTime = (new DateTimeImmutable($firstTomorrowEvent['starts_at']))->format('H:i');
 }
 
-// Kontrola a zobrazení obrázku sportovce
-$athletePhotoPath = BASE_URL . '/uploads/athletes/' . ($athlete['photo'] ?? 'default.jpg');
-if (!file_exists(__DIR__ . '/../uploads/athletes/' . ($athlete['photo'] ?? 'default.jpg'))) {
-    $athletePhotoPath = BASE_URL . '/uploads/athletes/default.jpg';
-}
-
 renderHeader('Dashboard');
 ?>
 

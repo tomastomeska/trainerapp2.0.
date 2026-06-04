@@ -20,6 +20,7 @@ $weekEnd = $weekStart->modify('+7 days');
 $eventsStmt = $pdo->prepare(
     'SELECT e.id,
             e.athlete_id,
+            e.second_athlete_id,
             e.requested_by_athlete_id,
             e.series_id,
             e.color_key,
@@ -31,10 +32,13 @@ $eventsStmt = $pdo->prepare(
             e.location,
             e.starts_at,
             e.ends_at,
-            a.first_name,
-            a.last_name
+                 a.first_name,
+                 a.last_name,
+                 a2.first_name AS second_first_name,
+                 a2.last_name AS second_last_name
      FROM coach_calendar_events e
      LEFT JOIN athletes a ON a.id = e.athlete_id
+             LEFT JOIN athletes a2 ON a2.id = e.second_athlete_id
      WHERE e.coach_id = ?
        AND e.starts_at < ?
        AND e.ends_at > ?

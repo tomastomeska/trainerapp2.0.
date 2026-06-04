@@ -45,21 +45,25 @@ $eventStmt = $pdo->prepare(
     'SELECT e.id,
             e.coach_id,
             e.athlete_id,
+                        e.second_athlete_id,
             e.requested_by_athlete_id,
             e.billing_month,
             e.starts_at,
             c.name AS coach_name,
             c.username AS coach_username,
-            a.first_name,
-            a.last_name
+                        a1.first_name,
+                        a1.last_name,
+                        a2.first_name AS second_first_name,
+                        a2.last_name AS second_last_name
      FROM coach_calendar_events e
      JOIN coaches c ON c.id = e.coach_id
-     JOIN athletes a ON a.id = e.athlete_id
+         LEFT JOIN athletes a1 ON a1.id = e.athlete_id
+         LEFT JOIN athletes a2 ON a2.id = e.second_athlete_id
      WHERE e.id = ?
-       AND e.athlete_id = ?
+             AND (e.athlete_id = ? OR e.second_athlete_id = ?)
      LIMIT 1'
 );
-$eventStmt->execute([$eventId, $athleteId]);
+$eventStmt->execute([$eventId, $athleteId, $athleteId]);
 $event = $eventStmt->fetch();
 
 if (!$event) {
@@ -105,18 +109,68 @@ if ($hasPayments) {
     $wasAlreadyPaid = (bool)$paidStmt->fetch();
 }
 
-$deleteStmt = $pdo->prepare('DELETE FROM coach_calendar_events WHERE id = ? AND athlete_id = ? LIMIT 1');
-$deleteStmt->execute([$eventId, $athleteId]);
+$primaryAthleteId = (int)($event['athlete_id'] ?? 0);
+$secondAthleteId = (int)($event['second_athlete_id'] ?? 0);
+$isPrimaryParticipant = ($primaryAthleteId === $athleteId);
+$isSecondaryParticipant = ($secondAthleteId === $athleteId);
 
-if ($deleteStmt->rowCount() === 0) {
+if (!$isPrimaryParticipant && !$isSecondaryParticipant) {
     echo json_encode(['success' => false, 'error' => 'Termín se nepodařilo zrušit.']);
     exit;
 }
 
-$athleteName = trim((string)$event['first_name'] . ' ' . (string)$event['last_name']);
+$selfStmt = $pdo->prepare('SELECT first_name, last_name FROM athletes WHERE id = ? LIMIT 1');
+$selfStmt->execute([$athleteId]);
+$self = $selfStmt->fetch();
+$athleteName = trim((string)($self['first_name'] ?? '') . ' ' . (string)($self['last_name'] ?? ''));
+$athleteName = $athleteName !== '' ? $athleteName : 'Sportovec';
+
+$removedFromPairOnly = false;
+if ($primaryAthleteId > 0 && $secondAthleteId > 0) {
+    if ($isPrimaryParticipant) {
+        $updateStmt = $pdo->prepare(
+            'UPDATE coach_calendar_events
+             SET athlete_id = second_athlete_id,
+                 second_athlete_id = NULL,
+                 requested_by_athlete_id = CASE WHEN requested_by_athlete_id = ? THEN NULL ELSE requested_by_athlete_id END
+             WHERE id = ?
+             LIMIT 1'
+        );
+        $updateStmt->execute([$athleteId, $eventId]);
+    } else {
+        $updateStmt = $pdo->prepare(
+            'UPDATE coach_calendar_events
+             SET second_athlete_id = NULL,
+                 requested_by_athlete_id = CASE WHEN requested_by_athlete_id = ? THEN NULL ELSE requested_by_athlete_id END
+             WHERE id = ?
+             LIMIT 1'
+        );
+        $updateStmt->execute([$athleteId, $eventId]);
+    }
+
+    if ($updateStmt->rowCount() === 0) {
+        echo json_encode(['success' => false, 'error' => 'Termín se nepodařilo zrušit.']);
+        exit;
+    }
+
+    $removedFromPairOnly = true;
+} else {
+    $deleteStmt = $pdo->prepare('DELETE FROM coach_calendar_events WHERE id = ? AND (athlete_id = ? OR second_athlete_id = ?) LIMIT 1');
+    $deleteStmt->execute([$eventId, $athleteId, $athleteId]);
+
+    if ($deleteStmt->rowCount() === 0) {
+        echo json_encode(['success' => false, 'error' => 'Termín se nepodařilo zrušit.']);
+        exit;
+    }
+}
+
 $coachDisplayName = ($event['coach_name'] ?? '') !== '' ? (string)$event['coach_name'] : (string)($event['coach_username'] ?? 'trenér');
-$subject = "Sportovec zrušil termín - {$athleteName}";
-$body = "Sportovec {$athleteName} zrušil termín " . date('d.m.Y H:i', strtotime((string)$event['starts_at'])) . ".";
+$subject = $removedFromPairOnly
+    ? "Sportovec zrušil účast na párovém termínu - {$athleteName}"
+    : "Sportovec zrušil termín - {$athleteName}";
+$body = $removedFromPairOnly
+    ? "Sportovec {$athleteName} zrušil svou účast na párovém termínu " . date('d.m.Y H:i', strtotime((string)$event['starts_at'])) . '. Slot zůstal aktivní pro druhého účastníka.'
+    : "Sportovec {$athleteName} zrušil termín " . date('d.m.Y H:i', strtotime((string)$event['starts_at'])) . ".";
 if ($wasAlreadyPaid) {
     $body .= ' Termín byl již uhrazen a systém jej automaticky započte jako zápočet do další fakturace.';
 }
@@ -124,14 +178,19 @@ createCoachSystemMessage((int)$event['coach_id'], $subject, $body, true);
 
 createAthleteNotification(
     $athleteId,
-    'Potvrzení zrušení termínu',
-    "Tvůj termín {$event['starts_at']} byl zrušen."
+    $removedFromPairOnly ? 'Potvrzení zrušení účasti' : 'Potvrzení zrušení termínu',
+    ($removedFromPairOnly
+        ? "Tvoje účast na párovém termínu {$event['starts_at']} byla zrušena."
+        : "Tvůj termín {$event['starts_at']} byl zrušen.")
     . ($wasAlreadyPaid ? ' Tento termín byl již uhrazen a bude započten do další fakturace jako zápočet.' : '')
 );
 
 echo json_encode([
     'success' => true,
-    'message' => "Termín byl zrušen. Trenér {$coachDisplayName} byl informován."
+    'message' => ($removedFromPairOnly
+            ? "Účast na párovém termínu byla zrušena. Trenér {$coachDisplayName} byl informován."
+            : "Termín byl zrušen. Trenér {$coachDisplayName} byl informován.")
         . ($wasAlreadyPaid ? ' Jednalo se o již uhrazený termín, který bude započten v další fakturaci.' : ''),
     'was_paid' => $wasAlreadyPaid,
+    'removed_from_pair' => $removedFromPairOnly,
 ]);

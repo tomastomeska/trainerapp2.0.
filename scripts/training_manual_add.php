@@ -8,12 +8,8 @@ requireLogin();
 $coachId = getCurrentCoachId();
 $pdo = getDB();
 $trainingVenues = getTrainingVenues();
-$golfCourses = getGolfCourses();
+$golfCourses = [];
 $teesByCourse = [];
-foreach ($golfCourses as $course) {
-    $courseId = (int)$course['id'];
-    $teesByCourse[$courseId] = getGolfCourseTees($courseId);
-}
 $errors = [];
 
 $athleteId = intParam($_GET, 'athlete_id');
@@ -59,7 +55,11 @@ $setExercisesMap = [];
 $exerciseTypes = [];
 $stmtTypes = $pdo->query('SELECT id, sport_type FROM exercises');
 foreach ($stmtTypes->fetchAll(PDO::FETCH_ASSOC) as $typeRow) {
-    $exerciseTypes[(int)$typeRow['id']] = $typeRow['sport_type'] ?? 'standard';
+    $resolvedType = $typeRow['sport_type'] ?? 'standard';
+    if (in_array($resolvedType, ['golf', 'run_outdoor', 'run_treadmill'], true)) {
+        $resolvedType = 'standard';
+    }
+    $exerciseTypes[(int)$typeRow['id']] = $resolvedType;
 }
 foreach ($setExerciseRows as $row) {
     $setId = (int)$row['workout_set_id'];
@@ -152,6 +152,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmtSportType->execute([$workoutSetId]);
                 $sportTypeRow = $stmtSportType->fetch();
                 $sportType = $sportTypeRow ? ($sportTypeRow['sport_type'] ?? 'standard') : 'standard';
+                if ($sportType === 'golf') {
+                    $sportType = 'standard';
+                }
 
                 // Zpracovat speciální data podle sport_type
                 if ($sportType === 'golf') {

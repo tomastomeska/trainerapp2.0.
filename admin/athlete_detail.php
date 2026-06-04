@@ -181,8 +181,8 @@ renderHeader(h($athlete['first_name'] . ' ' . $athlete['last_name']));
                     <?= csrfField() ?>
                     <input type="hidden" name="athlete_id" value="<?= $athleteId ?>">
                     <div class="mb-3">
-                        <label class="form-label fw-semibold">Vyberte sadu</label>
-                        <select name="workout_set_id" class="form-select" required>
+                        <label class="form-label fw-semibold" for="workout_set_id">Vyberte sadu</label>
+                        <select name="workout_set_id" id="workout_set_id" class="form-select" required>
                             <option value="">– vyberte sadu –</option>
                             <?php foreach ($workoutSets as $ws): ?>
                             <option value="<?= $ws['id'] ?>">

@@ -28,6 +28,7 @@ $weekEnd = $weekStart->modify('+7 days');
 $eventsStmt = $pdo->prepare(
         "SELECT e.id,
                         e.athlete_id,
+            e.second_athlete_id,
                         e.requested_by_athlete_id,
                         e.approval_status,
                         e.color_key,
@@ -37,13 +38,16 @@ $eventsStmt = $pdo->prepare(
                         e.starts_at,
                         e.ends_at,
                         a.first_name,
-                        a.last_name
+                        a.last_name,
+                        a2.first_name AS second_first_name,
+                        a2.last_name AS second_last_name
          FROM coach_calendar_events e
          LEFT JOIN athletes a ON a.id = e.athlete_id
+         LEFT JOIN athletes a2 ON a2.id = e.second_athlete_id
          WHERE e.coach_id = ?
              AND e.starts_at < ?
              AND e.ends_at > ?
-             AND (e.approval_status = 'approved' OR e.athlete_id = ?)
+             AND (e.approval_status = 'approved' OR e.athlete_id = ? OR e.second_athlete_id = ?)
          ORDER BY e.starts_at ASC, e.id ASC"
 );
 $eventsStmt->execute([
@@ -51,18 +55,37 @@ $eventsStmt->execute([
     $weekEnd->format('Y-m-d H:i:s'),
     $weekStart->format('Y-m-d H:i:s'),
     $athleteId,
+    $athleteId,
 ]);
 $events = $eventsStmt->fetchAll();
 
 foreach ($events as &$event) {
-    $event['is_mine'] = ((int)$event['athlete_id'] === $athleteId);
+    $event['is_mine'] = ((int)$event['athlete_id'] === $athleteId || (int)($event['second_athlete_id'] ?? 0) === $athleteId);
     $event['is_requested_by_me'] = ((int)($event['requested_by_athlete_id'] ?? 0) === $athleteId);
+    $event['is_foreign'] = !($event['is_mine'] || $event['is_requested_by_me']);
     $canCancelOwnership = ($event['is_mine'] || $event['is_requested_by_me']);
     $eventStartTs = strtotime((string)($event['starts_at'] ?? ''));
     $canCancelByTime = ($eventStartTs !== false && $eventStartTs > time());
     $event['can_cancel'] = ($canCancelOwnership && $canCancelByTime);
     $event['is_pending'] = (($event['approval_status'] ?? 'approved') === 'pending');
     $event['was_modified_by_coach'] = !empty($event['coach_modified_at']);
+
+    if ($event['is_foreign']) {
+        $event['athlete_id'] = null;
+        $event['second_athlete_id'] = null;
+        $event['requested_by_athlete_id'] = null;
+        $event['custom_title'] = null;
+        $event['location'] = null;
+        $event['first_name'] = null;
+        $event['last_name'] = null;
+        $event['second_first_name'] = null;
+        $event['second_last_name'] = null;
+        $event['approval_status'] = 'approved';
+        $event['coach_modified_at'] = null;
+        $event['can_cancel'] = false;
+        $event['is_pending'] = false;
+        $event['was_modified_by_coach'] = false;
+    }
 }
 unset($event);
 

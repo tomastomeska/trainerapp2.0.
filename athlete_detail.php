@@ -221,22 +221,6 @@ if ($lastUpdated !== null) {
     }
 }
 
-// Zobrazení váhy pouze v detailu sportovce
-if ($currentWeight !== null) {
-    echo '<div class="weight-info">';
-    echo '<strong>Aktuální váha:</strong> ' . h($currentWeight) . ' kg';
-    if ($weightTrend === 'up') {
-        echo ' <span class="text-danger">&uarr;</span>';
-    } elseif ($weightTrend === 'down') {
-        echo ' <span class="text-success">&darr;</span>';
-    }
-    echo '</div>';
-}
-
-if ($weightWarning !== null) {
-    echo '<div class="alert alert-warning">' . h($weightWarning) . '</div>';
-}
-
 // Historie tréninků
 $stmt = $pdo->prepare(
     'SELECT ts.*, ws.name AS set_name,
@@ -454,8 +438,8 @@ renderHeader(h($athlete['first_name'] . ' ' . $athlete['last_name']), true);
                     <?= csrfField() ?>
                     <input type="hidden" name="athlete_id" value="<?= $athleteId ?>">
                     <div class="mb-3">
-                        <label class="form-label fw-semibold">Vyberte sadu</label>
-                        <select name="workout_set_id" class="form-select" required>
+                        <label class="form-label fw-semibold" for="workout_set_id">Vyberte sadu</label>
+                        <select name="workout_set_id" id="workout_set_id" class="form-select" required>
                             <option value="">– vyberte sadu –</option>
                             <?php foreach ($workoutSets as $ws): ?>
                             <option value="<?= $ws['id'] ?>">
@@ -495,13 +479,13 @@ renderHeader(h($athlete['first_name'] . ' ' . $athlete['last_name']), true);
                     <input type="hidden" name="weight_log_id" value="<?= (int)$editingWeightLog['id'] ?>">
                     <?php endif; ?>
                     <div class="mb-2">
-                        <label class="form-label fw-semibold">Datum vážení</label>
-                        <input type="date" name="measured_at" class="form-control"
+                        <label class="form-label fw-semibold" for="measured_at">Datum vážení</label>
+                        <input type="date" id="measured_at" name="measured_at" class="form-control"
                                value="<?= h((string)$weightFormDate) ?>" required>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label fw-semibold"><?= $editingWeightLog ? 'Upravit váhu (kg)' : 'Aktuální váha (kg)' ?></label>
-                        <input type="number" name="weight_kg" class="form-control"
+                        <label class="form-label fw-semibold" for="weight_kg"><?= $editingWeightLog ? 'Upravit váhu (kg)' : 'Aktuální váha (kg)' ?></label>
+                        <input type="number" id="weight_kg" name="weight_kg" class="form-control"
                                min="20" max="400" step="0.1"
                                value="<?= h((string)$weightFormValue) ?>"
                                placeholder="např. 78.4" required>
@@ -595,12 +579,12 @@ renderHeader(h($athlete['first_name'] . ' ' . $athlete['last_name']), true);
                 </div>
                 <div class="modal-body">
                     <div class="mb-3">
-                        <label class="form-label fw-semibold">Předmět</label>
-                        <input type="text" class="form-control" name="subject" maxlength="200" required placeholder="Např. Úprava tréninku na příští týden">
+                        <label class="form-label fw-semibold" for="athlete_message_subject">Předmět</label>
+                        <input type="text" id="athlete_message_subject" class="form-control" name="subject" maxlength="200" required placeholder="Např. Úprava tréninku na příští týden">
                     </div>
                     <div>
-                        <label class="form-label fw-semibold">Zpráva</label>
-                        <textarea class="form-control" name="body" rows="5" maxlength="4000" required placeholder="Sem napište text zprávy pro sportovce..."></textarea>
+                        <label class="form-label fw-semibold" for="athlete_message_body">Zpráva</label>
+                        <textarea id="athlete_message_body" class="form-control" name="body" rows="5" maxlength="4000" required placeholder="Sem napište text zprávy pro sportovce..."></textarea>
                     </div>
                 </div>
                 <div class="modal-footer">

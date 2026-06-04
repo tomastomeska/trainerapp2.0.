@@ -126,6 +126,11 @@ function ensureSchemaUpgrades(PDO $pdo): void {
         $pdo->exec('ALTER TABLE athletes ADD COLUMN training_rate DECIMAL(10,2) NULL AFTER email');
     }
 
+    $stmtPairedTrainingRate = $pdo->query("SHOW COLUMNS FROM athletes LIKE 'paired_training_rate'");
+    if (!$stmtPairedTrainingRate->fetch()) {
+        $pdo->exec('ALTER TABLE athletes ADD COLUMN paired_training_rate DECIMAL(10,2) NULL AFTER training_rate');
+    }
+
     // Poslední přihlášení trenéra
     $stmtLogin = $pdo->query("SHOW COLUMNS FROM coaches LIKE 'last_login'");
     if (!$stmtLogin->fetch()) {
@@ -196,6 +201,7 @@ function ensureSchemaUpgrades(PDO $pdo): void {
             `id`           INT AUTO_INCREMENT PRIMARY KEY,
             `coach_id`     INT NOT NULL,
             `athlete_id`   INT NULL,
+            `second_athlete_id` INT NULL,
             `requested_by_athlete_id` INT NULL,
             `approval_status` ENUM('pending','approved') NOT NULL DEFAULT 'approved',
             `coach_modified_at` DATETIME NULL,
@@ -210,6 +216,7 @@ function ensureSchemaUpgrades(PDO $pdo): void {
             KEY `idx_calendar_events_series_start` (`coach_id`, `series_id`, `starts_at`),
             KEY `idx_calendar_events_coach_start` (`coach_id`, `starts_at`),
             KEY `idx_calendar_events_coach_end` (`coach_id`, `ends_at`),
+            KEY `idx_calendar_events_second_athlete` (`second_athlete_id`),
             KEY `idx_calendar_events_requested_by_athlete` (`requested_by_athlete_id`),
             KEY `idx_calendar_events_approval_status` (`coach_id`, `approval_status`, `starts_at`),
             CONSTRAINT `fk_calendar_events_coach`
@@ -256,6 +263,16 @@ function ensureSchemaUpgrades(PDO $pdo): void {
         $pdo->exec('ALTER TABLE coach_calendar_events ADD COLUMN requested_by_athlete_id INT NULL AFTER athlete_id');
     }
 
+    $stmtSecondAthlete = $pdo->query("SHOW COLUMNS FROM coach_calendar_events LIKE 'second_athlete_id'");
+    if (!$stmtSecondAthlete->fetch()) {
+        $pdo->exec('ALTER TABLE coach_calendar_events ADD COLUMN second_athlete_id INT NULL AFTER athlete_id');
+    }
+
+    $stmtSecondAthleteIdx = $pdo->query("SHOW INDEX FROM coach_calendar_events WHERE Key_name = 'idx_calendar_events_second_athlete'");
+    if (!$stmtSecondAthleteIdx->fetch()) {
+        $pdo->exec('CREATE INDEX idx_calendar_events_second_athlete ON coach_calendar_events (second_athlete_id)');
+    }
+
     $stmtReqIdx = $pdo->query("SHOW INDEX FROM coach_calendar_events WHERE Key_name = 'idx_calendar_events_requested_by_athlete'");
     if (!$stmtReqIdx->fetch()) {
         $pdo->exec('CREATE INDEX idx_calendar_events_requested_by_athlete ON coach_calendar_events (requested_by_athlete_id)');
@@ -295,6 +312,12 @@ function ensureSchemaUpgrades(PDO $pdo): void {
 
     try {
         $pdo->exec('ALTER TABLE coach_calendar_events ADD CONSTRAINT fk_calendar_events_requested_by_athlete FOREIGN KEY (requested_by_athlete_id) REFERENCES athletes(id) ON DELETE SET NULL');
+    } catch (Throwable $e) {
+        // constraint uz existuje nebo ji nelze doplnit kvuli starsim datum
+    }
+
+    try {
+        $pdo->exec('ALTER TABLE coach_calendar_events ADD CONSTRAINT fk_calendar_events_second_athlete FOREIGN KEY (second_athlete_id) REFERENCES athletes(id) ON DELETE SET NULL');
     } catch (Throwable $e) {
         // constraint uz existuje nebo ji nelze doplnit kvuli starsim datum
     }

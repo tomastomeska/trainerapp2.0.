@@ -181,7 +181,9 @@ try {
         "SELECT p.billing_month, p.billed_amount, p.status, p.paid_at
          FROM athlete_monthly_payments p
          WHERE p.athlete_id = ?
-         ORDER BY (p.status = 'pending') DESC, p.billing_month DESC
+         ORDER BY (p.status = 'pending') DESC,
+                  p.billing_month DESC,
+                  COALESCE(p.paid_at, p.updated_at, p.created_at) DESC
          LIMIT 1"
     );
     $paymentSummaryStmt->execute([$athleteId]);

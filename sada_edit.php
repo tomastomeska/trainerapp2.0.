@@ -41,6 +41,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ((int)$check->fetchColumn() !== count($exercises)) {
                 $error = 'Jeden nebo více cviků vám nepatří.';
             } else {
+                $checkRun = $pdo->prepare(
+                    "SELECT COUNT(*)
+                     FROM exercises
+                     WHERE id IN ($inClause)
+                       AND sport_type IN ('run_outdoor', 'run_treadmill')"
+                );
+                $checkRun->execute($exercises);
+                $runCount = (int)$checkRun->fetchColumn();
+                if ($runCount > 0 && count($exercises) !== 1) {
+                    $error = 'Běh (venku i na páse) může být v sadě pouze jako samostatný cvik.';
+                }
+            }
+
+            if ($error === null) {
                 $pdo->prepare('UPDATE workout_sets SET name = ? WHERE id = ? AND coach_id = ?')
                     ->execute([$name, $setId, $coachId]);
                 $pdo->prepare('DELETE FROM workout_set_exercises WHERE workout_set_id = ?')

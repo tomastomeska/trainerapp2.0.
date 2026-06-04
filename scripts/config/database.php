@@ -104,6 +104,7 @@ function ensureSchemaUpgrades(PDO $pdo): void {
     if (!$stmtExerciseSportType->fetch()) {
         $pdo->exec("ALTER TABLE exercises ADD COLUMN sport_type ENUM('standard','golf','run_outdoor','run_treadmill') NOT NULL DEFAULT 'standard' AFTER photo");
     }
+    $pdo->exec("UPDATE exercises SET sport_type = 'standard' WHERE sport_type IN ('run_outdoor', 'run_treadmill')");
 
     // Globalni cviky mohou mit coach_id = NULL
     $stmtCoachId = $pdo->query("SHOW COLUMNS FROM exercises LIKE 'coach_id'");
@@ -391,6 +392,7 @@ function ensureSchemaUpgrades(PDO $pdo): void {
     if (!$stmtTseSportType->fetch()) {
         $pdo->exec("ALTER TABLE training_session_exercises ADD COLUMN sport_type ENUM('standard','golf','run_outdoor','run_treadmill') NOT NULL DEFAULT 'standard' AFTER exercise_name");
     }
+    $pdo->exec("UPDATE training_session_exercises SET sport_type = 'standard' WHERE sport_type IN ('run_outdoor', 'run_treadmill')");
 
     $pdo->exec(" 
         CREATE TABLE IF NOT EXISTS `run_treadmill_splits` (
@@ -453,8 +455,6 @@ function ensureSchemaUpgrades(PDO $pdo): void {
     // Vychozi globalni cviky pro specialni sporty
     $specialGlobalExercises = [
         ['name' => 'Golf', 'sport_type' => 'golf'],
-        ['name' => 'Beh venku', 'sport_type' => 'run_outdoor'],
-        ['name' => 'Beh na pase', 'sport_type' => 'run_treadmill'],
     ];
     $stmtSpecialExists = $pdo->prepare(
         'SELECT COUNT(*) FROM exercises WHERE is_global = 1 AND sport_type = ?'

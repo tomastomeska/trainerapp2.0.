@@ -45,17 +45,6 @@ $stmtHasOutdoor = $pdo->prepare(
 $stmtHasOutdoor->execute([$athleteId]);
 $hasRunOutdoor = (int)$stmtHasOutdoor->fetchColumn() > 0;
 
-$stmtHasGolf = $pdo->prepare(
-    'SELECT COUNT(*)
-     FROM golf_sessions gs
-     JOIN training_sessions ts ON ts.id = gs.session_id
-     WHERE ts.athlete_id = ?
-       AND ts.completed_at IS NOT NULL
-       AND ts.deleted_by_coach_at IS NULL'
-);
-$stmtHasGolf->execute([$athleteId]);
-$hasGolf = (int)$stmtHasGolf->fetchColumn() > 0;
-
 // Výběr metriky (standardní cvik nebo speciální sport)
 $metricOptions = [];
 foreach ($exercises as $ex) {
@@ -70,13 +59,6 @@ if ($hasRunOutdoor) {
         'key'   => 'sport:run_outdoor',
         'label' => 'Běh venku (speciální sport)',
         'kind'  => 'run_outdoor',
-    ];
-}
-if ($hasGolf) {
-    $metricOptions[] = [
-        'key'   => 'sport:golf',
-        'label' => 'Golf (speciální sport)',
-        'kind'  => 'golf',
     ];
 }
 
@@ -140,28 +122,6 @@ if ($selectedKind === 'standard' && $selectedExId > 0) {
          WHERE ts.athlete_id = ?
            AND ts.completed_at IS NOT NULL
            AND ts.deleted_by_coach_at IS NULL
-         ORDER BY ts.completed_at ASC'
-    );
-    $stmtData->execute([$athleteId]);
-    $chartData = $stmtData->fetchAll();
-} elseif ($selectedKind === 'golf') {
-    $stmtData = $pdo->prepare(
-        'SELECT ts.completed_at AS session_date,
-                ws.name AS set_name,
-                gs.course_name,
-                gs.num_holes,
-                COALESCE(SUM(gh.score), 0) AS total_score,
-                COALESCE(SUM(gh.par), 0) AS total_par,
-                COALESCE(SUM(gh.score), 0) - COALESCE(SUM(gh.par), 0) AS score_to_par,
-                gs.duration_minutes
-         FROM golf_sessions gs
-         JOIN training_sessions ts ON ts.id = gs.session_id
-         JOIN workout_sets ws ON ws.id = ts.workout_set_id
-         LEFT JOIN golf_holes gh ON gh.golf_session_id = gs.id
-         WHERE ts.athlete_id = ?
-           AND ts.completed_at IS NOT NULL
-           AND ts.deleted_by_coach_at IS NULL
-         GROUP BY ts.id, ts.completed_at, ws.name, gs.course_name, gs.num_holes, gs.duration_minutes
          ORDER BY ts.completed_at ASC'
     );
     $stmtData->execute([$athleteId]);

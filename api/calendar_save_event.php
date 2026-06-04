@@ -94,6 +94,8 @@ function normalizeBillingMonth(DateTime $start, string $billingMonthRaw): string
 
 $eventId = (int)($input['event_id'] ?? 0);
 $athleteId = (int)($input['athlete_id'] ?? 0);
+$secondAthleteId = (int)($input['second_athlete_id'] ?? 0);
+$titleType = trim((string)($input['title_type'] ?? 'training'));
 $customTitle = trim((string)($input['custom_title'] ?? ''));
 $location = trim((string)($input['location'] ?? ''));
 $startsAtRaw = trim((string)($input['starts_at'] ?? ''));
@@ -114,6 +116,20 @@ if (!in_array($colorKey, $allowedColorKeys, true)) {
     $colorKey = 'green';
 }
 
+if (!in_array($titleType, ['training', 'consultation', 'other'], true)) {
+    $titleType = 'training';
+}
+
+$titleLabels = [
+    'training' => 'Trénink',
+    'consultation' => 'Konzultační hodina',
+    'other' => 'Jiné',
+];
+
+if ($customTitle === '' && $titleType !== 'training') {
+    $customTitle = $titleLabels[$titleType];
+}
+
 $start = DateTime::createFromFormat('Y-m-d\TH:i', $startsAtRaw);
 if (!$start) {
     echo json_encode(['success' => false, 'error' => 'Neplatný začátek tréninku']);
@@ -128,6 +144,16 @@ if ($athleteId <= 0 && $customTitle === '') {
     exit;
 }
 
+if ($athleteId <= 0 && $secondAthleteId > 0) {
+    $athleteId = $secondAthleteId;
+    $secondAthleteId = 0;
+}
+
+if ($athleteId > 0 && $secondAthleteId > 0 && $athleteId === $secondAthleteId) {
+    echo json_encode(['success' => false, 'error' => 'Párový trénink vyžaduje dva různé sportovce']);
+    exit;
+}
+
 if ($athleteId > 0) {
     $athleteStmt = $pdo->prepare('SELECT id FROM athletes WHERE id = ? AND coach_id = ?');
     $athleteStmt->execute([$athleteId, $coachId]);
@@ -139,12 +165,33 @@ if ($athleteId > 0) {
     $athleteId = null;
 }
 
+if ($secondAthleteId > 0) {
+    $athleteStmt = $pdo->prepare('SELECT id FROM athletes WHERE id = ? AND coach_id = ?');
+    $athleteStmt->execute([$secondAthleteId, $coachId]);
+    if (!$athleteStmt->fetch()) {
+        echo json_encode(['success' => false, 'error' => 'Druhý sportovec nepatří tomuto trenérovi']);
+        exit;
+    }
+} else {
+    $secondAthleteId = null;
+}
+
 if ($customTitle !== '') {
     $customTitle = mb_substr($customTitle, 0, 140, 'UTF-8');
 } else {
     $customTitle = null;
 }
+
 if ($location !== '') {
+    rememberTrainingVenue($location, $coachId);
+
+    $venueStmt = $pdo->prepare('SELECT name FROM training_venues WHERE name = ? LIMIT 1');
+    $venueStmt->execute([$location]);
+    $venue = $venueStmt->fetch();
+    if ($venue && !empty($venue['name'])) {
+        $location = (string)$venue['name'];
+    }
+
     $location = mb_substr($location, 0, 255, 'UTF-8');
 } else {
     $location = null;
@@ -154,6 +201,7 @@ if ($eventId > 0) {
     $ownerStmt = $pdo->prepare(
         'SELECT e.id,
                 e.athlete_id,
+            e.second_athlete_id,
                 e.requested_by_athlete_id,
                 e.approval_status,
                 e.coach_modified_at,
@@ -165,9 +213,13 @@ if ($eventId > 0) {
                 e.ends_at,
                 a.email AS athlete_email,
                 a.first_name,
-                a.last_name
+                  a.last_name,
+                  a2.email AS second_athlete_email,
+                  a2.first_name AS second_first_name,
+                  a2.last_name AS second_last_name
          FROM coach_calendar_events e
          LEFT JOIN athletes a ON a.id = e.athlete_id
+              LEFT JOIN athletes a2 ON a2.id = e.second_athlete_id
          WHERE e.id = ? AND e.coach_id = ?'
     );
     $ownerStmt->execute([$eventId, $coachId]);
@@ -215,6 +267,7 @@ if ($eventId > 0) {
     $upd = $pdo->prepare(
         'UPDATE coach_calendar_events
          SET athlete_id = ?,
+             second_athlete_id = ?,
              approval_status = ?,
              coach_modified_at = ?,
              is_makeup_session = ?,
@@ -229,12 +282,14 @@ if ($eventId > 0) {
 
     $oldStart = (string)$existingEvent['starts_at'];
     $oldEnd = (string)$existingEvent['ends_at'];
+    $oldSecondAthleteId = (int)($existingEvent['second_athlete_id'] ?? 0);
     $oldLocation = (string)($existingEvent['location'] ?? '');
     $oldTitle = (string)($existingEvent['custom_title'] ?? '');
     $oldIsMakeup = (int)($existingEvent['is_makeup_session'] ?? 0);
     $oldBillingMonth = (string)($existingEvent['billing_month'] ?? '');
     $changed = ($oldStart !== $startSql)
         || ($oldEnd !== $endSql)
+        || ($oldSecondAthleteId !== (int)($secondAthleteId ?? 0))
         || ($oldLocation !== (string)$location)
         || ($oldTitle !== (string)$customTitle)
         || ($oldIsMakeup !== (int)$isMakeupSession)
@@ -243,7 +298,7 @@ if ($eventId > 0) {
     $nextApprovalStatus = ($approvalAction === 'approve' || $isPendingRequest) ? 'approved' : (string)($existingEvent['approval_status'] ?? 'approved');
     $coachModifiedAt = $changed ? date('Y-m-d H:i:s') : ($existingEvent['coach_modified_at'] ?: null);
 
-    $upd->execute([$athleteId, $nextApprovalStatus, $coachModifiedAt, (int)$isMakeupSession, $billingMonthSql, $colorKey, $customTitle, $location, $startSql, $endSql, $eventId, $coachId]);
+    $upd->execute([$athleteId, $secondAthleteId, $nextApprovalStatus, $coachModifiedAt, (int)$isMakeupSession, $billingMonthSql, $colorKey, $customTitle, $location, $startSql, $endSql, $eventId, $coachId]);
 
     if (!empty($existingEvent['athlete_id'])) {
         if ($changed || ($approvalAction === 'approve' && $isPendingRequest)) {
@@ -324,8 +379,8 @@ $overlapStmt = $pdo->prepare(
 );
 
 $insertStmt = $pdo->prepare(
-    'INSERT INTO coach_calendar_events (coach_id, athlete_id, requested_by_athlete_id, approval_status, coach_modified_at, is_makeup_session, billing_month, series_id, color_key, custom_title, location, starts_at, ends_at)
-     VALUES (?, ?, NULL, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO coach_calendar_events (coach_id, athlete_id, second_athlete_id, requested_by_athlete_id, approval_status, coach_modified_at, is_makeup_session, billing_month, series_id, color_key, custom_title, location, starts_at, ends_at)
+     VALUES (?, ?, ?, NULL, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)'
 );
 
 $seriesId = $repeatMode === 'none' ? null : generateUuidV4();
@@ -356,6 +411,7 @@ try {
         $insertStmt->execute([
             $coachId,
             $athleteId,
+            $secondAthleteId,
             'approved',
             (int)$isMakeupSession,
             $occurrenceBillingMonthSql,
