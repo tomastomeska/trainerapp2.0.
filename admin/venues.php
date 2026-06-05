@@ -83,8 +83,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($oldName !== $name) {
                 $pdo->prepare('UPDATE training_sessions SET location = ? WHERE location = ?')
                     ->execute([$name, $oldName]);
-                $pdo->prepare('UPDATE run_treadmill_sessions SET location = ? WHERE location = ?')
-                    ->execute([$name, $oldName]);
             }
 
             $pdo->commit();
@@ -144,8 +142,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->beginTransaction();
             try {
                 $pdo->prepare('UPDATE training_sessions SET location = ? WHERE location COLLATE utf8mb4_unicode_ci = ? COLLATE utf8mb4_unicode_ci')
-                    ->execute([$replacementName, $oldName]);
-                $pdo->prepare('UPDATE run_treadmill_sessions SET location = ? WHERE location COLLATE utf8mb4_unicode_ci = ? COLLATE utf8mb4_unicode_ci')
                     ->execute([$replacementName, $oldName]);
                 $pdo->prepare('DELETE FROM training_venues WHERE id = ?')
                     ->execute([$venueId]);

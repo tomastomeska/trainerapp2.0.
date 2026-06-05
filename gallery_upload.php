@@ -8,21 +8,27 @@ requireLogin();
 $coachId = getCurrentCoachId();
 $pdo     = getDB();
 
+$prefillAthleteId = intParam($_GET, 'athlete_id');
+$prefillFolderId  = intParam($_GET, 'folder_id');
+
 // Sportovci trenéra
 $athletes = $pdo->prepare("SELECT id, first_name, last_name FROM athletes WHERE coach_id = ? ORDER BY first_name, last_name");
 $athletes->execute([$coachId]);
 $athletes = $athletes->fetchAll();
 
-// Složky trenéra
-$folders = $pdo->prepare("
-    SELECT f.*, a.first_name, a.last_name
-    FROM gallery_folders f
-    LEFT JOIN athletes a ON a.id = f.athlete_id
-    WHERE f.coach_id = ?
-    ORDER BY f.folder_type ASC, a.first_name ASC, a.last_name ASC, f.name ASC
-");
-$folders->execute([$coachId]);
-$folders = $folders->fetchAll();
+$athleteIds = array_map('intval', array_column($athletes, 'id'));
+if ($prefillAthleteId > 0 && !in_array($prefillAthleteId, $athleteIds, true)) {
+    $prefillAthleteId = 0;
+}
+
+$customFolders = $pdo->prepare("SELECT id, name FROM gallery_folders WHERE coach_id = ? AND folder_type = 'custom' ORDER BY name ASC");
+$customFolders->execute([$coachId]);
+$customFolders = $customFolders->fetchAll();
+
+$customFolderIds = array_map('intval', array_column($customFolders, 'id'));
+if ($prefillFolderId > 0 && !in_array($prefillFolderId, $customFolderIds, true)) {
+    $prefillFolderId = 0;
+}
 
 $errors = [];
 
@@ -35,14 +41,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $description = trim($_POST['description'] ?? '');
     $visibility  = in_array($_POST['visibility'] ?? '', ['private', 'all_athletes', 'specific_athletes'])
                    ? $_POST['visibility'] : 'private';
-    $specificIds = array_map('intval', array_filter($_POST['specific_athletes'] ?? []));
-    $folderId    = $_POST['folder_id'] !== '' ? (int)$_POST['folder_id'] : null;
+    $folderId = intParam($_POST, 'folder_id');
+    $specificIds = array_values(array_intersect(
+        array_map('intval', array_filter($_POST['specific_athletes'] ?? [])),
+        $athleteIds
+    ));
 
-    // Ověř složku
-    if ($folderId !== null) {
-        $chk = $pdo->prepare("SELECT id FROM gallery_folders WHERE id = ? AND coach_id = ?");
-        $chk->execute([$folderId, $coachId]);
-        if (!$chk->fetch()) $folderId = null;
+    if ($folderId > 0 && !in_array($folderId, $customFolderIds, true)) {
+        $folderId = 0;
+    }
+
+    if ($visibility === 'specific_athletes' && empty($specificIds)) {
+        $errors[] = 'Pro sdílení s vybranými sportovci zvolte alespoň jednoho sportovce.';
     }
 
     $allowed = ['jpg','jpeg','png','gif','webp','mp4','mov','avi','mkv','webm',
@@ -59,50 +69,55 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                   'tmp_name' => [$files['tmp_name']], 'error' => [$files['error']], 'size' => [$files['size']]];
     }
 
-    foreach ($files['name'] as $i => $origName) {
-        if ($files['error'][$i] !== UPLOAD_ERR_OK || !$origName) continue;
-        $size = $files['size'][$i];
-        if ($size > 200 * 1024 * 1024) { $errors[] = h($origName) . ': max 200 MB.'; continue; }
-        $ext = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
-        if (!in_array($ext, $allowed, true)) { $errors[] = h($origName) . ': typ .' . $ext . ' není povolen.'; continue; }
+    if (empty($errors)) {
+        foreach ($files['name'] as $i => $origName) {
+            if ($files['error'][$i] !== UPLOAD_ERR_OK || !$origName) continue;
+            $size = $files['size'][$i];
+            if ($size > 200 * 1024 * 1024) { $errors[] = h($origName) . ': max 200 MB.'; continue; }
+            $ext = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
+            if (!in_array($ext, $allowed, true)) { $errors[] = h($origName) . ': typ .' . $ext . ' není povolen.'; continue; }
 
-        $newName = time() . '_' . bin2hex(random_bytes(6)) . '.' . $ext;
-        if (!move_uploaded_file($files['tmp_name'][$i], $uploadDir . $newName)) {
-            $errors[] = h($origName) . ': nepodařilo se uložit.'; continue;
-        }
-
-        $mime  = mime_content_type($uploadDir . $newName) ?: '';
-        $ftype = str_starts_with($mime, 'image/') ? 'image'
-               : (str_starts_with($mime, 'video/') ? 'video' : 'document');
-
-        $ins = $pdo->prepare("INSERT INTO gallery_files (coach_id, folder_id, file_path, original_name, file_size, file_type, mime_type, description, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-        $ins->execute([$coachId, $folderId, $newName, $origName, $size, $ftype, $mime, $description ?: null, $visibility]);
-        $newFileId = (int)$pdo->lastInsertId();
-
-        if ($visibility === 'specific_athletes' && !empty($specificIds)) {
-            $insVis = $pdo->prepare("INSERT IGNORE INTO gallery_file_athletes (file_id, athlete_id) VALUES (?, ?)");
-            foreach ($specificIds as $aid) {
-                $insVis->execute([$newFileId, $aid]);
+            $newName = time() . '_' . bin2hex(random_bytes(6)) . '.' . $ext;
+            if (!move_uploaded_file($files['tmp_name'][$i], $uploadDir . $newName)) {
+                $errors[] = h($origName) . ': nepodařilo se uložit.'; continue;
             }
-        }
 
-        // Notifikace sportovcům
-        if ($visibility === 'all_athletes') {
-            foreach ($athletes as $a) {
-                notifyAthleteGallery($a['id'], $coachId, $origName, $pdo);
-            }
-        } elseif ($visibility === 'specific_athletes' && !empty($specificIds)) {
-            foreach ($specificIds as $aid) {
-                notifyAthleteGallery($aid, $coachId, $origName, $pdo);
-            }
-        }
+            $mime  = mime_content_type($uploadDir . $newName) ?: '';
+            $ftype = str_starts_with($mime, 'image/') ? 'image'
+                   : (str_starts_with($mime, 'video/') ? 'video' : 'document');
 
-        $uploadedCount++;
+            $ins = $pdo->prepare("INSERT INTO gallery_files (coach_id, folder_id, file_path, original_name, file_size, file_type, mime_type, description, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $ins->execute([$coachId, $folderId > 0 ? $folderId : null, $newName, $origName, $size, $ftype, $mime, $description ?: null, $visibility]);
+            $newFileId = (int)$pdo->lastInsertId();
+
+            if ($visibility === 'specific_athletes' && !empty($specificIds)) {
+                $insVis = $pdo->prepare("INSERT IGNORE INTO gallery_file_athletes (file_id, athlete_id) VALUES (?, ?)");
+                foreach ($specificIds as $aid) {
+                    $insVis->execute([$newFileId, $aid]);
+                }
+            }
+
+            // Notifikace sportovcům
+            if ($visibility === 'all_athletes') {
+                foreach ($athletes as $a) {
+                    notifyAthleteGallery($a['id'], $coachId, $origName, $pdo);
+                }
+            } elseif ($visibility === 'specific_athletes' && !empty($specificIds)) {
+                foreach ($specificIds as $aid) {
+                    notifyAthleteGallery($aid, $coachId, $origName, $pdo);
+                }
+            }
+
+            $uploadedCount++;
+        }
     }
 
     if ($uploadedCount > 0) {
         flash('success', "Nahráno $uploadedCount soubor(ů)." . (!empty($errors) ? ' Některé se nezdařily.' : ''));
-        redirect($folderId ? BASE_URL . '/gallery_folder.php?id=' . $folderId : BASE_URL . '/gallery.php');
+        if ($folderId > 0) {
+            redirect(BASE_URL . '/gallery_folder.php?id=' . $folderId);
+        }
+        redirect(BASE_URL . '/gallery_folder.php?mine=1');
     }
 }
 
@@ -121,6 +136,8 @@ function notifyAthleteGallery(int $athleteId, int $coachId, string $fileName, PD
 }
 
 renderHeader('Nahrát soubory do galerie');
+
+$defaultVisibility = $prefillAthleteId > 0 ? 'specific_athletes' : 'private';
 ?>
 
 <div class="d-flex align-items-center mb-4 gap-3">
@@ -169,17 +186,18 @@ renderHeader('Nahrát soubory do galerie');
 
             <hr>
 
-            <!-- Cílová složka -->
+            <div class="alert alert-light border mb-3">
+                <i class="fas fa-folder-open me-1 text-primary"></i>
+                Nahrané soubory se vždy ukládají do vaší galerie. Viditelnost níže určí, komu se ještě zobrazí.
+            </div>
+
             <div class="mb-3">
-                <label class="form-label fw-semibold">Cílová složka</label>
+                <label class="form-label fw-semibold">Vlastni slozka (volitelne)</label>
                 <select name="folder_id" class="form-select">
-                    <option value="">— Bez složky —</option>
-                    <?php foreach ($folders as $fld): ?>
-                    <?php $fldName = $fld['folder_type'] === 'athlete'
-                        ? ($fld['first_name'] . ' ' . $fld['last_name'])
-                        : $fld['name']; ?>
-                    <option value="<?= $fld['id'] ?>">
-                        <?= $fld['folder_type'] === 'athlete' ? '👤 ' : '📁 ' ?><?= h($fldName) ?>
+                    <option value="0">Bez slozky</option>
+                    <?php foreach ($customFolders as $folder): ?>
+                    <option value="<?= (int)$folder['id'] ?>" <?= $prefillFolderId === (int)$folder['id'] ? 'selected' : '' ?>>
+                        <?= h($folder['name']) ?>
                     </option>
                     <?php endforeach; ?>
                 </select>
@@ -196,16 +214,16 @@ renderHeader('Nahrát soubory do galerie');
             <div class="mb-3">
                 <label class="form-label fw-semibold">Viditelnost</label>
                 <select name="visibility" class="form-select" id="visSelect">
-                    <option value="private">🔒 Soukromý – pouze já</option>
+                    <option value="private" <?= $defaultVisibility === 'private' ? 'selected' : '' ?>>🔒 Soukromý – pouze já</option>
                     <?php if (!empty($athletes)): ?>
                     <option value="all_athletes">👥 Sdílet se všemi mými sportovci</option>
-                    <option value="specific_athletes">👤 Sdílet s vybranými sportovci</option>
+                    <option value="specific_athletes" <?= $defaultVisibility === 'specific_athletes' ? 'selected' : '' ?>>👤 Sdílet s vybranými sportovci</option>
                     <?php endif; ?>
                 </select>
             </div>
 
             <?php if (!empty($athletes)): ?>
-            <div id="specificAthletes" class="mb-3 d-none">
+            <div id="specificAthletes" class="mb-3 <?= $defaultVisibility === 'specific_athletes' ? '' : 'd-none' ?>">
                 <label class="form-label fw-semibold">Vyberte sportovce</label>
                 <div class="row g-2">
                     <?php foreach ($athletes as $a): ?>
@@ -213,7 +231,8 @@ renderHeader('Nahrát soubory do galerie');
                         <div class="form-check">
                             <input class="form-check-input" type="checkbox"
                                    name="specific_athletes[]" value="<?= $a['id'] ?>"
-                                   id="ath<?= $a['id'] ?>">
+                                id="ath<?= $a['id'] ?>"
+                                <?= $prefillAthleteId === (int)$a['id'] ? 'checked' : '' ?>>
                             <label class="form-check-label" for="ath<?= $a['id'] ?>">
                                 <?= h($a['first_name'] . ' ' . $a['last_name']) ?>
                             </label>

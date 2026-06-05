@@ -122,8 +122,8 @@ renderAthleteHeader('Jídelníčky');
                             <?php if (empty($dayItems)) continue; ?>
                             <div class="mb-4">
                                 <h5 class="mb-3"><i class="fas fa-calendar-day me-2 text-primary"></i><?= h($dayLabel) ?></h5>
-                                <div class="table-responsive">
-                                    <table class="table table-sm align-middle mb-0" style="table-layout:fixed; width:100%;">
+                                <div class="table-responsive mealplan-table-wrap">
+                                    <table class="table table-sm align-middle mb-0 mealplan-items-table" style="table-layout:fixed; width:100%;">
                                         <thead class="table-light">
                                         <tr>
                                             <th style="width:55px">#</th>
@@ -138,23 +138,23 @@ renderAthleteHeader('Jídelníčky');
                                         <?php foreach ($dayItems as $item): ?>
                                         <?php $isCheatDayRow = ((string)$item['meal_type'] === 'cheat_day' && $item['meal_id'] === null); ?>
                                         <tr>
-                                            <td><?= (int)$item['position'] ?></td>
-                                            <td><span class="badge <?= $isCheatDayRow ? 'bg-warning text-dark' : 'bg-secondary' ?>"><?= h(mealTypeLabel((string)$item['meal_type'])) ?></span></td>
-                                            <td>
+                                            <td data-label="#"><?= (int)$item['position'] ?></td>
+                                            <td data-label="Typ"><span class="badge <?= $isCheatDayRow ? 'bg-warning text-dark' : 'bg-secondary' ?>"><?= h(mealTypeLabel((string)$item['meal_type'])) ?></span></td>
+                                            <td data-label="Jídlo">
                                                 <?php if ($isCheatDayRow): ?>
                                                 <div class="fw-semibold text-warning-emphasis"><?= h((string)$item['meal_name_snapshot']) ?></div>
                                                 <?php else: ?>
                                                 <div class="fw-semibold"><?= h((string)($item['meal_name'] ?: $item['meal_name_snapshot'])) ?></div>
                                                 <?php if (!empty($item['photo'])): ?>
-                                                <img src="<?= h(photoUrl((string)$item['photo'], 'meals')) ?>" alt="<?= h((string)($item['meal_name'] ?: $item['meal_name_snapshot'])) ?>" class="mt-1" style="width:52px;height:52px;object-fit:cover;border-radius:8px;">
+                                                <img src="<?= h(photoUrl((string)$item['photo'], 'meals')) ?>" alt="<?= h((string)($item['meal_name'] ?: $item['meal_name_snapshot'])) ?>" class="mt-1" style="width:52px;height:52px;object-fit:cover;border-radius:8px;" onerror="this.style.display='none'">
                                                 <?php endif; ?>
                                                 <?php if (!empty($item['description'])): ?>
                                                 <div class="small text-muted mt-1" style="white-space:pre-wrap"><?= h((string)$item['description']) ?></div>
                                                 <?php endif; ?>
                                                 <?php endif; ?>
                                             </td>
-                                            <td><?= (!$isCheatDayRow && $item['grams'] !== null) ? (int)$item['grams'] . ' g' : '–' ?></td>
-                                            <td class="small text-muted">
+                                            <td data-label="Množství"><?= (!$isCheatDayRow && $item['grams'] !== null) ? (int)$item['grams'] . ' g' : '–' ?></td>
+                                            <td data-label="Nutriční hodnoty" class="small text-muted">
                                                 <?php
                                                 $gramsFactor = $item['grams'] !== null ? ((float)$item['grams'] / 100) : 0.0;
                                                 $fatValue = $item['fat_per_100g'] !== null ? (float)$item['fat_per_100g'] * $gramsFactor : null;
@@ -173,7 +173,7 @@ renderAthleteHeader('Jídelníčky');
                                                 <div>Sůl: <?= $saltValue !== null ? number_format($saltValue, 2, ',', '') . ' g' : '–' ?></div>
                                                 <?php endif; ?>
                                             </td>
-                                            <td class="small text-muted" style="white-space:pre-wrap"><?= (!$isCheatDayRow && !empty($item['note'])) ? h((string)$item['note']) : '–' ?></td>
+                                            <td data-label="Poznámka" class="small text-muted" style="white-space:pre-wrap"><?= (!$isCheatDayRow && !empty($item['note'])) ? h((string)$item['note']) : '–' ?></td>
                                         </tr>
                                         <?php endforeach; ?>
                                         </tbody>

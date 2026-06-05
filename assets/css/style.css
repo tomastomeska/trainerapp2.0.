@@ -853,6 +853,140 @@ canvas {
     .fs-1 { font-size: 1.75rem !important; }
 }
 
+/* Jidelnicky (sportovec + trener) - karty pro mobil a tablet */
+@media (max-width: 991.98px) {
+    .mealplan-table-wrap {
+        overflow-x: visible;
+    }
+
+    .mealplan-items-table {
+        table-layout: auto !important;
+    }
+
+    .mealplan-items-table thead {
+        display: none !important;
+    }
+
+    .mealplan-items-table,
+    .mealplan-items-table tbody,
+    .mealplan-items-table tr,
+    .mealplan-items-table td {
+        display: block !important;
+        width: 100% !important;
+    }
+
+    .mealplan-items-table tr {
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        margin-bottom: 0.75rem;
+        padding: 0.5rem 0.65rem;
+        background: #fff;
+    }
+
+    .mealplan-items-table td {
+        border: 0;
+        border-bottom: 1px dashed #e2e8f0;
+        padding: 0.4rem 0 !important;
+        white-space: normal !important;
+        word-break: break-word;
+        overflow-wrap: anywhere;
+    }
+
+    .mealplan-items-table td:last-child {
+        border-bottom: 0;
+    }
+
+    .mealplan-items-table td::before {
+        content: attr(data-label);
+        display: block;
+        font-size: 0.68rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #64748b;
+        margin-bottom: 0.1rem;
+    }
+
+    .mealplan-items-table td[data-label="#"]::before {
+        content: "Polozka";
+    }
+
+    .mealplan-items-table td[data-label="Akce"] .d-flex {
+        justify-content: flex-start !important;
+        flex-wrap: wrap;
+    }
+
+    .mealplan-items-table img {
+        display: block;
+        margin-top: 0.35rem;
+        max-width: 100%;
+    }
+}
+
+/* Trener - prepnout driv do karet, aby nevznikal horizontalni posuvnik */
+@media (max-width: 1199.98px) {
+    .mealplan-table-wrap {
+        overflow-x: visible;
+    }
+
+    .coach-mealplan-items-table {
+        table-layout: auto !important;
+    }
+
+    .coach-mealplan-items-table thead {
+        display: none !important;
+    }
+
+    .coach-mealplan-items-table,
+    .coach-mealplan-items-table tbody,
+    .coach-mealplan-items-table tr,
+    .coach-mealplan-items-table td {
+        display: block !important;
+        width: 100% !important;
+    }
+
+    .coach-mealplan-items-table tr {
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        margin-bottom: 0.75rem;
+        padding: 0.5rem 0.65rem;
+        background: #fff;
+    }
+
+    .coach-mealplan-items-table td {
+        border: 0;
+        border-bottom: 1px dashed #e2e8f0;
+        padding: 0.4rem 0 !important;
+        white-space: normal !important;
+        word-break: break-word;
+        overflow-wrap: anywhere;
+    }
+
+    .coach-mealplan-items-table td:last-child {
+        border-bottom: 0;
+    }
+
+    .coach-mealplan-items-table td::before {
+        content: attr(data-label);
+        display: block;
+        font-size: 0.68rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #64748b;
+        margin-bottom: 0.1rem;
+    }
+
+    .coach-mealplan-items-table td[data-label="#"]::before {
+        content: "Polozka";
+    }
+
+    .coach-mealplan-items-table td[data-label="Akce"] .d-flex {
+        justify-content: flex-start !important;
+        flex-wrap: wrap;
+    }
+}
+
 /* Print styly */
 @media print {
     .navbar, .btn, footer, .modal, form[onsubmit],

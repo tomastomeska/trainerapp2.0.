@@ -398,16 +398,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 $pdo->commit();
                 flash('success', 'Minulý trénink byl uložen (' . $createdSeries . ' sérií).');
-                if ($sportType === 'golf') {
-                    redirect(BASE_URL . '/training_golf_detail.php?id=' . $sessionId);
-                }
-                if ($sportType === 'run_outdoor') {
-                    redirect(BASE_URL . '/training_run_outdoor_detail.php?id=' . $sessionId);
-                }
-                if ($sportType === 'run_treadmill') {
-                    redirect(BASE_URL . '/training_run_treadmill_detail.php?id=' . $sessionId);
-                }
-
                 redirect(BASE_URL . '/athlete_detail.php?id=' . $athleteId);
             } catch (Throwable $e) {
                 if ($pdo->inTransaction()) {

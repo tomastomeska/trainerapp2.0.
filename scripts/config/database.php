@@ -125,9 +125,13 @@ function ensureSchemaUpgrades(PDO $pdo): void {
         $pdo->exec('ALTER TABLE training_sessions ADD COLUMN training_photo VARCHAR(255) NULL AFTER notes');
     }
 
-    $stmtOutdoorWeather = $pdo->query("SHOW COLUMNS FROM run_outdoor_sessions LIKE 'weather'");
-    if (!$stmtOutdoorWeather->fetch()) {
-        $pdo->exec('ALTER TABLE run_outdoor_sessions ADD COLUMN weather VARCHAR(120) NULL AFTER surface');
+    try {
+        $stmtOutdoorWeather = $pdo->query("SHOW COLUMNS FROM run_outdoor_sessions LIKE 'weather'");
+        if ($stmtOutdoorWeather && !$stmtOutdoorWeather->fetch()) {
+            $pdo->exec('ALTER TABLE run_outdoor_sessions ADD COLUMN weather VARCHAR(120) NULL AFTER surface');
+        }
+    } catch (Throwable $e) {
+        // Tabulka run_outdoor_sessions může být v decommission režimu odstraněná.
     }
 
     // Galerie fotek k tréninku (více fotek)
@@ -631,6 +635,25 @@ function ensureSchemaUpgrades(PDO $pdo): void {
             CONSTRAINT `fk_weight_logs_coach` FOREIGN KEY (`created_by_coach_id`) REFERENCES `coaches`(`id`) ON DELETE SET NULL
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ");
+
+    // Decommission: odstranění tabulek zrušených sportů (běh/golf).
+    try {
+        $pdo->exec('SET FOREIGN_KEY_CHECKS=0');
+        $pdo->exec('DROP TABLE IF EXISTS run_outdoor_splits');
+        $pdo->exec('DROP TABLE IF EXISTS run_treadmill_splits');
+        $pdo->exec('DROP TABLE IF EXISTS golf_holes');
+        $pdo->exec('DROP TABLE IF EXISTS run_outdoor_sessions');
+        $pdo->exec('DROP TABLE IF EXISTS run_treadmill_sessions');
+        $pdo->exec('DROP TABLE IF EXISTS golf_sessions');
+        $pdo->exec('DROP TABLE IF EXISTS golf_course_tees');
+        $pdo->exec('DROP TABLE IF EXISTS golf_courses');
+        $pdo->exec('SET FOREIGN_KEY_CHECKS=1');
+    } catch (Throwable $e) {
+        try {
+            $pdo->exec('SET FOREIGN_KEY_CHECKS=1');
+        } catch (Throwable $ignored) {
+        }
+    }
 }
 
 function normalizeTrainingVenueName(string $name): string {

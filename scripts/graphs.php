@@ -33,32 +33,13 @@ $stmtEx = $pdo->prepare(
 $stmtEx->execute([$athleteId]);
 $exercises = $stmtEx->fetchAll();
 
-// Dostupnost speciálních sportů
-$stmtHasOutdoor = $pdo->prepare(
-    'SELECT COUNT(*)
-     FROM run_outdoor_sessions ros
-     JOIN training_sessions ts ON ts.id = ros.session_id
-     WHERE ts.athlete_id = ?
-       AND ts.completed_at IS NOT NULL
-       AND ts.deleted_by_coach_at IS NULL'
-);
-$stmtHasOutdoor->execute([$athleteId]);
-$hasRunOutdoor = (int)$stmtHasOutdoor->fetchColumn() > 0;
-
-// Výběr metriky (standardní cvik nebo speciální sport)
+// Výběr metriky (standardní cvik)
 $metricOptions = [];
 foreach ($exercises as $ex) {
     $metricOptions[] = [
         'key'   => 'ex:' . (int)$ex['id'],
         'label' => $ex['name'],
         'kind'  => 'standard',
-    ];
-}
-if ($hasRunOutdoor) {
-    $metricOptions[] = [
-        'key'   => 'sport:run_outdoor',
-        'label' => 'Běh venku (speciální sport)',
-        'kind'  => 'run_outdoor',
     ];
 }
 
