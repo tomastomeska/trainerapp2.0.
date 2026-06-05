@@ -103,6 +103,16 @@ if ($coach) {
                         <i class="fas fa-images me-1"></i>Galerie
                     </a>
                 </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="<?= BASE_URL ?>/coach_manual.php">
+                        <i class="fas fa-circle-question me-1"></i>Návod
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="<?= BASE_URL ?>/coach_terms.php">
+                        <i class="fas fa-file-contract me-1"></i>Podmínky
+                    </a>
+                </li>
             </ul>
             <?php if ($coach): ?>
             <div class="navbar-nav">

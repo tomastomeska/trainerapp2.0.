@@ -27,7 +27,7 @@ function exerciseCategoryOptions(): array {
     ];
 }
 
-function sanitizeExerciseCategories($raw): array {
+function sanitizeExerciseCategories(mixed $raw): array {
     $allowed = array_keys(exerciseCategoryOptions());
     $allowed = array_values(array_filter($allowed, static fn($key) => $key !== 'all'));
     if (!is_array($raw)) {
