@@ -9,26 +9,102 @@ $pdo     = getDB();
 $error   = null;
 $success = null;
 
+$logoSettingKey = 'login_logo_path';
+$logoUploadDir = __DIR__ . '/../uploads/logo';
+$logoBasePath = 'uploads/logo';
+
+$currentVersion = getAppSetting('app_version', APP_VERSION);
+$currentLogoPath = trim(getAppSetting($logoSettingKey, ''));
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!verifyCsrf($_POST['csrf_token'] ?? '')) {
         $error = 'Neplatný bezpečnostní token.';
     } else {
-        $version = trim($_POST['app_version'] ?? '');
-        if ($version === '') {
-            $error = 'Číslo verze nesmí být prázdné.';
-        } elseif (!preg_match('/^[\w.\-]+$/', $version)) {
-            $error = 'Číslo verze obsahuje nepovolené znaky. Povoleno: písmena, číslice, tečka, pomlčka.';
-        } else {
+        $action = trim((string)($_POST['action'] ?? 'save_version'));
+
+        if ($action === 'upload_login_logo') {
+            if (empty($_FILES['login_logo']['tmp_name']) || (int)($_FILES['login_logo']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+                $error = 'Vyberte prosím soubor loga.';
+            } else {
+                $allowedExt = ['png', 'jpg', 'jpeg', 'webp', 'svg'];
+                $originalName = (string)($_FILES['login_logo']['name'] ?? '');
+                $tmpName = (string)($_FILES['login_logo']['tmp_name'] ?? '');
+                $fileSize = (int)($_FILES['login_logo']['size'] ?? 0);
+                $ext = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+
+                if (!in_array($ext, $allowedExt, true)) {
+                    $error = 'Nepodporovaný formát loga. Povolené: png, jpg, jpeg, webp, svg.';
+                } elseif ($fileSize <= 0 || $fileSize > 5 * 1024 * 1024) {
+                    $error = 'Soubor loga musí mít velikost 1 B až 5 MB.';
+                } else {
+                    if (!is_dir($logoUploadDir) && !mkdir($logoUploadDir, 0775, true) && !is_dir($logoUploadDir)) {
+                        $error = 'Nepodařilo se vytvořit složku pro logo.';
+                    } else {
+                        $newName = 'login_logo_' . date('Ymd_His') . '_' . bin2hex(random_bytes(4)) . '.' . $ext;
+                        $targetPath = $logoUploadDir . '/' . $newName;
+
+                        if (!move_uploaded_file($tmpName, $targetPath)) {
+                            $error = 'Soubor loga se nepodařilo nahrát.';
+                        } else {
+                            if ($currentLogoPath !== '') {
+                                $oldPath = __DIR__ . '/../' . ltrim($currentLogoPath, '/');
+                                if (is_file($oldPath)) {
+                                    @unlink($oldPath);
+                                }
+                            }
+
+                            $newRelativePath = $logoBasePath . '/' . $newName;
+                            $pdo->prepare(
+                                'INSERT INTO app_settings (`key`, `value`) VALUES (?, ?)
+                                 ON DUPLICATE KEY UPDATE `value` = VALUES(`value`)'
+                            )->execute([$logoSettingKey, $newRelativePath]);
+
+                            $currentLogoPath = $newRelativePath;
+                            $success = 'Logo přihlášení bylo úspěšně nahráno.';
+                        }
+                    }
+                }
+            }
+        } elseif ($action === 'remove_login_logo') {
+            if ($currentLogoPath !== '') {
+                $oldPath = __DIR__ . '/../' . ltrim($currentLogoPath, '/');
+                if (is_file($oldPath)) {
+                    @unlink($oldPath);
+                }
+            }
+
             $pdo->prepare(
                 'INSERT INTO app_settings (`key`, `value`) VALUES (?, ?)
                  ON DUPLICATE KEY UPDATE `value` = VALUES(`value`)'
-            )->execute(['app_version', $version]);
-            $success = 'Verze aplikace byla nastavena na "' . $version . '".';
+            )->execute([$logoSettingKey, '']);
+
+            $currentLogoPath = '';
+            $success = 'Logo přihlášení bylo odebráno.';
+        } else {
+            $version = trim($_POST['app_version'] ?? '');
+            if ($version === '') {
+                $error = 'Číslo verze nesmí být prázdné.';
+            } elseif (!preg_match('/^[\w.\-]+$/', $version)) {
+                $error = 'Číslo verze obsahuje nepovolené znaky. Povoleno: písmena, číslice, tečka, pomlčka.';
+            } else {
+                $pdo->prepare(
+                    'INSERT INTO app_settings (`key`, `value`) VALUES (?, ?)
+                     ON DUPLICATE KEY UPDATE `value` = VALUES(`value`)'
+                )->execute(['app_version', $version]);
+                $currentVersion = $version;
+                $success = 'Verze aplikace byla nastavena na "' . $version . '".';
+            }
         }
     }
 }
 
-$currentVersion = getAppSetting('app_version', APP_VERSION);
+$logoPreviewUrl = null;
+if ($currentLogoPath !== '') {
+    $logoAbsolutePath = __DIR__ . '/../' . ltrim($currentLogoPath, '/');
+    if (is_file($logoAbsolutePath)) {
+        $logoPreviewUrl = BASE_URL . '/' . ltrim($currentLogoPath, '/');
+    }
+}
 
 renderAdminHeader('Nastavení aplikace');
 ?>
@@ -59,6 +135,7 @@ renderAdminHeader('Nastavení aplikace');
     <div class="card-body">
         <form method="post">
             <?= csrfField() ?>
+            <input type="hidden" name="action" value="save_version">
             <div class="mb-3">
                 <label for="versionInput" class="form-label fw-semibold">Aktuální verze</label>
                 <input type="text" name="app_version" id="versionInput"
@@ -75,6 +152,49 @@ renderAdminHeader('Nastavení aplikace');
                 <i class="fas fa-save me-1"></i>Uložit verzi
             </button>
         </form>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm mt-4" style="max-width:760px">
+    <div class="card-header fw-bold" style="background:#1e1e2e;color:#fff">
+        <i class="fas fa-image me-2"></i>Logo přihlášení
+    </div>
+    <div class="card-body">
+        <?php if ($logoPreviewUrl): ?>
+        <div class="mb-3">
+            <div class="small text-muted mb-2">Aktuální logo</div>
+            <img src="<?= h($logoPreviewUrl) ?>" alt="Login logo" style="max-width:320px;width:100%;height:auto;border:1px solid #ddd;border-radius:10px;padding:8px;background:#fff;">
+        </div>
+        <?php else: ?>
+        <div class="alert alert-light border mb-3">Momentálně není nastavené žádné vlastní logo. Použije se text názvu aplikace.</div>
+        <?php endif; ?>
+
+        <form method="post" enctype="multipart/form-data" class="mb-3">
+            <?= csrfField() ?>
+            <input type="hidden" name="action" value="upload_login_logo">
+            <div class="row g-3 align-items-end">
+                <div class="col-md-9">
+                    <label for="loginLogoInput" class="form-label fw-semibold">Nahrát nové logo</label>
+                    <input type="file" name="login_logo" id="loginLogoInput" class="form-control" accept=".png,.jpg,.jpeg,.webp,.svg,image/png,image/jpeg,image/webp,image/svg+xml" required>
+                    <div class="form-text">Povolené formáty: png, jpg, jpeg, webp, svg. Maximálně 5 MB.</div>
+                </div>
+                <div class="col-md-3">
+                    <button type="submit" class="btn fw-bold w-100" style="background:#7c3aed;color:#fff;border:none">
+                        <i class="fas fa-upload me-1"></i>Nahrát logo
+                    </button>
+                </div>
+            </div>
+        </form>
+
+        <?php if ($logoPreviewUrl): ?>
+        <form method="post" onsubmit="return confirm('Odebrat aktuální logo přihlášení?');">
+            <?= csrfField() ?>
+            <input type="hidden" name="action" value="remove_login_logo">
+            <button type="submit" class="btn btn-outline-danger fw-semibold">
+                <i class="fas fa-trash me-1"></i>Odebrat logo
+            </button>
+        </form>
+        <?php endif; ?>
     </div>
 </div>
 

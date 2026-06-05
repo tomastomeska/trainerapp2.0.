@@ -80,22 +80,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$logoFile = null;
-$logoDir = __DIR__ . '/uploads/logo';
-if (is_dir($logoDir)) {
-    $allowedExt = ['png', 'jpg', 'jpeg', 'webp', 'svg'];
-    foreach (scandir($logoDir) ?: [] as $file) {
-        if ($file === '.' || $file === '..') {
-            continue;
-        }
-        $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
-        if (in_array($ext, $allowedExt, true)) {
-            $logoFile = $file;
-            break;
-        }
+$logoUrl = null;
+$configuredLogoPath = trim(getAppSetting('login_logo_path', ''));
+if ($configuredLogoPath !== '') {
+    $configuredAbsolute = __DIR__ . '/' . ltrim($configuredLogoPath, '/');
+    if (is_file($configuredAbsolute)) {
+        $logoUrl = BASE_URL . '/' . ltrim($configuredLogoPath, '/');
     }
 }
-$logoUrl = $logoFile ? (BASE_URL . '/uploads/logo/' . rawurlencode($logoFile)) : null;
+
+if ($logoUrl === null) {
+    $logoFile = null;
+    $logoDir = __DIR__ . '/uploads/logo';
+    if (is_dir($logoDir)) {
+        $allowedExt = ['png', 'jpg', 'jpeg', 'webp', 'svg'];
+        foreach (scandir($logoDir) ?: [] as $file) {
+            if ($file === '.' || $file === '..') {
+                continue;
+            }
+            $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
+            if (in_array($ext, $allowedExt, true)) {
+                $logoFile = $file;
+                break;
+            }
+        }
+    }
+    $logoUrl = $logoFile ? (BASE_URL . '/uploads/logo/' . rawurlencode($logoFile)) : null;
+}
 $showFormOnLoad = $_SERVER['REQUEST_METHOD'] === 'POST';
 ?>
 <!DOCTYPE html>
