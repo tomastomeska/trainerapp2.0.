@@ -112,6 +112,12 @@ function ensureSchemaUpgrades(PDO $pdo): void {
         $pdo->exec('ALTER TABLE exercises ADD COLUMN is_timed TINYINT(1) NOT NULL DEFAULT 0 AFTER sport_type');
     }
 
+    // Kategorie svalových partií pro filtrování cviků (JSON pole)
+    $stmtExerciseMuscleCategories = $pdo->query("SHOW COLUMNS FROM exercises LIKE 'muscle_categories'");
+    if (!$stmtExerciseMuscleCategories->fetch()) {
+        $pdo->exec('ALTER TABLE exercises ADD COLUMN muscle_categories TEXT NULL AFTER is_timed');
+    }
+
     // Globalni cviky mohou mit coach_id = NULL
     $stmtCoachId = $pdo->query("SHOW COLUMNS FROM exercises LIKE 'coach_id'");
     $coachIdColumn = $stmtCoachId->fetch();

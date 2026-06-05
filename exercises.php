@@ -13,6 +13,57 @@ function normalizeExerciseSportType(string $name, string $selectedSportType): st
     return 'standard';
 }
 
+function exerciseCategoryOptions(): array {
+    return [
+        'all' => 'Vše',
+        'chest' => 'Hrudník (Chest)',
+        'back' => 'Záda (Back)',
+        'shoulders' => 'Ramena (Shoulders)',
+        'biceps' => 'Biceps',
+        'triceps' => 'Triceps',
+        'forearms' => 'Předloktí',
+        'quadriceps' => 'Quadricepsy',
+        'hamstrings' => 'Hamstringy',
+        'glutes' => 'Hýždě',
+        'calves' => 'Lýtka',
+        'core' => 'Core (Břicho + hluboký stabilizační systém)',
+        'uncategorized' => 'Bez zařazení',
+    ];
+}
+
+function sanitizeExerciseCategories($raw): array {
+    $allowed = array_keys(exerciseCategoryOptions());
+    $allowed = array_values(array_filter($allowed, static fn($key) => $key !== 'all'));
+    if (!is_array($raw)) {
+        return [];
+    }
+
+    $normalized = [];
+    foreach ($raw as $item) {
+        $item = trim((string)$item);
+        if ($item !== '' && in_array($item, $allowed, true)) {
+            $normalized[$item] = true;
+        }
+    }
+
+    return array_keys($normalized);
+}
+
+function decodeExerciseCategories(?string $raw): array {
+    if ($raw === null || trim($raw) === '') {
+        return ['uncategorized'];
+    }
+    $decoded = json_decode($raw, true);
+    if (!is_array($decoded)) {
+        return ['uncategorized'];
+    }
+
+    $categories = sanitizeExerciseCategories($decoded);
+    return empty($categories) ? ['uncategorized'] : $categories;
+}
+
+$exerciseCategoryOptions = exerciseCategoryOptions();
+
 // Přidání cviku – formulář odesílá multipart
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'add') {
     if (!verifyCsrf($_POST['csrf_token'] ?? '')) {
@@ -21,12 +72,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $name = trim($_POST['name'] ?? '');
         $sportType = normalizeExerciseSportType($name, (string)($_POST['sport_type'] ?? 'standard'));
         $isTimed = !empty($_POST['is_timed']) ? 1 : 0;
+        $muscleCategories = sanitizeExerciseCategories($_POST['muscle_categories'] ?? []);
         if ($name === '') {
             $error = 'Zadejte název cviku.';
+        } elseif (empty($muscleCategories)) {
+            $error = 'Vyberte alespoň jednu svalovou kategorii.';
         } else {
             $photo = saveUploadedPhoto('photo', 'exercises');
-            $pdo->prepare('INSERT INTO exercises (coach_id, name, photo, sport_type, is_timed) VALUES (?, ?, ?, ?, ?)')
-                ->execute([$coachId, $name, $photo, $sportType, $isTimed]);
+            $pdo->prepare('INSERT INTO exercises (coach_id, name, photo, sport_type, is_timed, muscle_categories) VALUES (?, ?, ?, ?, ?, ?)')
+                ->execute([$coachId, $name, $photo, $sportType, $isTimed, json_encode($muscleCategories, JSON_UNESCAPED_UNICODE)]);
             flash('success', "Cvik \"$name\" byl přidán.");
             redirect(BASE_URL . '/exercises.php');
         }
@@ -73,6 +127,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $newName = trim($_POST['new_name'] ?? '');
         $sportType = normalizeExerciseSportType($newName, (string)($_POST['sport_type'] ?? 'standard'));
         $isTimed = !empty($_POST['is_timed']) ? 1 : 0;
+        $muscleCategories = sanitizeExerciseCategories($_POST['muscle_categories'] ?? []);
+        if (empty($muscleCategories)) {
+            $muscleCategories = ['uncategorized'];
+        }
         if ($newName === '') {
             $error = 'Zadejte název cviku.';
         } else {
@@ -83,11 +141,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 $stmtOld->execute([$exId, $coachId]);
                 $oldRow = $stmtOld->fetch();
                 if ($oldRow) deleteUploadedPhoto($oldRow['photo'], 'exercises');
-                $pdo->prepare('UPDATE exercises SET name = ?, photo = ?, sport_type = ?, is_timed = ? WHERE id = ? AND coach_id = ?')
-                    ->execute([$newName, $newPhoto, $sportType, $isTimed, $exId, $coachId]);
+                $pdo->prepare('UPDATE exercises SET name = ?, photo = ?, sport_type = ?, is_timed = ?, muscle_categories = ? WHERE id = ? AND coach_id = ?')
+                    ->execute([$newName, $newPhoto, $sportType, $isTimed, json_encode($muscleCategories, JSON_UNESCAPED_UNICODE), $exId, $coachId]);
             } else {
-                $pdo->prepare('UPDATE exercises SET name = ?, sport_type = ?, is_timed = ? WHERE id = ? AND coach_id = ?')
-                    ->execute([$newName, $sportType, $isTimed, $exId, $coachId]);
+                $pdo->prepare('UPDATE exercises SET name = ?, sport_type = ?, is_timed = ?, muscle_categories = ? WHERE id = ? AND coach_id = ?')
+                    ->execute([$newName, $sportType, $isTimed, json_encode($muscleCategories, JSON_UNESCAPED_UNICODE), $exId, $coachId]);
             }
             flash('success', 'Cvik byl upraven.');
             redirect(BASE_URL . '/exercises.php');
@@ -106,6 +164,10 @@ $stmt = $pdo->prepare(
 );
 $stmt->execute([$coachId]);
 $exercises = $stmt->fetchAll();
+foreach ($exercises as &$exercise) {
+    $exercise['category_keys'] = decodeExerciseCategories($exercise['muscle_categories'] ?? null);
+}
+unset($exercise);
 
 // Globální cviky (spravuje superadmin)
 $globalExercises = $pdo->query(
@@ -116,6 +178,10 @@ $globalExercises = $pdo->query(
      WHERE e.is_global = 1
      ORDER BY e.name'
 )->fetchAll();
+foreach ($globalExercises as &$exercise) {
+    $exercise['category_keys'] = decodeExerciseCategories($exercise['muscle_categories'] ?? null);
+}
+unset($exercise);
 
 renderHeader('Cviky');
 ?>
@@ -127,6 +193,37 @@ renderHeader('Cviky');
 <?php if ($error): ?>
 <div class="alert alert-danger"><?= h($error) ?></div>
 <?php endif; ?>
+
+<style>
+.exercise-category-tiles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem;
+}
+
+.exercise-category-tile {
+    border: 1px solid #d7dbe2;
+    border-radius: 999px;
+    background: #f8fafc;
+    color: #1f2937;
+    padding: .35rem .75rem;
+    font-size: .82rem;
+    font-weight: 600;
+    line-height: 1.2;
+}
+
+.exercise-category-tile.active {
+    background: #111827;
+    border-color: #111827;
+    color: #fff;
+}
+
+.exercise-category-checkboxes {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: .45rem .85rem;
+}
+</style>
 
 <div class="row g-4">
     <!-- Přidat cvik -->
@@ -160,6 +257,19 @@ renderHeader('Cviky');
                         <label class="form-label fw-semibold">Fotografie <span class="text-muted fw-normal">(nepovinné)</span></label>
                         <input type="file" name="photo" class="form-control" accept="image/*">
                     </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Svalové kategorie <span class="text-danger">*</span></label>
+                        <div class="exercise-category-checkboxes">
+                            <?php foreach ($exerciseCategoryOptions as $categoryKey => $categoryLabel): ?>
+                                <?php if ($categoryKey === 'all') continue; ?>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="muscle_categories[]" value="<?= h($categoryKey) ?>" id="add-cat-<?= h($categoryKey) ?>">
+                                    <label class="form-check-label small" for="add-cat-<?= h($categoryKey) ?>"><?= h($categoryLabel) ?></label>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                        <div class="form-text">Při vytváření cviku je výběr alespoň jedné kategorie povinný.</div>
+                    </div>
                     <button type="submit" class="btn btn-warning fw-bold w-100">
                         <i class="fas fa-plus me-1"></i>Přidat
                     </button>
@@ -176,6 +286,18 @@ renderHeader('Cviky');
                 <span class="badge bg-secondary ms-2"><?= count($exercises) ?></span>
             </div>
             <div class="card-body p-0">
+                <div class="p-3 border-bottom bg-light-subtle">
+                    <div class="exercise-category-tiles" data-filter-group="exercises-list">
+                        <?php foreach ($exerciseCategoryOptions as $categoryKey => $categoryLabel): ?>
+                        <button type="button"
+                                class="exercise-category-tile js-exercise-category-filter <?= $categoryKey === 'all' ? 'active' : '' ?>"
+                                data-target-list="exercises-list"
+                                data-category="<?= h($categoryKey) ?>">
+                            <?= h($categoryLabel) ?>
+                        </button>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
                 <?php if (empty($exercises)): ?>
                 <div class="text-center py-4 text-muted">
                     <i class="fas fa-inbox fa-2x mb-2 d-block"></i>
@@ -185,7 +307,8 @@ renderHeader('Cviky');
                 <div class="list-group list-group-flush" id="exercises-list">
                     <?php foreach ($exercises as $ex): ?>
                     <div class="list-group-item list-group-item-action d-flex align-items-center gap-3"
-                         id="ex-row-<?= $ex['id'] ?>">
+                         id="ex-row-<?= $ex['id'] ?>"
+                         data-categories="<?= h(implode(',', $ex['category_keys'])) ?>">
                         <?php $exPhoto = photoUrl($ex['photo'] ?? null, 'exercises'); ?>
                         <div class="flex-shrink-0">
                             <?php if ($exPhoto): ?>
@@ -207,9 +330,13 @@ renderHeader('Cviky');
                                 $typeInfo = $typeLabels[$ex['sport_type']] ?? $typeLabels['standard'];
                             ?>
                             <span class="badge bg-<?= $typeInfo['color'] ?> ms-2 small"><?= $typeInfo['label'] ?></span>
-                                                        <?php if (!empty($ex['is_timed'])): ?>
-                                                        <span class="badge bg-warning text-dark ms-1 small">časový</span>
-                                                        <?php endif; ?>
+                            <?php if (!empty($ex['is_timed'])): ?>
+                            <span class="badge bg-warning text-dark ms-1 small">časový</span>
+                            <?php endif; ?>
+                            <?php foreach ($ex['category_keys'] as $categoryKey): ?>
+                                <?php $categoryLabel = $exerciseCategoryOptions[$categoryKey] ?? $exerciseCategoryOptions['uncategorized']; ?>
+                                <span class="badge bg-info-subtle text-dark border ms-1 small"><?= h($categoryLabel) ?></span>
+                            <?php endforeach; ?>
                             <span class="exercise-edit d-none">
                                 <form method="post" enctype="multipart/form-data"
                                       class="d-flex flex-wrap gap-2 align-items-center mt-1">
@@ -228,6 +355,15 @@ renderHeader('Cviky');
                                     <input type="file" name="photo" class="form-control form-control-sm"
                                            accept="image/*" style="max-width:100%;flex:1;min-width:0"
                                            title="Změnit fotografii (nepovinné)">
+                                    <div class="w-100 exercise-category-checkboxes mt-1">
+                                        <?php foreach ($exerciseCategoryOptions as $categoryKey => $categoryLabel): ?>
+                                            <?php if ($categoryKey === 'all') continue; ?>
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="checkbox" name="muscle_categories[]" value="<?= h($categoryKey) ?>" id="edit-cat-<?= $ex['id'] ?>-<?= h($categoryKey) ?>" <?= in_array($categoryKey, $ex['category_keys'], true) ? 'checked' : '' ?>>
+                                                <label class="form-check-label small" for="edit-cat-<?= $ex['id'] ?>-<?= h($categoryKey) ?>"><?= h($categoryLabel) ?></label>
+                                            </div>
+                                        <?php endforeach; ?>
+                                    </div>
                                     <button type="submit" class="btn btn-success btn-sm">
                                         <i class="fas fa-check"></i>
                                     </button>
@@ -310,6 +446,34 @@ function cancelEdit(id) {
     document.querySelector('#ex-row-' + id + ' .exercise-edit').classList.add('d-none');
 }
 
+function applyExerciseCategoryFilter(listId, category) {
+    const list = document.getElementById(listId);
+    if (!list) return;
+
+    list.querySelectorAll('.list-group-item').forEach(function(item) {
+        const raw = item.getAttribute('data-categories') || '';
+        const categories = raw.split(',').map(function(value) { return value.trim(); }).filter(Boolean);
+        const showItem = category === 'all' || categories.includes(category);
+        item.style.display = showItem ? '' : 'none';
+    });
+}
+
+function initExerciseCategoryFilters() {
+    document.querySelectorAll('.js-exercise-category-filter').forEach(function(button) {
+        button.addEventListener('click', function() {
+            const targetList = button.getAttribute('data-target-list');
+            const category = button.getAttribute('data-category') || 'all';
+
+            document.querySelectorAll('.js-exercise-category-filter[data-target-list="' + targetList + '"]')
+                .forEach(function(peer) {
+                    peer.classList.toggle('active', peer === button);
+                });
+
+            applyExerciseCategoryFilter(targetList, category);
+        });
+    });
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     attachExerciseTypeAutoDetect(
         document.getElementById('add-exercise-name'),
@@ -322,6 +486,10 @@ document.addEventListener('DOMContentLoaded', function() {
             form.querySelector('.js-exercise-sport-type')
         );
     });
+
+    initExerciseCategoryFilters();
+    applyExerciseCategoryFilter('exercises-list', 'all');
+    applyExerciseCategoryFilter('global-exercises-list', 'all');
 });
 </script>
 
@@ -336,9 +504,21 @@ document.addEventListener('DOMContentLoaded', function() {
         <span class="ms-auto small opacity-75">Spravuje superadministrátor &ndash; lze použít v sadách</span>
     </div>
     <div class="card-body p-0">
-        <div class="list-group list-group-flush">
+        <div class="p-3 border-bottom bg-light-subtle">
+            <div class="exercise-category-tiles" data-filter-group="global-exercises-list">
+                <?php foreach ($exerciseCategoryOptions as $categoryKey => $categoryLabel): ?>
+                <button type="button"
+                        class="exercise-category-tile js-exercise-category-filter <?= $categoryKey === 'all' ? 'active' : '' ?>"
+                        data-target-list="global-exercises-list"
+                        data-category="<?= h($categoryKey) ?>">
+                    <?= h($categoryLabel) ?>
+                </button>
+                <?php endforeach; ?>
+            </div>
+        </div>
+        <div class="list-group list-group-flush" id="global-exercises-list">
             <?php foreach ($globalExercises as $ex): ?>
-            <div class="list-group-item d-flex align-items-center gap-3">
+            <div class="list-group-item d-flex align-items-center gap-3" data-categories="<?= h(implode(',', $ex['category_keys'])) ?>">
                 <?php $exPhoto = photoUrl($ex['photo'] ?? null, 'exercises'); ?>
                 <div class="flex-shrink-0">
                     <?php if ($exPhoto): ?>
@@ -351,7 +531,13 @@ document.addEventListener('DOMContentLoaded', function() {
                     </div>
                     <?php endif; ?>
                 </div>
-                <div class="flex-grow-1 fw-semibold"><?= h($ex['name']) ?></div>
+                <div class="flex-grow-1 fw-semibold">
+                    <?= h($ex['name']) ?>
+                    <?php foreach ($ex['category_keys'] as $categoryKey): ?>
+                        <?php $categoryLabel = $exerciseCategoryOptions[$categoryKey] ?? $exerciseCategoryOptions['uncategorized']; ?>
+                        <span class="badge bg-info-subtle text-dark border ms-1 small"><?= h($categoryLabel) ?></span>
+                    <?php endforeach; ?>
+                </div>
                 <div class="text-muted small d-flex gap-2">
                     <?php if ($ex['set_count'] > 0): ?>
                     <span class="badge bg-light text-dark border"><?= $ex['set_count'] ?> sad</span>

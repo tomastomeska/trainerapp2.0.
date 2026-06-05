@@ -167,6 +167,12 @@ function ensureSchemaUpgrades(PDO $pdo): void {
         $pdo->exec('ALTER TABLE exercises ADD COLUMN is_global TINYINT(1) NOT NULL DEFAULT 0');
     }
 
+    // Kategorie svalových partií pro filtrování cviků (JSON pole)
+    $stmtExerciseMuscleCategories = $pdo->query("SHOW COLUMNS FROM exercises LIKE 'muscle_categories'");
+    if (!$stmtExerciseMuscleCategories->fetch()) {
+        $pdo->exec('ALTER TABLE exercises ADD COLUMN muscle_categories TEXT NULL AFTER is_global');
+    }
+
     // Hlaska po prihlaseni (admin edituje zpravy pro trenery)
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS `login_message` (
