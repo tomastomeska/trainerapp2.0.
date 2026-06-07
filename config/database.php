@@ -865,6 +865,27 @@ function ensureSchemaUpgrades(PDO $pdo): void {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ");
 
+    // Tokeny pro reset hesla (trenér + sportovec)
+    $pdo->exec(" 
+        CREATE TABLE IF NOT EXISTS `password_reset_requests` (
+            `id`          INT AUTO_INCREMENT PRIMARY KEY,
+            `user_type`   ENUM('coach','athlete') NOT NULL,
+            `coach_id`    INT NULL,
+            `athlete_id`  INT NULL,
+            `email`       VARCHAR(255) NOT NULL,
+            `token_hash`  CHAR(64) NOT NULL,
+            `expires_at`  DATETIME NOT NULL,
+            `used_at`     DATETIME NULL,
+            `created_at`  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY `uq_password_reset_token_hash` (`token_hash`),
+            KEY `idx_password_reset_expires` (`expires_at`),
+            KEY `idx_password_reset_coach` (`coach_id`),
+            KEY `idx_password_reset_athlete` (`athlete_id`),
+            CONSTRAINT `fk_password_reset_coach` FOREIGN KEY (`coach_id`) REFERENCES `coaches`(`id`) ON DELETE CASCADE,
+            CONSTRAINT `fk_password_reset_athlete` FOREIGN KEY (`athlete_id`) REFERENCES `athletes`(`id`) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
     // Decommission: odstranění tabulek zrušených sportů (běh/golf).
     try {
         $pdo->exec('SET FOREIGN_KEY_CHECKS=0');
@@ -2085,4 +2106,78 @@ function markAthleteWeightInviteUsed(int $inviteId): void {
          WHERE `id` = ? AND `used_at` IS NULL'
     );
     $stmt->execute([$inviteId]);
+}
+
+function createPasswordResetRequest(
+    string $userType,
+    ?int $coachId,
+    ?int $athleteId,
+    string $email,
+    int $validMinutes = 60
+): array {
+    $userType = $userType === 'athlete' ? 'athlete' : 'coach';
+    $coachId = $userType === 'coach' ? (int)$coachId : null;
+    $athleteId = $userType === 'athlete' ? (int)$athleteId : null;
+
+    $token = bin2hex(random_bytes(32));
+    $tokenHash = hash('sha256', $token);
+    $expiresAt = date('Y-m-d H:i:s', time() + (max(5, $validMinutes) * 60));
+
+    $pdo = getDB();
+    $stmt = $pdo->prepare(
+        'INSERT INTO `password_reset_requests`
+            (`user_type`, `coach_id`, `athlete_id`, `email`, `token_hash`, `expires_at`)
+         VALUES (?, ?, ?, ?, ?, ?)'
+    );
+    $stmt->execute([
+        $userType,
+        $coachId,
+        $athleteId,
+        mb_strtolower(trim($email), 'UTF-8'),
+        $tokenHash,
+        $expiresAt,
+    ]);
+
+    return [
+        'id' => (int)$pdo->lastInsertId(),
+        'token' => $token,
+        'expires_at' => $expiresAt,
+    ];
+}
+
+function getPasswordResetRequestByToken(string $token): ?array {
+    if ($token === '') {
+        return null;
+    }
+
+    $tokenHash = hash('sha256', $token);
+    $pdo = getDB();
+    $stmt = $pdo->prepare(
+        'SELECT *
+         FROM `password_reset_requests`
+         WHERE `token_hash` = ?
+         LIMIT 1'
+    );
+    $stmt->execute([$tokenHash]);
+    $row = $stmt->fetch();
+    if (!$row) {
+        return null;
+    }
+
+    $isExpired = strtotime((string)$row['expires_at']) < time();
+    if ($isExpired || !empty($row['used_at'])) {
+        return null;
+    }
+
+    return $row;
+}
+
+function markPasswordResetRequestUsed(int $requestId): void {
+    $pdo = getDB();
+    $stmt = $pdo->prepare(
+        'UPDATE `password_reset_requests`
+         SET `used_at` = NOW()
+         WHERE `id` = ? AND `used_at` IS NULL'
+    );
+    $stmt->execute([$requestId]);
 }

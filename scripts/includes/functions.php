@@ -835,7 +835,7 @@ function sendTrainingEmail(string $toEmail, array $session, array $exercises, ar
       <p style="margin:0;color:#9ca3af;font-size:11px;">
         Vytvořil <strong style="color:#6b7280;">Tomáš Tomeška</strong>
         &nbsp;·&nbsp;
-        <a href="mailto:tomas.tomeska@seznam.cz" style="color:#7c3aed;text-decoration:none;">tomas.tomeska@seznam.cz</a>
+        <a href="mailto:tomas.tomeska@seznam.cz?subject=Zpr%C3%A1va%20z%20TrainerApp" style="color:#7c3aed;text-decoration:none;">tomas.tomeska@seznam.cz</a>
       </p>
     </td>
   </tr>

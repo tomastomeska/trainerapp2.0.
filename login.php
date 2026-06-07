@@ -12,69 +12,226 @@ if (athleteIsLoggedIn()) {
 }
 
 $error = null;
+$notice = null;
+$noticeType = 'success';
+$openModal = '';
 $loginType = 'coach';
+$accessRequest = [
+    'first_name' => '',
+    'last_name' => '',
+    'email' => '',
+    'note' => '',
+];
+$resetRequest = [
+    'account_type' => 'coach',
+    'identity' => '',
+];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $loginType = ($_POST['login_type'] ?? '') === 'athlete' ? 'athlete' : 'coach';
-    if (!verifyCsrf($_POST['csrf_token'] ?? '')) {
-        $error = 'Neplatný bezpečnostní token. Zkuste to znovu.';
-    } else {
-        $username = trim($_POST['username'] ?? '');
-        $password = $_POST['password'] ?? '';
+    $action = (string)($_POST['action'] ?? 'login');
 
-        if ($username === '' || $password === '') {
-            $error = 'Vyplňte uživatelské jméno i heslo.';
-        } elseif ($loginType === 'coach') {
-            $pdo  = getDB();
-            $stmt = $pdo->prepare('SELECT id, password, name, is_active FROM coaches WHERE username = ?');
-            $stmt->execute([$username]);
-            $coach = $stmt->fetch();
+    if ($action === 'request_coach_access') {
+        $accessRequest['first_name'] = trim((string)($_POST['first_name'] ?? ''));
+        $accessRequest['last_name'] = trim((string)($_POST['last_name'] ?? ''));
+        $accessRequest['email'] = mb_strtolower(trim((string)($_POST['email'] ?? '')), 'UTF-8');
+        $accessRequest['note'] = trim((string)($_POST['note'] ?? ''));
 
-            if ($coach && password_verify($password, $coach['password'])) {
-                if (!$coach['is_active']) {
-                    $error = 'Váš účet byl zablokován. Kontaktujte správce.';
-                } else {
-                    session_regenerate_id(true);
-                    unset($_SESSION['athlete_id'], $_SESSION['athlete_name'], $_SESSION['athlete_coach_id'], $_SESSION['athlete_force_password_change']);
-                    $_SESSION['coach_id']   = $coach['id'];
-                    $_SESSION['coach_name'] = $coach['name'] ?: $username;
-                    // Aktualizace posledního přihlášení
-                    $pdo->prepare('UPDATE coaches SET last_login = NOW() WHERE id = ?')->execute([$coach['id']]);
-                    redirect(BASE_URL . '/dashboard.php');
-                }
-            } else {
-                $error = 'Nesprávné přihlašovací údaje.';
-            }
+        if (!verifyCsrf($_POST['csrf_token'] ?? '')) {
+            $error = 'Neplatný bezpečnostní token. Zkuste to znovu.';
+            $openModal = 'coachAccessModal';
+        } elseif ($accessRequest['first_name'] === '' || $accessRequest['last_name'] === '' || $accessRequest['email'] === '') {
+            $error = 'Vyplňte jméno, příjmení a e-mail.';
+            $openModal = 'coachAccessModal';
+        } elseif (!filter_var($accessRequest['email'], FILTER_VALIDATE_EMAIL)) {
+            $error = 'Zadejte platný e-mail.';
+            $openModal = 'coachAccessModal';
         } else {
             $pdo = getDB();
-            $email = mb_strtolower($username, 'UTF-8');
+            $reporterName = trim($accessRequest['first_name'] . ' ' . $accessRequest['last_name']);
+            $description = "Žádost o přístup trenéra z přihlašovací stránky.\n\n"
+                . "Jméno: {$reporterName}\n"
+                . "E-mail: {$accessRequest['email']}\n"
+                . ($accessRequest['note'] !== '' ? "Poznámka:\n{$accessRequest['note']}\n" : '');
+
+            $ip = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? ($_SERVER['REMOTE_ADDR'] ?? '');
+            if (str_contains((string)$ip, ',')) {
+                $ip = trim(explode(',', (string)$ip)[0]);
+            }
+
             $stmt = $pdo->prepare(
-                'SELECT id, coach_id, email, password, first_name, last_name, login_enabled, force_password_change
-                 FROM athletes
-                 WHERE email = ?
-                 LIMIT 1'
+                'INSERT INTO support_tickets (
+                    reporter_type, coach_id, athlete_id, reporter_name, reporter_email,
+                    subject, issue_type, description, page_url,
+                    ip_address, user_agent, status, created_at, updated_at
+                 ) VALUES (?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, "new", NOW(), NOW())'
             );
-            $stmt->execute([$email]);
-            $athlete = $stmt->fetch();
+            $stmt->execute([
+                'coach',
+                $reporterName,
+                $accessRequest['email'],
+                'Žádost o přístup trenéra',
+                'Žádost o přístup',
+                $description,
+                BASE_URL . '/login.php',
+                mb_substr((string)$ip, 0, 45),
+                mb_substr((string)($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 1000),
+            ]);
 
-            if (!$athlete || !(int)$athlete['login_enabled']) {
-                $error = 'Účet sportovce ještě není aktivovaný. Kontaktujte trenéra.';
-            } elseif (empty($athlete['password']) || !password_verify($password, (string)$athlete['password'])) {
-                $error = 'Nesprávné přihlašovací údaje.';
-            } else {
-                session_regenerate_id(true);
-                unset($_SESSION['coach_id'], $_SESSION['coach_name']);
-                $_SESSION['athlete_id'] = (int)$athlete['id'];
-                $_SESSION['athlete_name'] = trim((string)$athlete['first_name'] . ' ' . (string)$athlete['last_name']);
-                $_SESSION['athlete_coach_id'] = (int)$athlete['coach_id'];
-                $_SESSION['athlete_force_password_change'] = (int)($athlete['force_password_change'] ?? 1);
+            $ticketId = (int)$pdo->lastInsertId();
+            $ticketPayload = [
+                'reporter_name' => $reporterName,
+                'reporter_email' => $accessRequest['email'],
+                'subject' => 'Žádost o přístup trenéra',
+                'issue_type' => 'Žádost o přístup',
+                'description' => $description,
+                'page_url' => BASE_URL . '/login.php',
+                'screenshot_path' => null,
+            ];
 
-                $pdo->prepare('UPDATE athletes SET last_login = NOW() WHERE id = ?')->execute([(int)$athlete['id']]);
+            sendSupportTicketNotificationEmail($ticketId, $ticketPayload);
+            sendCoachAccessRequestOwnerEmail('tomas.tomeska@seznam.cz', [
+                'first_name' => $accessRequest['first_name'],
+                'last_name' => $accessRequest['last_name'],
+                'email' => $accessRequest['email'],
+                'note' => $accessRequest['note'],
+                'created_at' => date('Y-m-d H:i:s'),
+            ]);
 
-                if (!empty($_SESSION['athlete_force_password_change'])) {
-                    redirect(BASE_URL . '/athlete_change_password.php');
+            $noticeType = 'success';
+            $notice = 'Žádost byla odeslána do administrace. Po schválení budete kontaktován na uvedený e-mail.';
+            $accessRequest = ['first_name' => '', 'last_name' => '', 'email' => '', 'note' => ''];
+        }
+    } elseif ($action === 'request_password_reset') {
+        $resetRequest['account_type'] = (($_POST['account_type'] ?? '') === 'athlete') ? 'athlete' : 'coach';
+        $resetRequest['identity'] = trim((string)($_POST['identity'] ?? ''));
+
+        if (!verifyCsrf($_POST['csrf_token'] ?? '')) {
+            $error = 'Neplatný bezpečnostní token. Zkuste to znovu.';
+            $openModal = 'forgotPasswordModal';
+        } elseif ($resetRequest['identity'] === '') {
+            $error = 'Vyplňte požadovaný údaj pro reset hesla.';
+            $openModal = 'forgotPasswordModal';
+        } else {
+            $pdo = getDB();
+            $accountType = $resetRequest['account_type'];
+            $identity = $resetRequest['identity'];
+            $targetEmail = '';
+            $displayName = '';
+            $coachId = null;
+            $athleteId = null;
+
+            if ($accountType === 'athlete') {
+                $email = mb_strtolower($identity, 'UTF-8');
+                $stmt = $pdo->prepare(
+                    'SELECT id, first_name, last_name, email
+                     FROM athletes
+                     WHERE email = ? AND login_enabled = 1
+                     LIMIT 1'
+                );
+                $stmt->execute([$email]);
+                $row = $stmt->fetch();
+                if ($row && !empty($row['email'])) {
+                    $athleteId = (int)$row['id'];
+                    $targetEmail = (string)$row['email'];
+                    $displayName = trim((string)$row['first_name'] . ' ' . (string)$row['last_name']);
                 }
-                redirect(BASE_URL . '/athlete_dashboard.php');
+            } else {
+                $email = mb_strtolower($identity, 'UTF-8');
+                $stmt = $pdo->prepare(
+                    'SELECT id, name, username, email
+                     FROM coaches
+                     WHERE username = ? OR LOWER(email) = ?
+                     LIMIT 1'
+                );
+                $stmt->execute([$identity, $email]);
+                $row = $stmt->fetch();
+                if ($row && !empty($row['email'])) {
+                    $coachId = (int)$row['id'];
+                    $targetEmail = (string)$row['email'];
+                    $displayName = (string)($row['name'] ?: $row['username']);
+                }
+            }
+
+            if ($targetEmail !== '' && filter_var($targetEmail, FILTER_VALIDATE_EMAIL)) {
+                $reset = createPasswordResetRequest($accountType, $coachId, $athleteId, $targetEmail, 60);
+                $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+                $host = (string)($_SERVER['HTTP_HOST'] ?? '');
+                $baseUrlAbsolute = $host !== '' ? ($scheme . '://' . $host . BASE_URL) : BASE_URL;
+                $resetUrl = rtrim($baseUrlAbsolute, '/') . '/reset_password.php?token=' . urlencode((string)$reset['token']);
+                sendPasswordResetEmail(
+                    $targetEmail,
+                    $displayName !== '' ? $displayName : 'uživateli',
+                    $resetUrl,
+                    $accountType === 'athlete' ? 'sportovec' : 'trenér'
+                );
+            }
+
+            $noticeType = 'success';
+            $notice = 'Pokud účet existuje, byl na něj odeslán e-mail s odkazem pro reset hesla.';
+            $resetRequest = ['account_type' => 'coach', 'identity' => ''];
+        }
+    } else {
+        $loginType = ($_POST['login_type'] ?? '') === 'athlete' ? 'athlete' : 'coach';
+        if (!verifyCsrf($_POST['csrf_token'] ?? '')) {
+            $error = 'Neplatný bezpečnostní token. Zkuste to znovu.';
+        } else {
+            $username = trim($_POST['username'] ?? '');
+            $password = $_POST['password'] ?? '';
+
+            if ($username === '' || $password === '') {
+                $error = 'Vyplňte uživatelské jméno i heslo.';
+            } elseif ($loginType === 'coach') {
+                $pdo  = getDB();
+                $stmt = $pdo->prepare('SELECT id, password, name, is_active FROM coaches WHERE username = ?');
+                $stmt->execute([$username]);
+                $coach = $stmt->fetch();
+
+                if ($coach && password_verify($password, $coach['password'])) {
+                    if (!$coach['is_active']) {
+                        $error = 'Váš účet byl zablokován. Kontaktujte správce.';
+                    } else {
+                        session_regenerate_id(true);
+                        unset($_SESSION['athlete_id'], $_SESSION['athlete_name'], $_SESSION['athlete_coach_id'], $_SESSION['athlete_force_password_change']);
+                        $_SESSION['coach_id']   = $coach['id'];
+                        $_SESSION['coach_name'] = $coach['name'] ?: $username;
+                        // Aktualizace posledního přihlášení
+                        $pdo->prepare('UPDATE coaches SET last_login = NOW() WHERE id = ?')->execute([$coach['id']]);
+                        redirect(BASE_URL . '/dashboard.php');
+                    }
+                } else {
+                    $error = 'Nesprávné přihlašovací údaje.';
+                }
+            } else {
+                $pdo = getDB();
+                $email = mb_strtolower($username, 'UTF-8');
+                $stmt = $pdo->prepare(
+                    'SELECT id, coach_id, email, password, first_name, last_name, login_enabled, force_password_change
+                     FROM athletes
+                     WHERE email = ?
+                     LIMIT 1'
+                );
+                $stmt->execute([$email]);
+                $athlete = $stmt->fetch();
+
+                if (!$athlete || !(int)$athlete['login_enabled']) {
+                    $error = 'Účet sportovce ještě není aktivovaný. Kontaktujte trenéra.';
+                } elseif (empty($athlete['password']) || !password_verify($password, (string)$athlete['password'])) {
+                    $error = 'Nesprávné přihlašovací údaje.';
+                } else {
+                    session_regenerate_id(true);
+                    unset($_SESSION['coach_id'], $_SESSION['coach_name']);
+                    $_SESSION['athlete_id'] = (int)$athlete['id'];
+                    $_SESSION['athlete_name'] = trim((string)$athlete['first_name'] . ' ' . (string)$athlete['last_name']);
+                    $_SESSION['athlete_coach_id'] = (int)$athlete['coach_id'];
+                    $_SESSION['athlete_force_password_change'] = (int)($athlete['force_password_change'] ?? 1);
+
+                    $pdo->prepare('UPDATE athletes SET last_login = NOW() WHERE id = ?')->execute([(int)$athlete['id']]);
+
+                    if (!empty($_SESSION['athlete_force_password_change'])) {
+                        redirect(BASE_URL . '/athlete_change_password.php');
+                    }
+                    redirect(BASE_URL . '/athlete_dashboard.php');
+                }
             }
         }
     }
@@ -200,6 +357,23 @@ $showFormOnLoad = $_SERVER['REQUEST_METHOD'] === 'POST';
             width: min(92vw, 380px);
         }
 
+        .btn-request-access {
+            width: min(92vw, 380px);
+            margin-top: 8px;
+            min-height: 42px;
+            border-radius: 10px;
+            font-weight: 700;
+            border: 1px solid rgba(255, 255, 255, 0.45);
+            color: #f5f7ff;
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .btn-request-access:hover {
+            color: #fff;
+            background: rgba(255, 255, 255, 0.16);
+            border-color: rgba(255, 255, 255, 0.65);
+        }
+
         .login-type-switch {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -291,6 +465,29 @@ $showFormOnLoad = $_SERVER['REQUEST_METHOD'] === 'POST';
 
         .btn-login:active {
             transform: translateY(0);
+        }
+
+        .login-links {
+            margin-top: 14px;
+            text-align: center;
+            display: flex;
+            justify-content: center;
+            gap: 14px;
+            flex-wrap: wrap;
+        }
+
+        .login-links button {
+            border: 0;
+            background: transparent;
+            color: #35538f;
+            font-size: 0.93rem;
+            font-weight: 700;
+            text-decoration: underline;
+            padding: 0;
+        }
+
+        .login-links button:hover {
+            color: #0f234f;
         }
 
         .footer-meta {
@@ -389,6 +586,7 @@ $showFormOnLoad = $_SERVER['REQUEST_METHOD'] === 'POST';
 
         <div class="intro-actions">
             <button type="button" id="btnShowLogin" class="btn btn-login">Přihlášení</button>
+            <button type="button" class="btn btn-request-access" data-bs-toggle="modal" data-bs-target="#coachAccessModal">Žádost o přístup trenéra</button>
         </div>
 
         <div class="card login-card">
@@ -399,9 +597,13 @@ $showFormOnLoad = $_SERVER['REQUEST_METHOD'] === 'POST';
                 <?php if ($error): ?>
                     <div class="alert alert-danger py-2 mb-3"><?= h($error) ?></div>
                 <?php endif; ?>
+                <?php if ($notice): ?>
+                    <div class="alert alert-<?= h($noticeType) ?> py-2 mb-3"><?= h($notice) ?></div>
+                <?php endif; ?>
 
                 <form method="post" novalidate>
                     <?= csrfField() ?>
+                    <input type="hidden" name="action" value="login">
                     <input type="hidden" name="login_type" id="loginTypeInput" value="<?= h($loginType) ?>">
 
                     <div class="login-type-switch" role="group" aria-label="Typ přihlášení">
@@ -428,15 +630,101 @@ $showFormOnLoad = $_SERVER['REQUEST_METHOD'] === 'POST';
 
                     <button type="submit" class="btn btn-login w-100">Přihlásit se</button>
                 </form>
+
+                <div class="login-links">
+                    <button type="button" data-bs-toggle="modal" data-bs-target="#forgotPasswordModal">Zapomenuté heslo</button>
+                    <button type="button" data-bs-toggle="modal" data-bs-target="#coachAccessModal">Žádost o přístup trenéra</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="modal fade" id="coachAccessModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Žádost o přístup trenéra</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zavřít"></button>
+                    </div>
+                    <form method="post" novalidate>
+                        <div class="modal-body">
+                            <?= csrfField() ?>
+                            <input type="hidden" name="action" value="request_coach_access">
+
+                            <div class="alert alert-info py-2">
+                                Žádost o přístup je určena pouze trenérům. Sportovcům přístup zřizuje výhradně jejich trenér.
+                            </div>
+
+                            <div class="row g-2 mb-2">
+                                <div class="col-md-6">
+                                    <label class="form-label" for="access_first_name">Jméno</label>
+                                    <input id="access_first_name" type="text" name="first_name" class="form-control" value="<?= h($accessRequest['first_name']) ?>" required>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label" for="access_last_name">Příjmení</label>
+                                    <input id="access_last_name" type="text" name="last_name" class="form-control" value="<?= h($accessRequest['last_name']) ?>" required>
+                                </div>
+                            </div>
+
+                            <div class="mb-2">
+                                <label class="form-label" for="access_email">E-mail</label>
+                                <input id="access_email" type="email" name="email" class="form-control" value="<?= h($accessRequest['email']) ?>" required>
+                            </div>
+
+                            <div>
+                                <label class="form-label" for="access_note">Doplňující text (volitelné)</label>
+                                <textarea id="access_note" name="note" class="form-control" rows="3" maxlength="2000"><?= h($accessRequest['note']) ?></textarea>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Zrušit</button>
+                            <button type="submit" class="btn btn-primary">Odeslat žádost</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="modal fade" id="forgotPasswordModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Zapomenuté heslo</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zavřít"></button>
+                    </div>
+                    <form method="post" novalidate>
+                        <div class="modal-body">
+                            <?= csrfField() ?>
+                            <input type="hidden" name="action" value="request_password_reset">
+
+                            <div class="mb-2">
+                                <label class="form-label" for="reset_account_type">Typ účtu</label>
+                                <select id="reset_account_type" name="account_type" class="form-select" required>
+                                    <option value="coach" <?= $resetRequest['account_type'] === 'coach' ? 'selected' : '' ?>>Trenér</option>
+                                    <option value="athlete" <?= $resetRequest['account_type'] === 'athlete' ? 'selected' : '' ?>>Sportovec</option>
+                                </select>
+                            </div>
+
+                            <div class="mb-2">
+                                <label class="form-label" for="reset_identity" id="reset_identity_label">Uživatelské jméno nebo e-mail</label>
+                                <input id="reset_identity" type="text" name="identity" class="form-control" value="<?= h($resetRequest['identity']) ?>" required>
+                                <div class="form-text">Pokud účet existuje, odešleme odkaz pro reset hesla na registrovaný e-mail.</div>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Zrušit</button>
+                            <button type="submit" class="btn btn-primary">Odeslat odkaz</button>
+                        </div>
+                    </form>
+                </div>
             </div>
         </div>
 
         <div class="footer-meta">
             <div class="mb-1">verze <?= h(getAppSetting('app_version', defined('APP_VERSION') ? APP_VERSION : '—')) ?></div>
             <div>
-                Vytvořil <strong>WebNexGen</strong>
+                Vytvořil <strong>Tomáš Tomeška</strong>
                 &nbsp;·&nbsp;
-                <a href="mailto:tomas.tomeska@seznam.cz">Kontaktujte nás</a>
+                <a href="mailto:tomas.tomeska@seznam.cz?subject=Zpr%C3%A1va%20z%20TrainerApp">Kontaktujte nás</a>
             </div>
         </div>
     </div>
@@ -465,6 +753,8 @@ $showFormOnLoad = $_SERVER['REQUEST_METHOD'] === 'POST';
         const loginSubTitle = document.getElementById('loginSubTitle');
         const usernameLabel = document.getElementById('usernameLabel');
         const typeButtons = Array.from(document.querySelectorAll('.login-type-btn'));
+        const resetTypeInput = document.getElementById('reset_account_type');
+        const resetIdentityLabel = document.getElementById('reset_identity_label');
 
         function applyLoginType(type) {
             const isAthlete = type === 'athlete';
@@ -487,6 +777,27 @@ $showFormOnLoad = $_SERVER['REQUEST_METHOD'] === 'POST';
                 applyLoginType(btn.dataset.type === 'athlete' ? 'athlete' : 'coach');
             });
         });
+
+        function applyResetType(type) {
+            if (!resetIdentityLabel) return;
+            resetIdentityLabel.textContent = type === 'athlete' ? 'E-mail sportovce' : 'Uživatelské jméno nebo e-mail';
+        }
+
+        if (resetTypeInput) {
+            resetTypeInput.addEventListener('change', function() {
+                applyResetType(resetTypeInput.value === 'athlete' ? 'athlete' : 'coach');
+            });
+            applyResetType(resetTypeInput.value === 'athlete' ? 'athlete' : 'coach');
+        }
+
+        const modalToOpen = <?= json_encode($openModal) ?>;
+        if (modalToOpen) {
+            const el = document.getElementById(modalToOpen);
+            if (el) {
+                const modal = new bootstrap.Modal(el);
+                modal.show();
+            }
+        }
 
         applyLoginType((loginTypeInput && loginTypeInput.value === 'athlete') ? 'athlete' : 'coach');
     </script>

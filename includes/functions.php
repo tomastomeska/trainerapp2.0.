@@ -942,7 +942,7 @@ function sendTrainingEmail(string $toEmail, array $session, array $exercises, ar
       <p style="margin:0;color:#9ca3af;font-size:11px;">
         Vytvořil <strong style="color:#6b7280;">Tomáš Tomeška</strong>
         &nbsp;·&nbsp;
-        <a href="mailto:tomas.tomeska@seznam.cz" style="color:#7c3aed;text-decoration:none;">tomas.tomeska@seznam.cz</a>
+        <a href="mailto:tomas.tomeska@seznam.cz?subject=Zpr%C3%A1va%20z%20TrainerApp" style="color:#7c3aed;text-decoration:none;">tomas.tomeska@seznam.cz</a>
       </p>
     </td>
   </tr>
@@ -1724,6 +1724,93 @@ function sendSupportTicketNotificationEmail(int $ticketId, array $ticket): int {
   }
 
   return $sent;
+}
+
+function sendCoachAccessRequestOwnerEmail(string $ownerEmail, array $request): bool {
+  $phpmailerSrc = dirname(__DIR__) . '/vendor/phpmailer/phpmailer/src';
+  if (!file_exists($phpmailerSrc . '/PHPMailer.php')) {
+    return false;
+  }
+  require_once $phpmailerSrc . '/Exception.php';
+  require_once $phpmailerSrc . '/PHPMailer.php';
+  require_once $phpmailerSrc . '/SMTP.php';
+
+  $h = fn(?string $s): string => htmlspecialchars($s ?? '', ENT_QUOTES, 'UTF-8');
+  $name = trim((string)($request['first_name'] ?? '') . ' ' . (string)($request['last_name'] ?? ''));
+  $email = (string)($request['email'] ?? '');
+  $note = trim((string)($request['note'] ?? ''));
+  $createdAt = formatDateTime((string)($request['created_at'] ?? date('Y-m-d H:i:s')));
+
+  $htmlBody = "<p>Dobrý den,</p>"
+    . "<p>přišla nová <strong>žádost o přístup trenéra</strong>.</p>"
+    . "<p><strong>Jméno:</strong> " . $h($name) . "<br>"
+    . "<strong>E-mail:</strong> " . $h($email) . "<br>"
+    . "<strong>Čas:</strong> " . $h($createdAt) . "</p>"
+    . ($note !== '' ? "<p><strong>Poznámka žadatele:</strong><br>" . nl2br($h($note)) . "</p>" : "")
+    . "<hr><p style=\"color:#777;font-size:.9em\">TrainerApp – automatické notifikace</p>";
+
+  $altBody = "Nová žádost o přístup trenéra\n\n"
+    . "Jméno: {$name}\n"
+    . "E-mail: {$email}\n"
+    . "Čas: {$createdAt}\n"
+    . ($note !== '' ? "\nPoznámka:\n{$note}\n" : "")
+    . "\nTrainerApp – automatické notifikace\n";
+
+  $mail = new PHPMailer\PHPMailer\PHPMailer(true);
+  try {
+    _configureMail($mail);
+    $mail->addAddress($ownerEmail);
+    $mail->isHTML(true);
+    $mail->Subject = 'Nová žádost o přístup trenéra';
+    $mail->Body = $htmlBody;
+    $mail->AltBody = $altBody;
+    $mail->send();
+    return true;
+  } catch (\Exception $e) {
+    error_log('sendCoachAccessRequestOwnerEmail error: ' . $mail->ErrorInfo . ' | ' . $e->getMessage());
+    return false;
+  }
+}
+
+function sendPasswordResetEmail(string $toEmail, string $displayName, string $resetUrl, string $accountTypeLabel): bool {
+  $phpmailerSrc = dirname(__DIR__) . '/vendor/phpmailer/phpmailer/src';
+  if (!file_exists($phpmailerSrc . '/PHPMailer.php')) {
+    return false;
+  }
+  require_once $phpmailerSrc . '/Exception.php';
+  require_once $phpmailerSrc . '/PHPMailer.php';
+  require_once $phpmailerSrc . '/SMTP.php';
+
+  $h = fn(?string $s): string => htmlspecialchars($s ?? '', ENT_QUOTES, 'UTF-8');
+
+  $htmlBody = "<p>Dobrý den " . $h($displayName) . ",</p>"
+    . "<p>obdrželi jsme žádost o reset hesla pro účet typu <strong>" . $h($accountTypeLabel) . "</strong>.</p>"
+    . "<p>Pro nastavení nového hesla klikněte na odkaz níže (platnost 60 minut):</p>"
+    . "<p><a href=\"" . $h($resetUrl) . "\" style=\"background:#0d6efd;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none;display:inline-block\">"
+    . "Nastavit nové heslo</a></p>"
+    . "<p>Pokud jste reset hesla nepožadovali, tento e-mail ignorujte.</p>"
+    . "<hr><p style=\"color:#777;font-size:.9em\">TrainerApp – automatické notifikace</p>";
+
+  $altBody = "Dobrý den {$displayName},\n\n"
+    . "obdrželi jsme žádost o reset hesla pro účet typu {$accountTypeLabel}.\n"
+    . "Pro nastavení nového hesla otevřete následující odkaz (platnost 60 minut):\n{$resetUrl}\n\n"
+    . "Pokud jste reset hesla nepožadovali, tento e-mail ignorujte.\n\n"
+    . "TrainerApp – automatické notifikace\n";
+
+  $mail = new PHPMailer\PHPMailer\PHPMailer(true);
+  try {
+    _configureMail($mail);
+    $mail->addAddress($toEmail);
+    $mail->isHTML(true);
+    $mail->Subject = 'Reset hesla - TrainerApp';
+    $mail->Body = $htmlBody;
+    $mail->AltBody = $altBody;
+    $mail->send();
+    return true;
+  } catch (\Exception $e) {
+    error_log('sendPasswordResetEmail error: ' . $mail->ErrorInfo . ' | ' . $e->getMessage());
+    return false;
+  }
 }
 
 function getAthleteWeightLogById(int $logId, int $athleteId = 0): ?array {
