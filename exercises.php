@@ -62,6 +62,28 @@ function decodeExerciseCategories(?string $raw): array {
     return empty($categories) ? ['uncategorized'] : $categories;
 }
 
+function buildExerciseCategoryCounts(array $items, array $categoryOptions): array {
+    $counts = [];
+    foreach ($categoryOptions as $categoryKey => $_label) {
+        $counts[$categoryKey] = 0;
+    }
+
+    foreach ($items as $item) {
+        $keys = isset($item['category_keys']) && is_array($item['category_keys'])
+            ? array_values(array_unique($item['category_keys']))
+            : ['uncategorized'];
+
+        $counts['all']++;
+        foreach ($keys as $key) {
+            if ($key !== 'all' && array_key_exists($key, $counts)) {
+                $counts[$key]++;
+            }
+        }
+    }
+
+    return $counts;
+}
+
 $exerciseCategoryOptions = exerciseCategoryOptions();
 
 // Přidání cviku – formulář odesílá multipart
@@ -183,6 +205,9 @@ foreach ($globalExercises as &$exercise) {
 }
 unset($exercise);
 
+$exerciseCategoryCounts = buildExerciseCategoryCounts($exercises, $exerciseCategoryOptions);
+$globalExerciseCategoryCounts = buildExerciseCategoryCounts($globalExercises, $exerciseCategoryOptions);
+
 renderHeader('Cviky');
 ?>
 
@@ -216,6 +241,24 @@ renderHeader('Cviky');
     background: #111827;
     border-color: #111827;
     color: #fff;
+}
+
+.exercise-category-tile-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.4rem;
+    height: 1.4rem;
+    border-radius: 999px;
+    font-size: .78rem;
+    font-weight: 700;
+    padding: 0 .35rem;
+    background: #5b6472;
+    color: #fff;
+}
+
+.exercise-category-tile.active .exercise-category-tile-count {
+    background: #1f2937;
 }
 
 .exercise-category-checkboxes {
@@ -290,10 +333,11 @@ renderHeader('Cviky');
                     <div class="exercise-category-tiles" data-filter-group="exercises-list">
                         <?php foreach ($exerciseCategoryOptions as $categoryKey => $categoryLabel): ?>
                         <button type="button"
-                                class="exercise-category-tile js-exercise-category-filter <?= $categoryKey === 'all' ? 'active' : '' ?>"
+                                class="exercise-category-tile js-exercise-category-filter"
                                 data-target-list="exercises-list"
                                 data-category="<?= h($categoryKey) ?>">
                             <?= h($categoryLabel) ?>
+                            <span class="exercise-category-tile-count"><?= (int)($exerciseCategoryCounts[$categoryKey] ?? 0) ?></span>
                         </button>
                         <?php endforeach; ?>
                     </div>
@@ -304,6 +348,7 @@ renderHeader('Cviky');
                     Zatím žádné cviky. Přidejte první cvik vlevo.
                 </div>
                 <?php else: ?>
+                <div class="alert alert-info m-3" id="exercises-list-hint">Nejprve klikněte na kategorii nahoře, pak se vypíše seznam cviků.</div>
                 <div class="list-group list-group-flush" id="exercises-list">
                     <?php foreach ($exercises as $ex): ?>
                     <div class="list-group-item list-group-item-action d-flex align-items-center gap-3"
@@ -454,8 +499,15 @@ function applyExerciseCategoryFilter(listId, category) {
         const raw = item.getAttribute('data-categories') || '';
         const categories = raw.split(',').map(function(value) { return value.trim(); }).filter(Boolean);
         const showItem = category === 'all' || categories.includes(category);
-        item.style.display = showItem ? '' : 'none';
+        item.hidden = !showItem;
+        item.classList.toggle('d-none', !showItem);
     });
+}
+
+function updateExerciseCategoryHint(listId, category) {
+    const hint = document.getElementById(listId + '-hint');
+    if (!hint) return;
+    hint.classList.toggle('d-none', category !== '');
 }
 
 function initExerciseCategoryFilters() {
@@ -470,6 +522,7 @@ function initExerciseCategoryFilters() {
                 });
 
             applyExerciseCategoryFilter(targetList, category);
+            updateExerciseCategoryHint(targetList, category);
         });
     });
 }
@@ -488,8 +541,10 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     initExerciseCategoryFilters();
-    applyExerciseCategoryFilter('exercises-list', 'all');
-    applyExerciseCategoryFilter('global-exercises-list', 'all');
+    applyExerciseCategoryFilter('exercises-list', '');
+    applyExerciseCategoryFilter('global-exercises-list', '');
+    updateExerciseCategoryHint('exercises-list', '');
+    updateExerciseCategoryHint('global-exercises-list', '');
 });
 </script>
 
@@ -508,14 +563,16 @@ document.addEventListener('DOMContentLoaded', function() {
             <div class="exercise-category-tiles" data-filter-group="global-exercises-list">
                 <?php foreach ($exerciseCategoryOptions as $categoryKey => $categoryLabel): ?>
                 <button type="button"
-                        class="exercise-category-tile js-exercise-category-filter <?= $categoryKey === 'all' ? 'active' : '' ?>"
+                        class="exercise-category-tile js-exercise-category-filter"
                         data-target-list="global-exercises-list"
                         data-category="<?= h($categoryKey) ?>">
                     <?= h($categoryLabel) ?>
+                    <span class="exercise-category-tile-count"><?= (int)($globalExerciseCategoryCounts[$categoryKey] ?? 0) ?></span>
                 </button>
                 <?php endforeach; ?>
             </div>
         </div>
+        <div class="alert alert-info m-3" id="global-exercises-list-hint">Nejprve klikněte na kategorii nahoře, pak se vypíše seznam globálních cviků.</div>
         <div class="list-group list-group-flush" id="global-exercises-list">
             <?php foreach ($globalExercises as $ex): ?>
             <div class="list-group-item d-flex align-items-center gap-3" data-categories="<?= h(implode(',', $ex['category_keys'])) ?>">

@@ -322,7 +322,7 @@ renderAdminHeader('E-mailové notifikace');
                             <i class="fas fa-copy"></i>
                         </button>
                     </div>
-                    <div class="form-text">Spouštět každý den – např. v 7:00 ráno.</div>
+                    <div class="form-text">Spouštět každý den – ideálně v 6:00 ráno.</div>
                 </div>
 
                 <div class="mb-4">

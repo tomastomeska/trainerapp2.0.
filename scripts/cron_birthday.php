@@ -8,6 +8,7 @@
 // Volání přes URL (nastavení URL v cron manageru hostingu):
 //   https://reservio.online/cron_birthday.php?secret=TOKEN
 //   TOKEN je zobrazen v admin panelu: Admin → E-mailové notifikace
+// Doporučený čas spuštění: každý den v 6:00 ráno.
 // ============================================================
 
 $isCli = (php_sapi_name() === 'cli');

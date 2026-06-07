@@ -1264,7 +1264,11 @@ function sendBirthdayWarningEmail(
     $h         = function (?string $s): string { return htmlspecialchars($s ?? '', ENT_QUOTES, 'UTF-8'); };
     $fullName  = trim($athleteFirst . ' ' . $athleteLast);
     $bdFormatted = '';
+    $birthdayAge = '';
     try { $bdFormatted = (new DateTime($birthDate))->format('d.m.'); } catch (\Exception $e) {}
+    try {
+      $birthdayAge = (string)(((new DateTime($birthDate))->diff(new DateTime('today'))->y) + 1);
+    } catch (\Exception $e) {}
 
     $htmlBody = <<<HTML
 <!DOCTYPE html>
@@ -1289,6 +1293,9 @@ function sendBirthdayWarningEmail(
               za <strong style="color:#7c3aed;">{DAYS_LEFT} dní</strong> narozeniny
               <strong>({BD_DATE})</strong>.
             </p>
+            <p style="margin:0 0 20px;color:#6b7280;font-size:14px;">
+              V den narozenin mu/jí bude <strong>{AGE}</strong> let.
+            </p>
             <table width="100%" cellpadding="0" cellspacing="0" style="background:#f5f3ff;border-left:4px solid #7c3aed;border-radius:4px;margin-bottom:28px;">
               <tr>
                 <td style="padding:16px 20px;color:#4c1d95;font-size:14px;line-height:1.6;">
@@ -1312,13 +1319,14 @@ function sendBirthdayWarningEmail(
 HTML;
 
     $htmlBody = str_replace(
-        ['{COACH_NAME}', '{ATHLETE_NAME}', '{DAYS_LEFT}', '{BD_DATE}'],
-        [$h($coachName), $h($fullName), (string)$daysLeft, $h($bdFormatted)],
+      ['{COACH_NAME}', '{ATHLETE_NAME}', '{DAYS_LEFT}', '{BD_DATE}', '{AGE}'],
+      [$h($coachName), $h($fullName), (string)$daysLeft, $h($bdFormatted), $h($birthdayAge)],
         $htmlBody
     );
 
     $altBody = "Dobrý den, {$coachName},\n\n"
         . "váš sportovec {$fullName} bude mít za {$daysLeft} dní narozeniny ({$bdFormatted}).\n\n"
+      . "V den narozenin mu/jí bude {$birthdayAge} let.\n\n"
         . "S pozdravem\nTrainerApp – automatické notifikace\n";
 
     $mail = new PHPMailer\PHPMailer\PHPMailer(true);
@@ -1326,7 +1334,7 @@ HTML;
         _configureMail($mail);
         $mail->addAddress($toEmail);
         $mail->isHTML(true);
-        $mail->Subject = 'Blíží se narozeniny: ' . $fullName . ' (' . $bdFormatted . ')';
+        $mail->Subject = 'Blíží se narozeniny: ' . $fullName . ' (' . $birthdayAge . ' let)';
         $mail->Body    = $htmlBody;
         $mail->AltBody = $altBody;
         $mail->send();
