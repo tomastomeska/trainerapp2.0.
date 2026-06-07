@@ -15,6 +15,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         redirect(BASE_URL . '/zpravy.php');
     }
     $action = $_POST['action'] ?? '';
+
+    if ($action === 'bulk_confirm_read') {
+        $messageIds = array_values(array_filter(array_map('intval', (array)($_POST['message_ids'] ?? [])), fn($id) => $id > 0));
+        $messageIds = array_values(array_unique($messageIds));
+
+        if ($messageIds === []) {
+            flash('warning', 'Nevybrali jste žádné zprávy pro hromadné potvrzení.');
+        } else {
+            $placeholders = implode(',', array_fill(0, count($messageIds), '?'));
+            $params       = array_merge([$coachId], $messageIds);
+
+            $bulkStmt = $pdo->prepare("\n                UPDATE admin_message_recipients r\n                LEFT JOIN (SELECT DISTINCT message_id FROM message_actions) ma ON ma.message_id = r.message_id\n                SET r.read_at = NOW()\n                WHERE r.coach_id = ?\n                  AND r.status = 'inbox'\n                  AND r.read_at IS NULL\n                  AND ma.message_id IS NULL\n                  AND r.message_id IN ($placeholders)\n            ");
+            $bulkStmt->execute($params);
+            $updatedCount = $bulkStmt->rowCount();
+
+            if ($updatedCount > 0) {
+                flash('success', "Hromadně potvrzeno přečtení u {$updatedCount} zpráv.");
+            } else {
+                flash('warning', 'Vybrané zprávy nelze hromadně potvrdit (obsahují akci/podpis nebo už byly přečtené).');
+            }
+        }
+
+        $redirectTab = $_GET['tab'] ?? 'inbox';
+        redirect(BASE_URL . '/zpravy.php?tab=' . urlencode($redirectTab));
+    }
+
     $mid    = intParam($_POST, 'message_id');
 
     // Zjisti aktuální stav (musí být příjemcem)
@@ -50,9 +76,14 @@ $tab = in_array($_GET['tab'] ?? '', ['archived','deleted']) ? $_GET['tab'] : 'in
 // Zprávy pro tohoto trenéra dle záložky
 $messages = $pdo->prepare("
     SELECT m.id, m.subject, m.sent_at, m.attachment_name,
-           r.read_at, r.status
+           r.read_at, r.status,
+           COALESCE(ma.has_actions, 0) AS has_actions
     FROM admin_messages m
     JOIN admin_message_recipients r ON r.message_id = m.id AND r.coach_id = ?
+    LEFT JOIN (
+        SELECT DISTINCT message_id, 1 AS has_actions
+        FROM message_actions
+    ) ma ON ma.message_id = m.id
     WHERE r.status = ?
     ORDER BY m.sent_at DESC
 ");
@@ -119,11 +150,26 @@ renderHeader('Zprávy');
     <?php else: ?>Koš je prázdný.<?php endif; ?>
 </div>
 <?php else: ?>
+<?php if ($tab === 'inbox'): ?>
+<form method="post" id="bulkMarkReadForm" class="d-flex align-items-center flex-wrap gap-2 mb-3">
+    <input type="hidden" name="csrf_token" value="<?= csrfToken() ?>">
+    <input type="hidden" name="action" value="bulk_confirm_read">
+    <button type="submit" class="btn btn-sm btn-primary" id="btnBulkConfirmRead" disabled>
+        <i class="fas fa-check-double me-1"></i>Hromadně potvrdit přečtení
+    </button>
+    <span class="text-muted small">Platí jen pro nepřečtené zprávy bez akčního tlačítka nebo podpisu.</span>
+</form>
+<?php endif; ?>
 <div class="card shadow-sm">
     <div class="table-responsive">
         <table class="table table-hover mb-0" id="msgTable">
             <thead class="table-dark">
                 <tr>
+                    <th style="width:36px">
+                        <?php if ($tab === 'inbox'): ?>
+                        <input type="checkbox" class="form-check-input" id="bulkSelectAll" title="Vybrat vše pro hromadné potvrzení">
+                        <?php endif; ?>
+                    </th>
                     <th style="width:22px"></th>
                     <th>Předmět</th>
                     <th>Datum</th>
@@ -135,9 +181,23 @@ renderHeader('Zprávy');
             <tbody>
             <?php foreach ($messages as $m): ?>
             <?php $unread = $m['read_at'] === null; ?>
+            <?php $hasActions = (int)$m['has_actions'] === 1; ?>
+            <?php $canBulkConfirm = $tab === 'inbox' && $unread && !$hasActions; ?>
             <tr class="<?= $unread ? 'table-warning fw-semibold' : '' ?> msg-row"
                 style="cursor:pointer"
                 data-href="<?= BASE_URL ?>/zprava_detail.php?id=<?= $m['id'] ?>">
+                <td onclick="event.stopPropagation()">
+                    <?php if ($tab === 'inbox'): ?>
+                    <input
+                        type="checkbox"
+                        class="form-check-input js-bulk-read-item"
+                        form="bulkMarkReadForm"
+                        name="message_ids[]"
+                        value="<?= (int)$m['id'] ?>"
+                        <?= $canBulkConfirm ? '' : 'disabled' ?>
+                    >
+                    <?php endif; ?>
+                </td>
                 <td>
                     <i class="fas fa-circle <?= $unread ? 'text-danger' : 'text-success' ?>"
                        style="font-size:.55rem"></i>
@@ -148,6 +208,9 @@ renderHeader('Zprávy');
                 <td>
                     <?php if ($unread): ?>
                     <span class="badge bg-danger">Nepřečteno</span>
+                    <?php if ($hasActions): ?>
+                    <span class="badge bg-warning text-dark ms-1">Nutné otevřít</span>
+                    <?php endif; ?>
                     <?php else: ?>
                     <span class="badge bg-success">Přečteno</span>
                     <?php endif; ?>
@@ -166,7 +229,7 @@ renderHeader('Zprávy');
                                 <i class="fas fa-trash"></i>
                             </button>
                             <?php else: ?>
-                            <span class="text-muted small">nejdřív přečíst</span>
+                            <span class="text-muted small"><?= $hasActions ? 'otevřete zprávu' : 'lze hromadně' ?></span>
                             <?php endif; ?>
                         <?php elseif ($tab === 'archived'): ?>
                             <button name="action" value="restore" class="btn btn-sm btn-outline-primary" title="Obnovit">
@@ -202,6 +265,39 @@ document.querySelectorAll('.msg-row').forEach(row => {
         window.location.href = row.dataset.href;
     });
 });
+
+const bulkSelectAll = document.getElementById('bulkSelectAll');
+const bulkItems = Array.from(document.querySelectorAll('.js-bulk-read-item'));
+const bulkSubmit = document.getElementById('btnBulkConfirmRead');
+
+function updateBulkState() {
+    if (!bulkSubmit) return;
+    const selectedCount = bulkItems.filter((item) => item.checked && !item.disabled).length;
+    bulkSubmit.disabled = selectedCount === 0;
+}
+
+if (bulkSelectAll) {
+    bulkSelectAll.addEventListener('change', () => {
+        bulkItems.forEach((item) => {
+            if (!item.disabled) {
+                item.checked = bulkSelectAll.checked;
+            }
+        });
+        updateBulkState();
+    });
+}
+
+bulkItems.forEach((item) => {
+    item.addEventListener('change', () => {
+        if (bulkSelectAll) {
+            const enabledItems = bulkItems.filter((it) => !it.disabled);
+            bulkSelectAll.checked = enabledItems.length > 0 && enabledItems.every((it) => it.checked);
+        }
+        updateBulkState();
+    });
+});
+
+updateBulkState();
 </script>
 
 <?php renderFooter(); ?>

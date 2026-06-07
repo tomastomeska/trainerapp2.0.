@@ -94,4 +94,7 @@ $stmt = $pdo->prepare("
 ");
 $stmt->execute([$actionId, $coachId, $ip, $ua, $signatureData]);
 
+$markReadStmt = $pdo->prepare("\n    UPDATE admin_message_recipients\n    SET read_at = IFNULL(read_at, NOW())\n    WHERE message_id = ? AND coach_id = ?\n");
+$markReadStmt->execute([$action['message_id'], $coachId]);
+
 echo json_encode(['ok' => true]);

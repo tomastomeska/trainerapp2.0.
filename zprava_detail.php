@@ -35,6 +35,7 @@ $actStmt = $pdo->prepare("
 ");
 $actStmt->execute([$coachId, $id]);
 $actions = $actStmt->fetchAll();
+$hasRequiredAction = !empty($actions);
 
 // Detekce: má trenér již stisknuté JAKÉKOLI tlačítko pro tuto zprávu?
 $anyPressed = array_filter($actions, fn($a) => $a['pressed_at'] !== null) !== [];
@@ -44,6 +45,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'confi
     if (!verifyCsrf($_POST['csrf_token'] ?? '')) {
         http_response_code(403);
         exit('Neplatný token');
+    }
+    if ($hasRequiredAction) {
+        flash('info', 'Tato zpráva se potvrzuje provedením požadované akce nebo podpisu.');
+        redirect(BASE_URL . '/zprava_detail.php?id=' . $id);
     }
     if ($message['read_at'] === null) {
         $pdo->prepare("
@@ -76,6 +81,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'reply
 }
 
 $isUnread = $message['read_at'] === null;
+$requiresManualConfirm = $isUnread && !$hasRequiredAction;
 
 renderHeader('Zpráva: ' . $message['subject']);
 ?>
@@ -93,7 +99,11 @@ renderHeader('Zpráva: ' . $message['subject']);
 <?php if ($isUnread): ?>
 <div class="alert alert-warning d-flex align-items-center gap-2 mb-4">
     <i class="fas fa-exclamation-triangle fs-5"></i>
+    <?php if ($hasRequiredAction): ?>
+    <span><strong>Nepřečtená zpráva.</strong> Pro potvrzení přečtení použijte níže požadované akční tlačítko nebo podpis.</span>
+    <?php else: ?>
     <span><strong>Nepřečtená zpráva.</strong> Po přečtení potvrďte přečtení tlačítkem níže – dokud tak neučiníte, nelze stránku opustit.</span>
+    <?php endif; ?>
 </div>
 <?php endif; ?>
 
@@ -182,7 +192,7 @@ renderHeader('Zpráva: ' . $message['subject']);
 </div>
 <?php endif; ?>
 
-<?php if ($isUnread): ?>
+<?php if ($requiresManualConfirm): ?>
 <div class="card border-danger shadow-sm mb-4" id="confirmCard">
     <div class="card-body text-center py-4">
         <p class="mb-3 fw-semibold">
@@ -250,6 +260,7 @@ renderHeader('Zpráva: ' . $message['subject']);
 </div>
 </div>
 
+<?php if ($requiresManualConfirm): ?>
 <!-- Modal: musíte potvrdit přečtení -->
 <div class="modal fade" id="leaveModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
     <div class="modal-dialog modal-dialog-centered">
@@ -270,6 +281,7 @@ renderHeader('Zpráva: ' . $message['subject']);
         </div>
     </div>
 </div>
+<?php endif; ?>
 
 <!-- Modal: podpis -->
 <div class="modal fade" id="signModal" tabindex="-1">
@@ -302,7 +314,7 @@ renderHeader('Zpráva: ' . $message['subject']);
 </div>
 
 <script>
-const IS_UNREAD  = <?= $isUnread ? 'true' : 'false' ?>;
+const REQUIRES_MANUAL_CONFIRM  = <?= $requiresManualConfirm ? 'true' : 'false' ?>;
 const CSRF_TOKEN = <?= json_encode(csrfToken()) ?>;
 const ACTION_URL = <?= json_encode(BASE_URL . '/api/message_action.php') ?>;
 let   confirmed  = false;
@@ -311,7 +323,7 @@ let   pendingUrl = null;
 window.addEventListener('load', function() {
 
 // ── Prevence odchodu bez potvrzení ─────────────────────────
-if (IS_UNREAD) {
+if (REQUIRES_MANUAL_CONFIRM) {
     const leaveModalEl = document.getElementById('leaveModal');
     const leaveModal   = new bootstrap.Modal(leaveModalEl);
 
