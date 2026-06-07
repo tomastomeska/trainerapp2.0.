@@ -271,7 +271,7 @@ if (!in_array($colorKey, $allowedColorKeys, true)) {
     $colorKey = 'green';
 }
 
-if (!in_array($titleType, ['training', 'consultation', 'other'], true)) {
+if (!in_array($titleType, ['training', 'consultation', 'other', 'group_lesson'], true)) {
     $titleType = 'training';
 }
 
@@ -279,9 +279,10 @@ $titleLabels = [
     'training' => 'Trénink',
     'consultation' => 'Konzultační hodina',
     'other' => 'Jiné',
+    'group_lesson' => 'Skupinová lekce',
 ];
 
-if ($customTitle === '' && $titleType !== 'training') {
+if ($customTitle === '' && in_array($titleType, ['consultation', 'other'], true)) {
     $customTitle = $titleLabels[$titleType];
 }
 
@@ -329,6 +330,20 @@ if ($secondAthleteId > 0) {
     }
 } else {
     $secondAthleteId = null;
+}
+
+if ($titleType === 'group_lesson') {
+    if ($customTitle === '') {
+        echo json_encode(['success' => false, 'error' => 'U skupinové lekce vyplňte název.']);
+        exit;
+    }
+    if ($location === '') {
+        echo json_encode(['success' => false, 'error' => 'U skupinové lekce vyberte nebo vyplňte místo konání.']);
+        exit;
+    }
+    $athleteId = null;
+    $secondAthleteId = null;
+    $isMakeupSession = false;
 }
 
 if ($customTitle !== '') {

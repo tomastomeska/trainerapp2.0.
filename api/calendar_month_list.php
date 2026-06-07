@@ -34,6 +34,7 @@ $eventsStmt = $pdo->prepare(
             e.is_makeup_session,
             e.athlete_id,
             e.second_athlete_id,
+            e.requested_by_athlete_id,
             a.first_name,
             a.last_name,
             a2.first_name AS second_first_name,
@@ -63,6 +64,7 @@ $cancellationsStmt = $pdo->prepare(
             c.is_makeup_session,
             c.athlete_id,
             c.second_athlete_id,
+            NULL AS requested_by_athlete_id,
             a.first_name,
             a.last_name,
             a2.first_name AS second_first_name,
@@ -142,6 +144,9 @@ foreach ($rows as $row) {
     $items[] = [
         'id' => (int)($row['id'] ?? 0),
         'record_type' => (string)($row['record_type'] ?? 'active'),
+        'can_approve' => (($row['record_type'] ?? '') === 'active')
+            && ((string)($row['approval_status'] ?? 'approved') === 'pending')
+            && ((int)($row['requested_by_athlete_id'] ?? 0) > 0),
         'date_label' => $startTs !== false ? date('d.m.Y', $startTs) : '-',
         'time_label' => ($startTs !== false && $endTs !== false) ? (date('H:i', $startTs) . ' - ' . date('H:i', $endTs)) : '-',
         'athlete_label' => $athleteLabel !== '' ? $athleteLabel : 'Bez sportovce',

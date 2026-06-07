@@ -347,10 +347,11 @@ renderHeader('Kalendář');
                             <th>Typ události</th>
                             <th>Místo</th>
                             <th>Stav</th>
+                            <th>Akce</th>
                         </tr>
                     </thead>
                     <tbody id="monthListBody">
-                        <tr><td colspan="6" class="text-muted">Načítám data...</td></tr>
+                        <tr><td colspan="7" class="text-muted">Načítám data...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -380,6 +381,7 @@ renderHeader('Kalendář');
 
                     <div id="eventTrainingFields">
 
+                    <div id="eventAthleteFields">
                     <div class="mb-3">
                         <label for="eventAthlete" class="form-label fw-semibold">Sportovec</label>
                         <select id="eventAthlete" class="form-select">
@@ -405,6 +407,7 @@ renderHeader('Kalendář');
                         </select>
                         <div class="form-text">Vyberte druhého účastníka pro párovou hodinu.</div>
                     </div>
+                    </div>
 
                     <div class="mb-3">
                         <label class="form-label fw-semibold d-block">Typ události</label>
@@ -420,6 +423,10 @@ renderHeader('Kalendář');
                             <div class="form-check">
                                 <input class="form-check-input" type="radio" name="eventTitleType" id="eventTitleOther" value="other">
                                 <label class="form-check-label" for="eventTitleOther">Jiné</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="eventTitleType" id="eventTitleGroupLesson" value="group_lesson">
+                                <label class="form-check-label" for="eventTitleGroupLesson">Skupinová lekce</label>
                             </div>
                         </div>
                     </div>
@@ -633,6 +640,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const lockFields = document.getElementById('lockFields');
     const eventAthleteInput = document.getElementById('eventAthlete');
     const eventSecondAthleteInput = document.getElementById('eventSecondAthlete');
+    const eventAthleteFields = document.getElementById('eventAthleteFields');
     const eventCustomTitleInput = document.getElementById('eventCustomTitle');
     const eventLocationModeInput = document.getElementById('eventLocationMode');
     const eventLocationInput = document.getElementById('eventLocation');
@@ -693,6 +701,7 @@ document.addEventListener('DOMContentLoaded', () => {
         training: 'Trénink',
         consultation: 'Konzultační hodina',
         other: 'Jiné',
+        group_lesson: 'Skupinová lekce',
     };
 
     let currentWeekStart = getMonday(new Date());
@@ -882,6 +891,12 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         if (normalizedTitle === titleTypeLabels.other.toLowerCase()) {
             return 'other';
+        }
+        if (
+            normalizedTitle === titleTypeLabels.group_lesson.toLowerCase()
+            || (Number(event?.athlete_id || 0) === 0 && Number(event?.second_athlete_id || 0) === 0 && normalizedTitle !== '')
+        ) {
+            return 'group_lesson';
         }
         return 'training';
     }
@@ -1179,9 +1194,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function updateModeUI() {
         const lockMode = eventIsLockInput.checked;
+        const selectedType = getSelectedEventTitleType();
+        const isGroupLesson = selectedType === 'group_lesson';
 
         eventTrainingFields.classList.toggle('d-none', lockMode);
         lockFields.classList.toggle('d-none', !lockMode);
+        if (eventAthleteFields) {
+            eventAthleteFields.classList.toggle('d-none', lockMode || isGroupLesson);
+        }
+
+        if (!lockMode && isGroupLesson) {
+            eventAthleteInput.value = '';
+            eventSecondAthleteInput.value = '';
+            eventIsMakeupInput.checked = false;
+        }
 
         if (lockMode) {
             eventModalTitle.innerHTML = '<i class="fas fa-lock me-2 text-warning"></i>Uzamčení času';
@@ -1520,7 +1546,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderMonthList(items) {
         monthListBody.innerHTML = '';
         if (!Array.isArray(items) || items.length === 0) {
-            monthListBody.innerHTML = '<tr><td colspan="6" class="text-muted">V tomto měsíci nejsou žádné události.</td></tr>';
+            monthListBody.innerHTML = '<tr><td colspan="7" class="text-muted">V tomto měsíci nejsou žádné události.</td></tr>';
             monthListEmpty.classList.remove('d-none');
             return;
         }
@@ -1528,6 +1554,10 @@ document.addEventListener('DOMContentLoaded', () => {
         monthListEmpty.classList.add('d-none');
         items.forEach((item) => {
             const tr = document.createElement('tr');
+            const canApprove = !!item.can_approve;
+            const actionHtml = canApprove
+                ? `<button type="button" class="btn btn-sm btn-success js-approve-month-item" data-event-id="${Number(item.id || 0)}"><i class="fas fa-check me-1"></i>Schválit</button>`
+                : '<span class="text-muted small">-</span>';
             tr.innerHTML = `
                 <td>${escapeHtml(item.date_label || '-')}</td>
                 <td>${escapeHtml(item.time_label || '-')}</td>
@@ -1535,6 +1565,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <td>${escapeHtml(item.type_label || '-')}</td>
                 <td>${escapeHtml(item.location_label || '-')}</td>
                 <td>${getMonthStatusBadge(item.status_class || 'secondary', item.status_label || 'Bez stavu')}</td>
+                <td>${actionHtml}</td>
             `;
             monthListBody.appendChild(tr);
         });
@@ -1548,7 +1579,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const query = new URLSearchParams({ month: monthListMonthInput.value });
         const payload = await fetchJson(`<?= BASE_URL ?>/api/calendar_month_list.php?${query.toString()}`);
         if (!payload.success) {
-            monthListBody.innerHTML = '<tr><td colspan="6" class="text-danger">Načtení měsíčního seznamu selhalo.</td></tr>';
+            monthListBody.innerHTML = '<tr><td colspan="7" class="text-danger">Načtení měsíčního seznamu selhalo.</td></tr>';
             monthListEmpty.classList.add('d-none');
             return;
         }
@@ -1709,6 +1740,12 @@ document.addEventListener('DOMContentLoaded', () => {
         updateModeUI();
         refreshMakeupSuggestion();
     });
+    document.querySelectorAll('input[name="eventTitleType"]').forEach((input) => {
+        input.addEventListener('change', () => {
+            updateModeUI();
+            refreshMakeupSuggestion();
+        });
+    });
     lockUnlockModeInput.addEventListener('change', updateModeUI);
     lockRepeatModeInput.addEventListener('change', updateLockRepeatControls);
 
@@ -1782,6 +1819,17 @@ document.addEventListener('DOMContentLoaded', () => {
         if (repeatMode === 'weekly_until_date' && !repeatUntil) {
             showError(eventError, 'Vyberte datum, do kterého se má trénink opakovat.');
             return;
+        }
+
+        if (titleType === 'group_lesson') {
+            if (!customTitle) {
+                showError(eventError, 'U skupinové lekce vyplňte název.');
+                return;
+            }
+            if (!eventLocationInput.value.trim()) {
+                showError(eventError, 'U skupinové lekce vyberte nebo vyplňte místo konání.');
+                return;
+            }
         }
 
         if (titleType === 'training' && !athleteId && !customTitle) {
@@ -1873,6 +1921,41 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         eventModal.hide();
+        await loadWeekData();
+    });
+
+    monthListBody.addEventListener('click', async (e) => {
+        const approveBtn = e.target.closest('.js-approve-month-item');
+        if (!approveBtn) {
+            return;
+        }
+
+        const eventId = Number(approveBtn.dataset.eventId || 0);
+        if (!eventId) {
+            return;
+        }
+
+        approveBtn.disabled = true;
+        const originalHtml = approveBtn.innerHTML;
+        approveBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Schvaluji';
+
+        const payload = await fetchJson('<?= BASE_URL ?>/api/calendar_approve_event.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({
+                csrf_token: csrfToken,
+                event_id: eventId,
+            }),
+        });
+
+        if (!payload.success) {
+            alert(payload.error || 'Schválení se nepodařilo.');
+            approveBtn.disabled = false;
+            approveBtn.innerHTML = originalHtml;
+            return;
+        }
+
         await loadWeekData();
     });
 
