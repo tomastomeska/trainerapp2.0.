@@ -142,6 +142,22 @@ renderAthleteHeader('Muj kalendar');
     </div>
 </div>
 
+<ul class="nav nav-tabs mb-3" id="athleteCalendarTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link active" id="athlete-week-tab" data-bs-toggle="tab" data-bs-target="#athlete-week-pane" type="button" role="tab" aria-controls="athlete-week-pane" aria-selected="true">
+            Týdenní kalendář
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="athlete-month-tab" data-bs-toggle="tab" data-bs-target="#athlete-month-pane" type="button" role="tab" aria-controls="athlete-month-pane" aria-selected="false">
+            Měsíční seznam
+        </button>
+    </li>
+</ul>
+
+<div class="tab-content">
+<div class="tab-pane fade show active" id="athlete-week-pane" role="tabpanel" aria-labelledby="athlete-week-tab" tabindex="0">
+
 <div class="card border-0 shadow-sm mb-3">
     <div class="card-body py-3 d-flex justify-content-between align-items-center flex-wrap gap-2">
         <div>
@@ -165,6 +181,43 @@ renderAthleteHeader('Muj kalendar');
         </div>
         <div id="daypilotCalendar"></div>
     </div>
+</div>
+
+</div>
+
+<div class="tab-pane fade" id="athlete-month-pane" role="tabpanel" aria-labelledby="athlete-month-tab" tabindex="0">
+    <div class="card border-0 shadow-sm">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                <h5 class="mb-0"><i class="fas fa-list me-2 text-warning"></i>Moje události v měsíci</h5>
+                <div class="d-flex align-items-center gap-2">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" id="athleteMonthPrevBtn"><i class="fas fa-chevron-left"></i></button>
+                    <input type="month" class="form-control form-control-sm" id="athleteMonthInput" style="max-width: 180px;">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" id="athleteMonthNextBtn"><i class="fas fa-chevron-right"></i></button>
+                </div>
+            </div>
+
+            <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>Typ události</th>
+                            <th>Datum</th>
+                            <th>Čas</th>
+                            <th>Místo</th>
+                            <th>Stav</th>
+                        </tr>
+                    </thead>
+                    <tbody id="athleteMonthListBody">
+                        <tr><td colspan="5" class="text-muted">Načítám data...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="text-muted small mt-2 d-none" id="athleteMonthListEmpty">V tomto měsíci nemáte žádné události.</div>
+        </div>
+    </div>
+</div>
 </div>
 
 <div class="modal fade" id="eventDetailModal" tabindex="-1" aria-hidden="true">
@@ -320,6 +373,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const eventDetailPaymentInfoEl = document.getElementById('eventDetailPaymentInfo');
     const eventDetailCancelInfoEl = document.getElementById('eventDetailCancelInfo');
     const eventDetailCancelBtn = document.getElementById('eventDetailCancelBtn');
+    const athleteMonthInput = document.getElementById('athleteMonthInput');
+    const athleteMonthPrevBtn = document.getElementById('athleteMonthPrevBtn');
+    const athleteMonthNextBtn = document.getElementById('athleteMonthNextBtn');
+    const athleteMonthListBody = document.getElementById('athleteMonthListBody');
+    const athleteMonthListEmpty = document.getElementById('athleteMonthListEmpty');
 
     let currentWeekStart = getMonday(new Date());
     let events = [];
@@ -440,6 +498,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function fromSqlDateTime(value) {
         return new Date(String(value).replace(' ', 'T'));
+    }
+
+    function escapeHtml(value) {
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
     }
 
     function dayPilotDateToJs(value) {
@@ -816,6 +883,71 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!renderDayPilotCalendar()) {
             alert('Nepodařilo se inicializovat zobrazení kalendáře.');
         }
+
+        await loadAthleteMonthList();
+    }
+
+    function shiftMonthValue(monthValue, offset) {
+        const parsed = new Date(`${monthValue}-01T00:00:00`);
+        if (Number.isNaN(parsed.getTime())) {
+            return monthValue;
+        }
+        parsed.setMonth(parsed.getMonth() + offset);
+        return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}`;
+    }
+
+    function getStatusBadge(statusClass, statusLabel) {
+        const classMap = {
+            success: 'bg-success',
+            warning: 'bg-warning text-dark',
+            danger: 'bg-danger',
+            info: 'bg-info text-dark',
+            secondary: 'bg-secondary',
+        };
+        const css = classMap[statusClass] || 'bg-secondary';
+        return `<span class="badge ${css}">${escapeHtml(statusLabel)}</span>`;
+    }
+
+    function renderAthleteMonthList(items) {
+        athleteMonthListBody.innerHTML = '';
+        if (!Array.isArray(items) || items.length === 0) {
+            athleteMonthListBody.innerHTML = '<tr><td colspan="5" class="text-muted">V tomto měsíci nemáte žádné události.</td></tr>';
+            athleteMonthListEmpty.classList.remove('d-none');
+            return;
+        }
+
+        athleteMonthListEmpty.classList.add('d-none');
+        items.forEach((item) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${escapeHtml(item.type_label || '-')}</td>
+                <td>${escapeHtml(item.date_label || '-')}</td>
+                <td>${escapeHtml(item.time_label || '-')}</td>
+                <td>${escapeHtml(item.location_label || '-')}</td>
+                <td>${getStatusBadge(item.status_class || 'secondary', item.status_label || 'Bez stavu')}</td>
+            `;
+            athleteMonthListBody.appendChild(tr);
+        });
+    }
+
+    async function loadAthleteMonthList() {
+        if (!athleteMonthInput || !athleteMonthInput.value) {
+            return;
+        }
+
+        const params = new URLSearchParams({ month: athleteMonthInput.value });
+        const response = await fetch(`<?= BASE_URL ?>/api/athlete_calendar_month_list.php?${params.toString()}`, {
+            credentials: 'same-origin',
+        });
+        const payload = await response.json();
+
+        if (!payload.success) {
+            athleteMonthListBody.innerHTML = '<tr><td colspan="5" class="text-danger">Načtení měsíčního seznamu selhalo.</td></tr>';
+            athleteMonthListEmpty.classList.add('d-none');
+            return;
+        }
+
+        renderAthleteMonthList(payload.items || []);
     }
 
     reserveLocationInput.addEventListener('change', () => {
@@ -891,6 +1023,21 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('todayWeekBtn').addEventListener('click', () => {
         currentWeekStart = getMonday(new Date());
         loadWeekData();
+    });
+
+    athleteMonthInput.value = `${currentWeekStart.getFullYear()}-${String(currentWeekStart.getMonth() + 1).padStart(2, '0')}`;
+    athleteMonthInput.addEventListener('change', () => {
+        loadAthleteMonthList();
+    });
+
+    athleteMonthPrevBtn.addEventListener('click', () => {
+        athleteMonthInput.value = shiftMonthValue(athleteMonthInput.value, -1);
+        loadAthleteMonthList();
+    });
+
+    athleteMonthNextBtn.addEventListener('click', () => {
+        athleteMonthInput.value = shiftMonthValue(athleteMonthInput.value, 1);
+        loadAthleteMonthList();
     });
 
     populateReserveHourOptions();

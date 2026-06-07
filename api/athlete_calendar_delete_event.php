@@ -47,8 +47,13 @@ $eventStmt = $pdo->prepare(
             e.athlete_id,
                         e.second_athlete_id,
             e.requested_by_athlete_id,
+            e.approval_status,
+            e.is_makeup_session,
+            e.custom_title,
+            e.location,
             e.billing_month,
             e.starts_at,
+            e.ends_at,
             c.name AS coach_name,
             c.username AS coach_username,
                         a1.first_name,
@@ -119,6 +124,13 @@ if (!$isPrimaryParticipant && !$isSecondaryParticipant) {
     exit;
 }
 
+$cancelInsert = $pdo->prepare(
+    'INSERT INTO coach_calendar_event_cancellations
+        (coach_id, athlete_id, second_athlete_id, canceled_by, canceled_by_athlete_id, cancellation_scope,
+         approval_status, is_makeup_session, custom_title, location, starts_at, ends_at, canceled_at)
+     VALUES (?, ?, ?, "athlete", ?, ?, ?, ?, ?, ?, ?, ?, NOW())'
+);
+
 $selfStmt = $pdo->prepare('SELECT first_name, last_name FROM athletes WHERE id = ? LIMIT 1');
 $selfStmt->execute([$athleteId]);
 $self = $selfStmt->fetch();
@@ -153,6 +165,24 @@ if ($primaryAthleteId > 0 && $secondAthleteId > 0) {
         exit;
     }
 
+    try {
+        $cancelInsert->execute([
+            (int)$event['coach_id'],
+            $athleteId,
+            null,
+            $athleteId,
+            'pair_exit',
+            (string)($event['approval_status'] ?? 'approved') === 'pending' ? 'pending' : 'approved',
+            !empty($event['is_makeup_session']) ? 1 : 0,
+            ($event['custom_title'] ?? null) !== '' ? (string)$event['custom_title'] : null,
+            ($event['location'] ?? null) !== '' ? (string)$event['location'] : null,
+            (string)$event['starts_at'],
+            (string)($event['ends_at'] ?? $event['starts_at']),
+        ]);
+    } catch (Throwable $e) {
+        error_log('athlete cancellation log insert failed: ' . $e->getMessage());
+    }
+
     $removedFromPairOnly = true;
 } else {
     $deleteStmt = $pdo->prepare('DELETE FROM coach_calendar_events WHERE id = ? AND (athlete_id = ? OR second_athlete_id = ?) LIMIT 1');
@@ -161,6 +191,24 @@ if ($primaryAthleteId > 0 && $secondAthleteId > 0) {
     if ($deleteStmt->rowCount() === 0) {
         echo json_encode(['success' => false, 'error' => 'Termín se nepodařilo zrušit.']);
         exit;
+    }
+
+    try {
+        $cancelInsert->execute([
+            (int)$event['coach_id'],
+            !empty($event['athlete_id']) ? (int)$event['athlete_id'] : null,
+            !empty($event['second_athlete_id']) ? (int)$event['second_athlete_id'] : null,
+            $athleteId,
+            'single',
+            (string)($event['approval_status'] ?? 'approved') === 'pending' ? 'pending' : 'approved',
+            !empty($event['is_makeup_session']) ? 1 : 0,
+            ($event['custom_title'] ?? null) !== '' ? (string)$event['custom_title'] : null,
+            ($event['location'] ?? null) !== '' ? (string)$event['location'] : null,
+            (string)$event['starts_at'],
+            (string)($event['ends_at'] ?? $event['starts_at']),
+        ]);
+    } catch (Throwable $e) {
+        error_log('athlete cancellation log insert failed: ' . $e->getMessage());
     }
 }
 

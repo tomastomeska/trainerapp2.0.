@@ -743,6 +743,48 @@ function ensureSchemaUpgrades(PDO $pdo): void {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ");
 
+    // Historie zrušených kalendářových termínů (pro měsíční přehledy)
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS `coach_calendar_event_cancellations` (
+            `id`                    INT AUTO_INCREMENT PRIMARY KEY,
+            `coach_id`              INT NOT NULL,
+            `athlete_id`            INT NULL,
+            `second_athlete_id`     INT NULL,
+            `canceled_by`           ENUM('coach','athlete') NOT NULL,
+            `canceled_by_athlete_id` INT NULL,
+            `cancellation_scope`    ENUM('single','future','pair_exit') NOT NULL DEFAULT 'single',
+            `approval_status`       ENUM('pending','approved') NOT NULL DEFAULT 'approved',
+            `is_makeup_session`     TINYINT(1) NOT NULL DEFAULT 0,
+            `custom_title`          VARCHAR(140) NULL,
+            `location`              VARCHAR(255) NULL,
+            `starts_at`             DATETIME NOT NULL,
+            `ends_at`               DATETIME NOT NULL,
+            `canceled_at`           DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            KEY `idx_calendar_cancel_coach_start` (`coach_id`, `starts_at`),
+            KEY `idx_calendar_cancel_athlete_start` (`athlete_id`, `starts_at`),
+            KEY `idx_calendar_cancel_second_athlete_start` (`second_athlete_id`, `starts_at`),
+            KEY `idx_calendar_cancel_canceled_at` (`canceled_at`),
+            FOREIGN KEY (`coach_id`) REFERENCES `coaches`(`id`) ON DELETE CASCADE,
+            FOREIGN KEY (`athlete_id`) REFERENCES `athletes`(`id`) ON DELETE SET NULL,
+            FOREIGN KEY (`second_athlete_id`) REFERENCES `athletes`(`id`) ON DELETE SET NULL,
+            FOREIGN KEY (`canceled_by_athlete_id`) REFERENCES `athletes`(`id`) ON DELETE SET NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
+    // Log odeslaných souhrnných přehledů kalendáře (trenér/sportovec)
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS `calendar_summary_notifications` (
+            `id`             INT AUTO_INCREMENT PRIMARY KEY,
+            `recipient_type` ENUM('coach','athlete') NOT NULL,
+            `recipient_id`   INT NOT NULL,
+            `digest_type`    ENUM('weekly_next_week','monthly_next_month') NOT NULL,
+            `digest_date`    DATE NOT NULL,
+            `sent_at`        DATETIME NOT NULL,
+            UNIQUE KEY `uq_calendar_summary_digest` (`recipient_type`, `recipient_id`, `digest_type`, `digest_date`),
+            KEY `idx_calendar_summary_type_date` (`digest_type`, `digest_date`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
     // Zprávy od admina trenérům
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS `admin_messages` (

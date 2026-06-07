@@ -50,9 +50,13 @@ $pdo = getDB();
 $eventStmt = $pdo->prepare(
     'SELECT e.id,
             e.series_id,
+            e.custom_title,
+            e.location,
             e.starts_at,
+            e.ends_at,
             e.athlete_id,
             e.second_athlete_id,
+        e.is_makeup_session,
         e.requested_by_athlete_id,
         e.approval_status,
             a.email AS athlete_email,
@@ -73,6 +77,41 @@ $event = $eventStmt->fetch();
 if (!$event) {
     echo json_encode(['success' => false, 'error' => 'Událost nenalezena']);
     exit;
+}
+
+$eventsToCancel = [];
+if ($deleteScope === 'future' && !empty($event['series_id'])) {
+    $cancelStmt = $pdo->prepare(
+        'SELECT id,
+                coach_id,
+                athlete_id,
+                second_athlete_id,
+                approval_status,
+                is_makeup_session,
+                custom_title,
+                location,
+                starts_at,
+                ends_at
+         FROM coach_calendar_events
+         WHERE coach_id = ?
+           AND series_id = ?
+           AND starts_at >= ?
+         ORDER BY starts_at ASC, id ASC'
+    );
+    $cancelStmt->execute([$coachId, $event['series_id'], $event['starts_at']]);
+    $eventsToCancel = $cancelStmt->fetchAll();
+} else {
+    $eventsToCancel[] = [
+        'coach_id' => $coachId,
+        'athlete_id' => $event['athlete_id'] ?? null,
+        'second_athlete_id' => $event['second_athlete_id'] ?? null,
+        'approval_status' => $event['approval_status'] ?? 'approved',
+        'is_makeup_session' => $event['is_makeup_session'] ?? 0,
+        'custom_title' => $event['custom_title'] ?? null,
+        'location' => $event['location'] ?? null,
+        'starts_at' => $event['starts_at'] ?? null,
+        'ends_at' => $event['ends_at'] ?? null,
+    ];
 }
 
 $hasBillingMonth = coachDeleteHasColumn($pdo, 'coach_calendar_events', 'billing_month');
@@ -150,6 +189,34 @@ if ($deleteScope === 'future') {
 if ($del->rowCount() === 0) {
     echo json_encode(['success' => false, 'error' => 'Událost nenalezena']);
     exit;
+}
+
+if (!empty($eventsToCancel)) {
+    $cancelInsert = $pdo->prepare(
+        'INSERT INTO coach_calendar_event_cancellations
+            (coach_id, athlete_id, second_athlete_id, canceled_by, canceled_by_athlete_id, cancellation_scope,
+             approval_status, is_makeup_session, custom_title, location, starts_at, ends_at, canceled_at)
+         VALUES (?, ?, ?, "coach", NULL, ?, ?, ?, ?, ?, ?, ?, NOW())'
+    );
+
+    foreach ($eventsToCancel as $cancelEvent) {
+        try {
+            $cancelInsert->execute([
+                (int)($cancelEvent['coach_id'] ?? $coachId),
+                !empty($cancelEvent['athlete_id']) ? (int)$cancelEvent['athlete_id'] : null,
+                !empty($cancelEvent['second_athlete_id']) ? (int)$cancelEvent['second_athlete_id'] : null,
+                $deleteScope === 'future' ? 'future' : 'single',
+                (string)($cancelEvent['approval_status'] ?? 'approved') === 'pending' ? 'pending' : 'approved',
+                !empty($cancelEvent['is_makeup_session']) ? 1 : 0,
+                ($cancelEvent['custom_title'] ?? null) !== '' ? (string)$cancelEvent['custom_title'] : null,
+                ($cancelEvent['location'] ?? null) !== '' ? (string)$cancelEvent['location'] : null,
+                (string)($cancelEvent['starts_at'] ?? ''),
+                (string)($cancelEvent['ends_at'] ?? ''),
+            ]);
+        } catch (Throwable $e) {
+            error_log('calendar cancellation log insert failed: ' . $e->getMessage());
+        }
+    }
 }
 
 $participants = [];

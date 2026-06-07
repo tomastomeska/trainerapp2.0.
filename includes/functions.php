@@ -2333,3 +2333,394 @@ function processCoachCalendarDigestNotifications(?DateTimeImmutable $now = null)
 
   return $results;
 }
+
+function buildCalendarSummaryAthleteLabel(array $event): string {
+  $names = [];
+  $first = trim((string)($event['first_name'] ?? ''));
+  $last = trim((string)($event['last_name'] ?? ''));
+  $secondFirst = trim((string)($event['second_first_name'] ?? ''));
+  $secondLast = trim((string)($event['second_last_name'] ?? ''));
+
+  if ($last !== '' || $first !== '') {
+    $names[] = trim($last . ' ' . $first);
+  }
+  if ($secondLast !== '' || $secondFirst !== '') {
+    $names[] = trim($secondLast . ' ' . $secondFirst);
+  }
+
+  return implode(' + ', array_filter($names));
+}
+
+function buildCalendarSummaryTypeLabel(array $event): string {
+  $customTitle = trim((string)($event['custom_title'] ?? ''));
+  if ($customTitle !== '') {
+    return $customTitle;
+  }
+
+  $hasPrimary = (int)($event['athlete_id'] ?? 0) > 0;
+  $hasSecond = (int)($event['second_athlete_id'] ?? 0) > 0;
+  if ($hasPrimary && $hasSecond) {
+    return 'Párový trénink';
+  }
+  if ($hasPrimary) {
+    return 'Trénink';
+  }
+  return 'Rezervace';
+}
+
+function buildCalendarSummaryStatusLabel(array $event): string {
+  $status = ((string)($event['approval_status'] ?? 'approved') === 'pending')
+    ? 'Zatím neschválený'
+    : 'Schválený';
+
+  if (!empty($event['is_makeup_session'])) {
+    $status .= ' • Náhradní';
+  }
+
+  return $status;
+}
+
+function getCoachCalendarSummaryEventsInRange(int $coachId, DateTimeInterface $from, DateTimeInterface $to): array {
+  $pdo = getDB();
+  $stmt = $pdo->prepare(
+    "SELECT e.id,
+            e.athlete_id,
+            e.second_athlete_id,
+            e.custom_title,
+            e.location,
+            e.starts_at,
+            e.ends_at,
+            e.approval_status,
+            e.is_makeup_session,
+            a.first_name,
+            a.last_name,
+            a2.first_name AS second_first_name,
+            a2.last_name AS second_last_name
+     FROM coach_calendar_events e
+     LEFT JOIN athletes a ON a.id = e.athlete_id
+     LEFT JOIN athletes a2 ON a2.id = e.second_athlete_id
+     WHERE e.coach_id = ?
+       AND e.starts_at >= ?
+       AND e.starts_at < ?
+     ORDER BY e.starts_at ASC, e.id ASC"
+  );
+  $stmt->execute([
+    $coachId,
+    $from->format('Y-m-d H:i:s'),
+    $to->format('Y-m-d H:i:s'),
+  ]);
+
+  return $stmt->fetchAll();
+}
+
+function getAthleteCalendarSummaryEventsInRange(int $athleteId, DateTimeInterface $from, DateTimeInterface $to): array {
+  $pdo = getDB();
+  $stmt = $pdo->prepare(
+    "SELECT e.id,
+            e.athlete_id,
+            e.second_athlete_id,
+            e.custom_title,
+            e.location,
+            e.starts_at,
+            e.ends_at,
+            e.approval_status,
+            e.is_makeup_session,
+            a.first_name,
+            a.last_name,
+            a2.first_name AS second_first_name,
+            a2.last_name AS second_last_name
+     FROM coach_calendar_events e
+     LEFT JOIN athletes a ON a.id = e.athlete_id
+     LEFT JOIN athletes a2 ON a2.id = e.second_athlete_id
+     WHERE (e.athlete_id = ? OR e.second_athlete_id = ?)
+       AND e.starts_at >= ?
+       AND e.starts_at < ?
+       AND (e.approval_status = 'approved' OR e.athlete_id = ? OR e.second_athlete_id = ?)
+     ORDER BY e.starts_at ASC, e.id ASC"
+  );
+  $stmt->execute([
+    $athleteId,
+    $athleteId,
+    $from->format('Y-m-d H:i:s'),
+    $to->format('Y-m-d H:i:s'),
+    $athleteId,
+    $athleteId,
+  ]);
+
+  return $stmt->fetchAll();
+}
+
+function sendCalendarSummaryDigestEmail(
+  string $toEmail,
+  string $recipientName,
+  string $subject,
+  string $periodLabel,
+  string $introText,
+  array $events,
+  bool $includeAthleteColumn = false
+): bool {
+  $phpmailerSrc = dirname(__DIR__) . '/vendor/phpmailer/phpmailer/src';
+  if (!file_exists($phpmailerSrc . '/PHPMailer.php')) {
+    error_log('sendCalendarSummaryDigestEmail: PHPMailer not found at ' . $phpmailerSrc);
+    return false;
+  }
+
+  require_once $phpmailerSrc . '/Exception.php';
+  require_once $phpmailerSrc . '/PHPMailer.php';
+  require_once $phpmailerSrc . '/SMTP.php';
+
+  $h = static fn(?string $s): string => htmlspecialchars($s ?? '', ENT_QUOTES, 'UTF-8');
+
+  $rowsHtml = '';
+  $rowsPlain = '';
+  foreach ($events as $event) {
+    $start = strtotime((string)($event['starts_at'] ?? ''));
+    $end = strtotime((string)($event['ends_at'] ?? ''));
+    $dateLabel = $start ? date('d.m.Y', $start) : '—';
+    $timeLabel = ($start && $end) ? (date('H:i', $start) . ' - ' . date('H:i', $end)) : '—';
+    $typeLabel = buildCalendarSummaryTypeLabel($event);
+    $statusLabel = buildCalendarSummaryStatusLabel($event);
+    $locationLabel = trim((string)($event['location'] ?? '')) !== '' ? trim((string)$event['location']) : 'Bez místa';
+    $athleteLabel = buildCalendarSummaryAthleteLabel($event);
+
+    $rowsHtml .= '<tr>'
+      . '<td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;white-space:nowrap;">' . $h($dateLabel) . '</td>'
+      . '<td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;white-space:nowrap;">' . $h($timeLabel) . '</td>'
+      . ($includeAthleteColumn
+          ? '<td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;font-weight:600;">' . $h($athleteLabel !== '' ? $athleteLabel : 'Bez sportovce') . '</td>'
+          : '')
+      . '<td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;">' . $h($typeLabel) . '</td>'
+      . '<td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;">' . $h($locationLabel) . '</td>'
+      . '<td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;">' . $h($statusLabel) . '</td>'
+      . '</tr>';
+
+    $rowsPlain .= '- ' . $dateLabel . ' | ' . $timeLabel
+      . ($includeAthleteColumn ? (' | ' . ($athleteLabel !== '' ? $athleteLabel : 'Bez sportovce')) : '')
+      . ' | ' . $typeLabel
+      . ' | ' . $locationLabel
+      . ' | ' . $statusLabel
+      . "\n";
+  }
+
+  $colspan = $includeAthleteColumn ? 6 : 5;
+  if ($rowsHtml === '') {
+    $rowsHtml = '<tr><td colspan="' . $colspan . '" style="padding:12px;color:#6b7280;">V daném období nejsou žádné naplánované termíny.</td></tr>';
+    $rowsPlain = "- V daném období nejsou žádné naplánované termíny.\n";
+  }
+
+  $athleteHeader = $includeAthleteColumn ? '<th align="left" style="padding:10px 12px;">Sportovec</th>' : '';
+
+  $htmlBody = '<!DOCTYPE html><html lang="cs"><head><meta charset="UTF-8"></head><body style="font-family:Arial,Helvetica,sans-serif;background:#f4f4f7;padding:20px;">'
+    . '<table width="100%" cellpadding="0" cellspacing="0" style="max-width:760px;margin:0 auto;background:#fff;border-radius:12px;border:1px solid #e5e7eb;overflow:hidden;">'
+    . '<tr><td style="padding:20px 24px;background:#111827;color:#fff;">'
+    . '<h2 style="margin:0;font-size:20px;">Kalendářový přehled</h2>'
+    . '<p style="margin:6px 0 0;color:#d1d5db;">' . $h($periodLabel) . '</p>'
+    . '</td></tr>'
+    . '<tr><td style="padding:16px 24px 8px;color:#374151;">'
+    . 'Dobrý den, <strong>' . $h($recipientName) . '</strong>.<br>' . $h($introText)
+    . '</td></tr>'
+    . '<tr><td style="padding:8px 24px 24px;">'
+    . '<table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">'
+    . '<thead><tr style="background:#f9fafb;color:#374151;">'
+    . '<th align="left" style="padding:10px 12px;">Datum</th>'
+    . '<th align="left" style="padding:10px 12px;">Čas</th>'
+    . $athleteHeader
+    . '<th align="left" style="padding:10px 12px;">Typ</th>'
+    . '<th align="left" style="padding:10px 12px;">Místo</th>'
+    . '<th align="left" style="padding:10px 12px;">Stav</th>'
+    . '</tr></thead><tbody>' . $rowsHtml . '</tbody></table>'
+    . '</td></tr>'
+    . '<tr><td style="padding:0 24px 20px;color:#6b7280;font-size:12px;">TrainerApp • automatický přehled kalendáře</td></tr>'
+    . '</table></body></html>';
+
+  $altBody = "Dobrý den, {$recipientName},\n\n"
+    . $introText . "\n"
+    . "Období: {$periodLabel}\n\n"
+    . $rowsPlain
+    . "\nTrainerApp\n";
+
+  $mail = new PHPMailer\PHPMailer\PHPMailer(true);
+  try {
+    _configureMail($mail);
+    $mail->addAddress($toEmail);
+    $mail->isHTML(true);
+    $mail->Subject = $subject;
+    $mail->Body = $htmlBody;
+    $mail->AltBody = $altBody;
+    $mail->send();
+    return true;
+  } catch (\Exception $e) {
+    error_log('sendCalendarSummaryDigestEmail error: ' . $mail->ErrorInfo . ' | ' . $e->getMessage());
+    return false;
+  }
+}
+
+function processCalendarSummaryNotifications(?DateTimeImmutable $now = null): array {
+  $pdo = getDB();
+  $results = [];
+  $now = $now ?? new DateTimeImmutable('now');
+
+  $shouldSendWeekly = ((int)$now->format('N') === 7) && ((int)$now->format('G') >= 12);
+  $shouldSendMonthly = ((int)$now->format('j') === 28) && ((int)$now->format('G') >= 12);
+
+  if (!$shouldSendWeekly && !$shouldSendMonthly) {
+    return $results;
+  }
+
+  $digestPlans = [];
+  if ($shouldSendWeekly) {
+    $from = $now->modify('next monday')->setTime(0, 0, 0);
+    $to = $from->modify('+7 days');
+    $digestPlans[] = [
+      'type' => 'weekly_next_week',
+      'from' => $from,
+      'to' => $to,
+      'digest_date' => $from->format('Y-m-d'),
+      'period_label' => 'Příští týden: ' . $from->format('d.m.Y') . ' - ' . $to->modify('-1 day')->format('d.m.Y'),
+      'coach_subject' => 'Týdenní přehled tréninků',
+      'athlete_subject' => 'Týdenní přehled vašich tréninků',
+      'coach_intro' => 'Posíláme chronologický přehled tréninků všech vašich sportovců na následující týden.',
+      'athlete_intro' => 'Posíláme přehled vašich tréninků na následující týden.',
+    ];
+  }
+
+  if ($shouldSendMonthly) {
+    $from = $now->modify('first day of next month')->setTime(0, 0, 0);
+    $to = $from->modify('+1 month');
+    $digestPlans[] = [
+      'type' => 'monthly_next_month',
+      'from' => $from,
+      'to' => $to,
+      'digest_date' => $from->format('Y-m-d'),
+      'period_label' => 'Příští měsíc: ' . $from->format('m/Y'),
+      'coach_subject' => 'Měsíční přehled tréninků',
+      'athlete_subject' => 'Měsíční přehled vašich tréninků',
+      'coach_intro' => 'Posíláme chronologický přehled tréninků všech vašich sportovců na následující měsíc.',
+      'athlete_intro' => 'Posíláme přehled vašich tréninků na následující měsíc.',
+    ];
+  }
+
+  $coaches = $pdo->query(
+    "SELECT id, name, username, email
+     FROM coaches
+     WHERE is_active = 1
+       AND email IS NOT NULL
+       AND email <> ''"
+  )->fetchAll();
+
+  $athletesStmt = $pdo->query(
+    "SELECT a.id, a.coach_id, a.first_name, a.last_name, a.email
+     FROM athletes a
+     JOIN coaches c ON c.id = a.coach_id
+     WHERE a.login_enabled = 1
+       AND c.is_active = 1
+       AND a.email IS NOT NULL
+       AND a.email <> ''"
+  );
+  $athletes = $athletesStmt->fetchAll();
+
+  $checkSentStmt = $pdo->prepare(
+    'SELECT id
+     FROM calendar_summary_notifications
+     WHERE recipient_type = ?
+       AND recipient_id = ?
+       AND digest_type = ?
+       AND digest_date = ?
+     LIMIT 1'
+  );
+
+  $insertSentStmt = $pdo->prepare(
+    'INSERT INTO calendar_summary_notifications (recipient_type, recipient_id, digest_type, digest_date, sent_at)
+     VALUES (?, ?, ?, ?, NOW())'
+  );
+
+  foreach ($digestPlans as $plan) {
+    foreach ($athletes as $athlete) {
+      $athleteId = (int)$athlete['id'];
+      $athleteEmail = trim((string)($athlete['email'] ?? ''));
+      if ($athleteEmail === '') {
+        continue;
+      }
+
+      $checkSentStmt->execute(['athlete', $athleteId, $plan['type'], $plan['digest_date']]);
+      if ($checkSentStmt->fetch()) {
+        continue;
+      }
+
+      $athleteName = trim((string)($athlete['first_name'] ?? '') . ' ' . (string)($athlete['last_name'] ?? ''));
+      if ($athleteName === '') {
+        $athleteName = 'Sportovec';
+      }
+
+      $events = getAthleteCalendarSummaryEventsInRange($athleteId, $plan['from'], $plan['to']);
+      $sent = sendCalendarSummaryDigestEmail(
+        $athleteEmail,
+        $athleteName,
+        $plan['athlete_subject'],
+        $plan['period_label'],
+        $plan['athlete_intro'],
+        $events,
+        false
+      );
+
+      if ($sent) {
+        $insertSentStmt->execute(['athlete', $athleteId, $plan['type'], $plan['digest_date']]);
+      }
+
+      $results[] = [
+        'recipient_type' => 'athlete',
+        'recipient_id' => $athleteId,
+        'recipient_email' => $athleteEmail,
+        'digest_type' => $plan['type'],
+        'digest_date' => $plan['digest_date'],
+        'events_count' => count($events),
+        'sent' => $sent,
+      ];
+    }
+
+    foreach ($coaches as $coach) {
+      $coachId = (int)$coach['id'];
+      $coachEmail = trim((string)($coach['email'] ?? ''));
+      if ($coachEmail === '') {
+        continue;
+      }
+
+      $checkSentStmt->execute(['coach', $coachId, $plan['type'], $plan['digest_date']]);
+      if ($checkSentStmt->fetch()) {
+        continue;
+      }
+
+      $coachName = trim((string)($coach['name'] ?? ''));
+      if ($coachName === '') {
+        $coachName = trim((string)($coach['username'] ?? 'Trenér'));
+      }
+
+      $events = getCoachCalendarSummaryEventsInRange($coachId, $plan['from'], $plan['to']);
+      $sent = sendCalendarSummaryDigestEmail(
+        $coachEmail,
+        $coachName,
+        $plan['coach_subject'],
+        $plan['period_label'],
+        $plan['coach_intro'],
+        $events,
+        true
+      );
+
+      if ($sent) {
+        $insertSentStmt->execute(['coach', $coachId, $plan['type'], $plan['digest_date']]);
+      }
+
+      $results[] = [
+        'recipient_type' => 'coach',
+        'recipient_id' => $coachId,
+        'recipient_email' => $coachEmail,
+        'digest_type' => $plan['type'],
+        'digest_date' => $plan['digest_date'],
+        'events_count' => count($events),
+        'sent' => $sent,
+      ];
+    }
+  }
+
+  return $results;
+}

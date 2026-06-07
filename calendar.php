@@ -275,6 +275,22 @@ renderHeader('Kalendář');
     </div>
 </div>
 
+<ul class="nav nav-tabs mb-3" id="calendarViewTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link active" id="week-view-tab" data-bs-toggle="tab" data-bs-target="#week-view-pane" type="button" role="tab" aria-controls="week-view-pane" aria-selected="true">
+            Týdenní kalendář
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="month-list-tab" data-bs-toggle="tab" data-bs-target="#month-list-pane" type="button" role="tab" aria-controls="month-list-pane" aria-selected="false">
+            Měsíční seznam
+        </button>
+    </li>
+</ul>
+
+<div class="tab-content">
+<div class="tab-pane fade show active" id="week-view-pane" role="tabpanel" aria-labelledby="week-view-tab" tabindex="0">
+
 <div class="card border-0 shadow-sm mb-3">
     <div class="card-body py-3 d-flex justify-content-between align-items-center flex-wrap gap-2">
         <div>
@@ -305,6 +321,44 @@ renderHeader('Kalendář');
             <table class="calendar-grid" id="calendarGrid" aria-label="Týdenní kalendář"></table>
         </div>
     </div>
+</div>
+
+</div>
+
+<div class="tab-pane fade" id="month-list-pane" role="tabpanel" aria-labelledby="month-list-tab" tabindex="0">
+    <div class="card border-0 shadow-sm">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                <h5 class="mb-0"><i class="fas fa-list me-2 text-warning"></i>Události v měsíci</h5>
+                <div class="d-flex align-items-center gap-2">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" id="monthListPrevBtn"><i class="fas fa-chevron-left"></i></button>
+                    <input type="month" class="form-control form-control-sm" id="monthListMonth" style="max-width: 180px;">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" id="monthListNextBtn"><i class="fas fa-chevron-right"></i></button>
+                </div>
+            </div>
+
+            <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>Datum</th>
+                            <th>Čas</th>
+                            <th>Sportovec</th>
+                            <th>Typ události</th>
+                            <th>Místo</th>
+                            <th>Stav</th>
+                        </tr>
+                    </thead>
+                    <tbody id="monthListBody">
+                        <tr><td colspan="6" class="text-muted">Načítám data...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="text-muted small mt-2 d-none" id="monthListEmpty">V tomto měsíci nejsou žádné události.</div>
+        </div>
+    </div>
+</div>
 </div>
 
 <div class="modal fade" id="eventModal" tabindex="-1" aria-hidden="true">
@@ -617,6 +671,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const approveEventBtn = document.getElementById('approveEventBtn');
     const daypilotCalendarEl = document.getElementById('daypilotCalendar');
     const daypilotCard = document.getElementById('daypilotCard');
+    const monthListMonthInput = document.getElementById('monthListMonth');
+    const monthListPrevBtn = document.getElementById('monthListPrevBtn');
+    const monthListNextBtn = document.getElementById('monthListNextBtn');
+    const monthListBody = document.getElementById('monthListBody');
+    const monthListEmpty = document.getElementById('monthListEmpty');
 
     const czechDayShort = ['Po', 'Út', 'St', 'Čt', 'Pá', 'So', 'Ne'];
     const hourStart = 5;
@@ -1434,6 +1493,67 @@ document.addEventListener('DOMContentLoaded', () => {
         events = payload.events || [];
         locks = payload.locks || [];
         renderCalendar();
+        await loadMonthListData();
+    }
+
+    function shiftMonthValue(monthValue, offset) {
+        const parsed = new Date(`${monthValue}-01T00:00:00`);
+        if (Number.isNaN(parsed.getTime())) {
+            return monthValue;
+        }
+        parsed.setMonth(parsed.getMonth() + offset);
+        return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}`;
+    }
+
+    function getMonthStatusBadge(statusClass, statusLabel) {
+        const classMap = {
+            success: 'bg-success',
+            warning: 'bg-warning text-dark',
+            danger: 'bg-danger',
+            info: 'bg-info text-dark',
+            secondary: 'bg-secondary',
+        };
+        const css = classMap[statusClass] || 'bg-secondary';
+        return `<span class="badge ${css}">${escapeHtml(statusLabel)}</span>`;
+    }
+
+    function renderMonthList(items) {
+        monthListBody.innerHTML = '';
+        if (!Array.isArray(items) || items.length === 0) {
+            monthListBody.innerHTML = '<tr><td colspan="6" class="text-muted">V tomto měsíci nejsou žádné události.</td></tr>';
+            monthListEmpty.classList.remove('d-none');
+            return;
+        }
+
+        monthListEmpty.classList.add('d-none');
+        items.forEach((item) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${escapeHtml(item.date_label || '-')}</td>
+                <td>${escapeHtml(item.time_label || '-')}</td>
+                <td>${escapeHtml(item.athlete_label || '-')}</td>
+                <td>${escapeHtml(item.type_label || '-')}</td>
+                <td>${escapeHtml(item.location_label || '-')}</td>
+                <td>${getMonthStatusBadge(item.status_class || 'secondary', item.status_label || 'Bez stavu')}</td>
+            `;
+            monthListBody.appendChild(tr);
+        });
+    }
+
+    async function loadMonthListData() {
+        if (!monthListMonthInput || !monthListMonthInput.value) {
+            return;
+        }
+
+        const query = new URLSearchParams({ month: monthListMonthInput.value });
+        const payload = await fetchJson(`<?= BASE_URL ?>/api/calendar_month_list.php?${query.toString()}`);
+        if (!payload.success) {
+            monthListBody.innerHTML = '<tr><td colspan="6" class="text-danger">Načtení měsíčního seznamu selhalo.</td></tr>';
+            monthListEmpty.classList.add('d-none');
+            return;
+        }
+
+        renderMonthList(payload.items || []);
     }
 
     function openEventModal(event = null, slotDate = null, lock = null) {
@@ -1850,6 +1970,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.getElementById('quickAddBtn').addEventListener('click', () => {
         openEventModal();
+    });
+
+    monthListMonthInput.value = `${currentWeekStart.getFullYear()}-${String(currentWeekStart.getMonth() + 1).padStart(2, '0')}`;
+    monthListMonthInput.addEventListener('change', () => {
+        loadMonthListData();
+    });
+
+    monthListPrevBtn.addEventListener('click', () => {
+        monthListMonthInput.value = shiftMonthValue(monthListMonthInput.value, -1);
+        loadMonthListData();
+    });
+
+    monthListNextBtn.addEventListener('click', () => {
+        monthListMonthInput.value = shiftMonthValue(monthListMonthInput.value, 1);
+        loadMonthListData();
     });
 
     populateEventHourOptions();
