@@ -277,6 +277,22 @@ try {
     $releasesByMonth = [];
 }
 
+try {
+    $releaseAthleteStmt = $pdo->prepare(
+        'SELECT billing_month, status
+         FROM coach_billing_month_athletes
+         WHERE coach_id = ? AND athlete_id = ?'
+    );
+    $releaseAthleteStmt->execute([(int)$athlete['coach_id'], $athleteId]);
+    foreach ($releaseAthleteStmt->fetchAll() as $releaseAthleteRow) {
+        if ((string)($releaseAthleteRow['status'] ?? 'draft') === 'released') {
+            $releasesByMonth[(string)$releaseAthleteRow['billing_month']] = 'released';
+        }
+    }
+} catch (Throwable $e) {
+    // Tabulka s individuálním otevřením nemusí v některých starších instalacích existovat.
+}
+
 krsort($rowsByMonth);
 
 $monthsAsc = array_keys($rowsByMonth);

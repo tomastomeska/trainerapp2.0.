@@ -27,20 +27,65 @@ if (!defined('DB_CHARSET')) define('DB_CHARSET', 'utf8mb4');
 function getDB(): PDO {
     static $pdo = null;
     if ($pdo === null) {
-        $dsn = sprintf(
-            'mysql:host=%s;dbname=%s;charset=%s',
-            DB_HOST, DB_NAME, DB_CHARSET
-        );
         $options = [
             PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
             PDO::ATTR_EMULATE_PREPARES   => false,
         ];
+
+        $hosts = [];
+        foreach (explode(',', (string)DB_HOST) as $h) {
+            $h = trim($h);
+            if ($h !== '') {
+                $hosts[] = $h;
+            }
+        }
+        if (empty($hosts)) {
+            $hosts[] = 'localhost';
+        }
+        if (!in_array('localhost', $hosts, true)) {
+            $hosts[] = 'localhost';
+        }
+        if (!in_array('127.0.0.1', $hosts, true)) {
+            $hosts[] = '127.0.0.1';
+        }
+
+        $errors = [];
         try {
-            $pdo = new PDO($dsn, DB_USER, DB_PASS, $options);
-            ensureSchemaUpgrades($pdo);
-        } catch (PDOException $e) {
-            error_log('DB connection failed: ' . $e->getMessage());
+            foreach ($hosts as $host) {
+                $port = null;
+                if (preg_match('/^\[(.+)\]:(\d+)$/', $host, $m)) {
+                    $host = $m[1];
+                    $port = (int)$m[2];
+                } elseif (preg_match('/^([^:]+):(\d+)$/', $host, $m)) {
+                    $host = $m[1];
+                    $port = (int)$m[2];
+                }
+
+                $dsn = sprintf(
+                    'mysql:host=%s;dbname=%s;charset=%s',
+                    $host,
+                    DB_NAME,
+                    DB_CHARSET
+                );
+                if ($port !== null) {
+                    $dsn .= ';port=' . $port;
+                }
+
+                try {
+                    $pdo = new PDO($dsn, DB_USER, DB_PASS, $options);
+                    ensureSchemaUpgrades($pdo);
+                    break;
+                } catch (PDOException $e) {
+                    $errors[] = $host . ': ' . $e->getMessage();
+                }
+            }
+        } catch (Throwable $e) {
+            $errors[] = 'unexpected: ' . $e->getMessage();
+        }
+
+        if ($pdo === null) {
+            error_log('DB connection failed (' . implode(' | ', $errors) . ')');
             die('<!DOCTYPE html><html lang="cs"><head><meta charset="UTF-8">
                 <title>Chyba DB</title>
                 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">

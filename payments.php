@@ -28,6 +28,11 @@ function tableExists(PDO $pdo, string $tableName): bool
     return $stmt !== false && (bool)$stmt->fetchColumn();
 }
 
+function isAthleteMonthReleased(int $athleteId, bool $isMonthReleased, array $releasedAthleteIds): bool
+{
+    return $isMonthReleased || isset($releasedAthleteIds[$athleteId]);
+}
+
 function columnExists(PDO $pdo, string $tableName, string $columnName): bool
 {
     $quotedColumn = $pdo->quote($columnName);
@@ -137,6 +142,29 @@ function ensurePaymentsRuntimeSchema(PDO $pdo): array
         ");
     } catch (Throwable $e) {
         $warnings[] = 'Tabulku coach_billing_months se nepodařilo vytvořit.';
+    }
+
+    try {
+        $pdo->exec(" 
+            CREATE TABLE IF NOT EXISTS `coach_billing_month_athletes` (
+                `id`            INT AUTO_INCREMENT PRIMARY KEY,
+                `coach_id`      INT NOT NULL,
+                `athlete_id`    INT NOT NULL,
+                `billing_month` DATE NOT NULL,
+                `status`        ENUM('draft','released') NOT NULL DEFAULT 'draft',
+                `released_at`   DATETIME NULL,
+                `created_at`    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                `updated_at`    TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY `uq_coach_billing_month_athlete` (`coach_id`, `athlete_id`, `billing_month`),
+                KEY `idx_coach_billing_month_athlete_status` (`coach_id`, `billing_month`, `status`),
+                CONSTRAINT `fk_coach_billing_month_athlete_coach`
+                    FOREIGN KEY (`coach_id`) REFERENCES `coaches`(`id`) ON DELETE CASCADE,
+                CONSTRAINT `fk_coach_billing_month_athlete_athlete`
+                    FOREIGN KEY (`athlete_id`) REFERENCES `athletes`(`id`) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ");
+    } catch (Throwable $e) {
+        $warnings[] = 'Tabulku coach_billing_month_athletes se nepodařilo vytvořit.';
     }
 
     return [
@@ -518,6 +546,23 @@ try {
 }
 $isMonthReleased = (($monthReleaseRow['status'] ?? 'draft') === 'released');
 
+$releasedAthleteIds = [];
+try {
+    $releasedAthleteStmt = $pdo->prepare(
+        'SELECT athlete_id
+         FROM coach_billing_month_athletes
+         WHERE coach_id = ? AND billing_month = ? AND status = "released"'
+    );
+    $releasedAthleteStmt->execute([$coachId, $selectedMonthSql]);
+    foreach ($releasedAthleteStmt->fetchAll() as $releasedRow) {
+        $releasedAthleteIds[(int)$releasedRow['athlete_id']] = true;
+    }
+} catch (Throwable $e) {
+    $releasedAthleteIds = [];
+}
+
+$releasedAthleteCount = count($releasedAthleteIds);
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!verifyCsrf($_POST['csrf_token'] ?? '')) {
         flash('danger', 'Neplatný bezpečnostní token.');
@@ -573,10 +618,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     $athleteName = trim((string)$athlete['first_name'] . ' ' . (string)$athlete['last_name']);
+    $isAthleteReleased = isAthleteMonthReleased($athleteId, $isMonthReleased, $releasedAthleteIds);
+
+    if ($action === 'release_month_athlete') {
+        try {
+            $releaseAthleteUpsert = $pdo->prepare(
+                "INSERT INTO coach_billing_month_athletes (coach_id, athlete_id, billing_month, status, released_at)
+                 VALUES (?, ?, ?, 'released', NOW())
+                 ON DUPLICATE KEY UPDATE status = 'released', released_at = NOW()"
+            );
+            $releaseAthleteUpsert->execute([$coachId, $athleteId, $selectedMonthSql]);
+            flash('success', 'Výzva byla otevřena pro sportovce ' . $athleteName . '.');
+        } catch (Throwable $e) {
+            flash('danger', 'Výzvu se nepodařilo otevřít pro vybraného sportovce.');
+        }
+        redirect(BASE_URL . '/payments.php?month=' . urlencode($selectedMonthParam));
+    }
+
+    if ($action === 'unrelease_month_athlete') {
+        try {
+            $releaseAthleteUpsert = $pdo->prepare(
+                "INSERT INTO coach_billing_month_athletes (coach_id, athlete_id, billing_month, status, released_at)
+                 VALUES (?, ?, ?, 'draft', NULL)
+                 ON DUPLICATE KEY UPDATE status = 'draft', released_at = NULL"
+            );
+            $releaseAthleteUpsert->execute([$coachId, $athleteId, $selectedMonthSql]);
+            flash('success', 'Výzva byla vrácena do konceptu pro sportovce ' . $athleteName . '.');
+        } catch (Throwable $e) {
+            flash('danger', 'Výzvu se nepodařilo vrátit do konceptu pro vybraného sportovce.');
+        }
+        redirect(BASE_URL . '/payments.php?month=' . urlencode($selectedMonthParam));
+    }
 
     if ($action === 'send_payment_email') {
-        if (!$isMonthReleased) {
-            flash('danger', 'Nejdříve označte měsíc jako výzvu k platbě.');
+        if (!$isAthleteReleased) {
+            flash('danger', 'Nejdříve otevřete výzvu k platbě (globálně nebo pro konkrétního sportovce).');
             redirect(BASE_URL . '/payments.php?month=' . urlencode($selectedMonthParam));
         }
 
@@ -656,8 +732,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             flash('danger', 'Evidenční tabulka plateb není dostupná.');
             redirect(BASE_URL . '/payments.php?month=' . urlencode($selectedMonthParam));
         }
-        if (!$isMonthReleased) {
-            flash('danger', 'Nejdříve označte měsíc jako výzvu k platbě.');
+        if (!$isAthleteReleased) {
+            flash('danger', 'Nejdříve otevřete výzvu k platbě (globálně nebo pro konkrétního sportovce).');
             redirect(BASE_URL . '/payments.php?month=' . urlencode($selectedMonthParam));
         }
 
@@ -913,8 +989,11 @@ renderHeader('Platby');
         <div class="small mt-1">
             <?= $isMonthReleased
                 ? 'Sportovci vidí QR výzvy a mohou platit.'
-                : 'Dokud měsíc neotevřete, sportovec neuvidí QR kód ani částku k úhradě.' ?>
+                : 'Můžete buď otevřít celý měsíc, nebo výzvy pustit jen vybraným sportovcům.' ?>
         </div>
+        <?php if (!$isMonthReleased): ?>
+            <div class="small mt-1">Individuálně otevřeno: <?= (int)$releasedAthleteCount ?> sportovců.</div>
+        <?php endif; ?>
     </div>
     <form method="post" class="d-inline">
         <?= csrfField() ?>
@@ -952,6 +1031,7 @@ renderHeader('Platby');
                             'transferred_sessions' => 0,
                         ];
                         $payment = $paymentsByAthlete[$athleteId] ?? null;
+                        $isAthleteReleased = isAthleteMonthReleased($athleteId, $isMonthReleased, $releasedAthleteIds);
                         $rate = $athlete['training_rate'] !== null ? (float)$athlete['training_rate'] : null;
                         $pairedRate = ($hasPairedTrainingRate && array_key_exists('paired_training_rate', $athlete) && $athlete['paired_training_rate'] !== null)
                             ? (float)$athlete['paired_training_rate']
@@ -981,7 +1061,7 @@ renderHeader('Platby');
                             . '. Účet: ' . ($coachBankAccount ?? '')
                             . '. Poznámka: ' . $paymentNote
                             . '. QR: ';
-                        $paymentQrUrl = ($isMonthReleased && $coachBankAccount !== null && $displayAmount !== null && $displayAmount > 0)
+                        $paymentQrUrl = ($isAthleteReleased && $coachBankAccount !== null && $displayAmount !== null && $displayAmount > 0)
                             ? buildPaymentQrUrl($coachBankAccount, $displayAmount, $paymentNote)
                             : null;
                         $hasDiff = $payment && (((int)$payment['planned_sessions'] !== $currentSessions) || ((float)$payment['billed_amount'] !== (float)($currentAmount ?? 0)));
@@ -1044,7 +1124,7 @@ renderHeader('Platby');
                                         <div class="small text-danger">Kalendář se od poslední evidence změnil.</div>
                                     <?php endif; ?>
                                 <?php else: ?>
-                                    <?php if ($isMonthReleased): ?>
+                                    <?php if ($isAthleteReleased): ?>
                                         <span class="badge bg-secondary">Neuhrazeno</span>
                                     <?php else: ?>
                                         <span class="badge bg-warning text-dark">Čeká na vystavení výzvy</span>
@@ -1078,6 +1158,17 @@ renderHeader('Platby');
                                     <a href="<?= BASE_URL ?>/athlete_edit.php?id=<?= $athleteId ?>&return_to=<?= urlencode(BASE_URL . '/payments.php?month=' . $selectedMonthParam) ?>" class="btn btn-outline-secondary btn-sm">
                                         <i class="fas fa-pen me-1"></i>Sazba
                                     </a>
+                                    <?php if (!$isMonthReleased): ?>
+                                        <form method="post" class="d-inline">
+                                            <?= csrfField() ?>
+                                            <input type="hidden" name="month" value="<?= h($selectedMonthParam) ?>">
+                                            <input type="hidden" name="athlete_id" value="<?= $athleteId ?>">
+                                            <input type="hidden" name="action" value="<?= $isAthleteReleased ? 'unrelease_month_athlete' : 'release_month_athlete' ?>">
+                                            <button type="submit" class="btn <?= $isAthleteReleased ? 'btn-outline-warning' : 'btn-outline-success' ?> btn-sm">
+                                                <?= $isAthleteReleased ? 'Zavřít výzvu' : 'Otevřít výzvu' ?>
+                                            </button>
+                                        </form>
+                                    <?php endif; ?>
                                     <?php if ($payment && ($payment['status'] ?? '') === 'paid'): ?>
                                         <form method="post" class="d-inline">
                                             <?= csrfField() ?>
@@ -1092,7 +1183,7 @@ renderHeader('Platby');
                                             <input type="hidden" name="month" value="<?= h($selectedMonthParam) ?>">
                                             <input type="hidden" name="athlete_id" value="<?= $athleteId ?>">
                                             <input type="hidden" name="action" value="mark_paid">
-                                            <button type="submit" class="btn btn-success btn-sm" <?= ($rate === null || !$isMonthReleased) ? 'disabled' : '' ?>>Označit uhrazeno</button>
+                                            <button type="submit" class="btn btn-success btn-sm" <?= ($rate === null || !$isAthleteReleased) ? 'disabled' : '' ?>>Označit uhrazeno</button>
                                         </form>
                                     <?php endif; ?>
                                 </div>

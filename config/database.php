@@ -53,12 +53,24 @@ function getDB(): PDO {
         $errors = [];
         try {
             foreach ($hosts as $host) {
+                $port = null;
+                if (preg_match('/^\[(.+)\]:(\d+)$/', $host, $m)) {
+                    $host = $m[1];
+                    $port = (int)$m[2];
+                } elseif (preg_match('/^([^:]+):(\d+)$/', $host, $m)) {
+                    $host = $m[1];
+                    $port = (int)$m[2];
+                }
+
                 $dsn = sprintf(
                     'mysql:host=%s;dbname=%s;charset=%s',
                     $host,
                     DB_NAME,
                     DB_CHARSET
                 );
+                if ($port !== null) {
+                    $dsn .= ';port=' . $port;
+                }
                 try {
                     $pdo = new PDO($dsn, DB_USER, DB_PASS, $options);
                     ensureSchemaUpgrades($pdo);

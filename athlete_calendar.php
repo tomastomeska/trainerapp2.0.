@@ -216,8 +216,24 @@ renderAthleteHeader('Muj kalendar');
                     <input type="hidden" id="reserveStart" value="">
 
                     <div class="mb-2">
-                        <label class="form-label fw-semibold">Začátek</label>
-                        <input type="text" class="form-control" id="reserveStartLabel" disabled>
+                        <label class="form-label fw-semibold">Čas začátku</label>
+                        <div class="row g-2">
+                            <div class="col-md-7">
+                                <input type="date" class="form-control" id="reserveDate" required>
+                            </div>
+                            <div class="col-3 col-md-3">
+                                <select id="reserveHour" class="form-select" required></select>
+                            </div>
+                            <div class="col-3 col-md-2">
+                                <select id="reserveMinute" class="form-select" required>
+                                    <option value="00">00</option>
+                                    <option value="15">15</option>
+                                    <option value="30">30</option>
+                                    <option value="45">45</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="small text-muted mt-1">Délka je vždy pevně 60 minut.</div>
                     </div>
 
                     <div class="mb-2">
@@ -290,6 +306,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const reserveModal = new bootstrap.Modal(reserveModalEl);
     const reserveLocationInput = document.getElementById('reserveLocation');
     const reserveLocationHint = document.getElementById('reserveLocationHint');
+    const reserveDateInput = document.getElementById('reserveDate');
+    const reserveHourInput = document.getElementById('reserveHour');
+    const reserveMinuteInput = document.getElementById('reserveMinute');
+    const reserveStartInput = document.getElementById('reserveStart');
     const reserveMakeupSuggestion = document.getElementById('reserveMakeupSuggestion');
     const reserveMakeupSuggestionText = document.getElementById('reserveMakeupSuggestionText');
     const reserveUseMakeupInput = document.getElementById('reserveUseMakeup');
@@ -434,6 +454,51 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function formatTimeCs(date) {
         return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+    }
+
+    function snapDateToQuarterHour(date) {
+        const d = new Date(date);
+        d.setSeconds(0, 0);
+        const minutes = d.getMinutes();
+        const snappedMinutes = Math.round(minutes / 15) * 15;
+        if (snappedMinutes >= 60) {
+            d.setHours(d.getHours() + 1, 0, 0, 0);
+        } else {
+            d.setMinutes(snappedMinutes, 0, 0);
+        }
+        return d;
+    }
+
+    function populateReserveHourOptions() {
+        reserveHourInput.innerHTML = '';
+        for (let hour = hourStart; hour < hourEnd; hour++) {
+            const value = String(hour).padStart(2, '0');
+            const option = document.createElement('option');
+            option.value = value;
+            option.textContent = value;
+            reserveHourInput.appendChild(option);
+        }
+    }
+
+    function syncReserveStartFromControls() {
+        const date = reserveDateInput.value;
+        const hour = reserveHourInput.value;
+        const minute = reserveMinuteInput.value;
+        if (!date || !hour || !minute) {
+            reserveStartInput.value = '';
+            return null;
+        }
+        reserveStartInput.value = `${date}T${hour}:${minute}`;
+        return new Date(`${date}T${hour}:${minute}`);
+    }
+
+    function setReserveStartControls(date) {
+        const snapped = snapDateToQuarterHour(date);
+        const minute = String(snapped.getMinutes()).padStart(2, '0');
+        reserveDateInput.value = toDateKey(snapped);
+        reserveHourInput.value = String(snapped.getHours()).padStart(2, '0');
+        reserveMinuteInput.value = ['00', '15', '30', '45'].includes(minute) ? minute : '00';
+        syncReserveStartFromControls();
     }
 
     function canCancelEventByTime(event) {
@@ -639,8 +704,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function openReserveModal(startDate) {
-        document.getElementById('reserveStart').value = toDateTimeInputValue(startDate);
-        document.getElementById('reserveStartLabel').value = `${formatDateCs(startDate)} ${formatTimeCs(startDate)}`;
+        populateReserveHourOptions();
+        setReserveStartControls(startDate);
         reserveLocationInput.value = '';
         updateReserveLocationHint();
         clearReserveMakeupSuggestion();
@@ -757,6 +822,15 @@ document.addEventListener('DOMContentLoaded', () => {
         updateReserveLocationHint();
     });
 
+    [reserveDateInput, reserveHourInput, reserveMinuteInput].forEach((input) => {
+        input.addEventListener('change', () => {
+            const startDate = syncReserveStartFromControls();
+            if (startDate instanceof Date && !Number.isNaN(startDate.getTime())) {
+                refreshReserveMakeupSuggestion(startDate);
+            }
+        });
+    });
+
     eventDetailCancelBtn.addEventListener('click', async () => {
         if (!selectedEventForDetail) {
             return;
@@ -781,7 +855,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const payload = {
             csrf_token: csrfToken,
-            starts_at: document.getElementById('reserveStart').value,
+            starts_at: reserveStartInput.value,
             title_type: document.querySelector('input[name="reserveTitleType"]:checked')?.value || 'training',
             location: reserveLocationInput.value.trim(),
             is_makeup_session: reserveUseMakeupInput.checked ? 1 : 0,
@@ -819,6 +893,7 @@ document.addEventListener('DOMContentLoaded', () => {
         loadWeekData();
     });
 
+    populateReserveHourOptions();
     updateReserveLocationHint();
     loadWeekData();
 });
