@@ -24,6 +24,10 @@ renderAthleteHeader('Návod pro sportovce');
     Tento návod je praktický postup pro každodenní práci sportovce v aplikaci, krok za krokem.
 </div>
 
+<div class="alert alert-success shadow-sm border-0">
+    <strong>Novinky v této verzi:</strong> v kalendáři lépe poznáte <strong>čekající požadavky na změnu termínu</strong> a také se zobrazují přesnější typy událostí, včetně <strong>skupinového tréninku / skupinové lekce</strong>.
+</div>
+
 <div class="card border-0 shadow-sm mb-4">
     <div class="card-header bg-dark text-white fw-semibold">
         <i class="fas fa-rocket me-2"></i>Jak začít po prvním přihlášení
@@ -78,6 +82,7 @@ renderAthleteHeader('Návod pro sportovce');
             <li>Zvolte možnost požadavku na změnu (pokud je dostupná).</li>
             <li>Napište stručný důvod a navrhněte alternativní čas.</li>
             <li>Odešlete požadavek a sledujte schválení trenérem.</li>
+            <li><strong>Nově</strong> se čekající požadavky zobrazují přehledněji, takže snadno poznáte, co ještě čeká na potvrzení.</li>
         </ol>
     </div>
 </div>
@@ -94,6 +99,7 @@ renderAthleteHeader('Návod pro sportovce');
 
         <h6 class="fw-bold mt-3">Jak číst detail tréninku</h6>
         <ol>
+            <li>U skupinových lekcí se nyní v přehledu zobrazí přesnější typ události, takže hned poznáte, o jaký termín jde.</li>
             <li>Zkontrolujte seznam cviků v tréninku.</li>
             <li>U každého cviku projděte série, opakování, váhy nebo čas.</li>
             <li>Porovnejte výkon s předchozími tréninky.</li>

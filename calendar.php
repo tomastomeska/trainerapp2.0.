@@ -466,6 +466,8 @@ renderHeader('Kalendář');
                             <option value="green" selected>Zelená</option>
                             <option value="red">Červená</option>
                             <option value="orange">Oranžová</option>
+                            <option value="teal">Tyrkysová</option>
+                            <option value="yellow">Žlutá</option>
                             <option value="purple">Fialová</option>
                             <option value="gray">Šedá</option>
                         </select>
@@ -509,6 +511,9 @@ renderHeader('Kalendář');
                     </div>
 
                     <div class="small text-muted mt-1" id="eventRepeatHint"></div>
+                    <div class="small text-muted mt-1">
+                        U jednorázové události lze opakování doplnit i dodatečně. Vytvoří se navazující termíny od tohoto data dál.
+                    </div>
 
                     <div class="mt-3">
                         <div class="form-check form-switch mb-2">
@@ -694,6 +699,8 @@ document.addEventListener('DOMContentLoaded', () => {
         green: { backColor: '#22c55e', barColor: '#16a34a', fontColor: '#ffffff' },
         red: { backColor: '#ef4444', barColor: '#dc2626', fontColor: '#ffffff' },
         orange: { backColor: '#f97316', barColor: '#ea580c', fontColor: '#ffffff' },
+        teal: { backColor: '#14b8a6', barColor: '#0f766e', fontColor: '#ffffff' },
+        yellow: { backColor: '#facc15', barColor: '#ca8a04', fontColor: '#111827' },
         purple: { backColor: '#8b5cf6', barColor: '#7c3aed', fontColor: '#ffffff' },
         gray: { backColor: '#6b7280', barColor: '#4b5563', fontColor: '#ffffff' },
     };
@@ -1087,7 +1094,7 @@ document.addEventListener('DOMContentLoaded', () => {
         eventRepeatUntilWrap.classList.toggle('d-none', !showUntilDate);
 
         if (eventRepeatModeInput.disabled) {
-            eventRepeatHint.textContent = 'Opakování lze nastavit pouze při vytváření nové události.';
+            eventRepeatHint.textContent = 'Tuto událost už nelze převést na nové opakování (je součástí série).';
         } else if (mode === 'none') {
             eventRepeatHint.textContent = '';
         } else {
@@ -1627,7 +1634,7 @@ document.addEventListener('DOMContentLoaded', () => {
             eventRepeatModeInput.value = 'none';
             eventRepeatUntilInput.value = '';
             eventIsMakeupInput.checked = Number(event.is_makeup_session || 0) === 1;
-            setRepeatControlsEnabled(false);
+            setRepeatControlsEnabled(!event.series_id);
             updateRepeatControls();
             deleteEventBtn.classList.remove('d-none');
             clearMakeupSuggestion();

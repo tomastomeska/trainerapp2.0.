@@ -83,8 +83,18 @@ renderAdminHeader('Trenéři');
                 <div class="coach-card__meta">
                     <div class="coach-stat-row">
                         <div class="coach-stat">
-                            <div class="coach-stat__value text-warning"><?= (int)$c['athlete_count'] ?></div>
-                            <div class="coach-stat__label">Sportovci</div>
+                            <div class="coach-stat__value text-warning">
+                                <a href="<?= BASE_URL ?>/admin/coach_athletes.php?coach_id=<?= (int)$c['id'] ?>"
+                                   class="text-warning text-decoration-none"
+                                   title="Zobrazit sportovce trenéra">
+                                    <?= (int)$c['athlete_count'] ?>
+                                </a>
+                            </div>
+                            <div class="coach-stat__label">
+                                <a href="<?= BASE_URL ?>/admin/coach_athletes.php?coach_id=<?= (int)$c['id'] ?>"
+                                   class="text-reset text-decoration-none"
+                                   title="Zobrazit sportovce trenéra">Sportovci</a>
+                            </div>
                         </div>
                         <div class="coach-stat">
                             <div class="coach-stat__value text-primary"><?= (int)$c['exercise_count'] ?></div>

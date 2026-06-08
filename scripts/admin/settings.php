@@ -10,11 +10,34 @@ $error   = null;
 $success = null;
 
 $logoSettingKey = 'login_logo_path';
+$supportBankAccountKey = 'support_bank_account';
 $logoUploadDir = __DIR__ . '/../uploads/logo';
 $logoBasePath = 'uploads/logo';
 
+function normalizeBankAccountInput(?string $raw): string|false|null
+{
+    $value = strtoupper(str_replace(' ', '', trim((string)$raw)));
+    if ($value === '') {
+        return null;
+    }
+
+    if (preg_match('/^[A-Z]{2}[0-9A-Z]{13,32}$/', $value) === 1) {
+        return $value;
+    }
+
+    if (
+        preg_match('/^[0-9]{1,6}-[0-9]{2,10}\/[0-9]{4}$/', $value) === 1 ||
+        preg_match('/^[0-9]{2,10}\/[0-9]{4}$/', $value) === 1
+    ) {
+        return $value;
+    }
+
+    return false;
+}
+
 $currentVersion = getAppSetting('app_version', APP_VERSION);
 $currentLogoPath = trim(getAppSetting($logoSettingKey, ''));
+$currentSupportBankAccount = trim(getAppSetting($supportBankAccountKey, ''));
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!verifyCsrf($_POST['csrf_token'] ?? '')) {
@@ -80,6 +103,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $currentLogoPath = '';
             $success = 'Logo přihlášení bylo odebráno.';
+        } elseif ($action === 'save_support_bank_account') {
+            $bankAccount = normalizeBankAccountInput($_POST['support_bank_account'] ?? '');
+
+            if ($bankAccount === false) {
+                $error = 'Zadejte platné číslo účtu (např. 123456789/0800 nebo IBAN).';
+            } else {
+                $pdo->prepare(
+                    'INSERT INTO app_settings (`key`, `value`) VALUES (?, ?)
+                     ON DUPLICATE KEY UPDATE `value` = VALUES(`value`)'
+                )->execute([$supportBankAccountKey, $bankAccount ?? '']);
+                $currentSupportBankAccount = $bankAccount ?? '';
+                $success = $bankAccount !== null
+                    ? 'Číslo účtu pro dobrovolné příspěvky bylo uloženo.'
+                    : 'Číslo účtu pro dobrovolné příspěvky bylo vymazáno.';
+            }
         } else {
             $version = trim($_POST['app_version'] ?? '');
             if ($version === '') {
@@ -151,6 +189,29 @@ renderAdminHeader('Nastavení aplikace');
                     style="background:#7c3aed;color:#fff;border:none">
                 <i class="fas fa-save me-1"></i>Uložit verzi
             </button>
+        </form>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm mt-4" style="max-width:760px">
+    <div class="card-header fw-bold" style="background:#1e1e2e;color:#fff">
+        <i class="fas fa-heart me-2"></i>Dobrovolný příspěvek na provoz aplikace
+    </div>
+    <div class="card-body">
+        <p class="text-muted mb-3">Toto číslo účtu se zobrazí sportovcům i trenérům v modulu podpory. Příspěvek je čistě dobrovolný, aplikace zůstává bezplatná.</p>
+        <form method="post" class="row g-3 align-items-end">
+            <?= csrfField() ?>
+            <input type="hidden" name="action" value="save_support_bank_account">
+            <div class="col-md-9">
+                <label for="supportBankAccountInput" class="form-label fw-semibold">Číslo účtu pro příspěvky</label>
+                <input type="text" name="support_bank_account" id="supportBankAccountInput" class="form-control form-control-lg" value="<?= h($currentSupportBankAccount) ?>" placeholder="Např. 123456789/0800 nebo CZ...">
+                <div class="form-text">Použije se v QR platbě jako cílový účet pro podporu vývoje, provozu webhostingu a placených nástrojů.</div>
+            </div>
+            <div class="col-md-3">
+                <button type="submit" class="btn fw-bold w-100" style="background:#7c3aed;color:#fff;border:none">
+                    <i class="fas fa-save me-1"></i>Uložit účet
+                </button>
+            </div>
         </form>
     </div>
 </div>

@@ -36,6 +36,26 @@ function coachDeleteHasColumn(PDO $pdo, string $table, string $column): bool
     return $stmt !== false && (bool)$stmt->fetch();
 }
 
+function coachHasActiveSlotForAthlete(PDO $pdo, int $coachId, int $athleteId, string $startsAt, string $endsAt): bool
+{
+    if ($athleteId <= 0) {
+        return false;
+    }
+
+    $stmt = $pdo->prepare(
+        'SELECT id
+         FROM coach_calendar_events
+         WHERE coach_id = ?
+           AND starts_at = ?
+           AND ends_at = ?
+           AND (athlete_id = ? OR second_athlete_id = ?)
+         LIMIT 1'
+    );
+    $stmt->execute([$coachId, $startsAt, $endsAt, $athleteId, $athleteId]);
+
+    return (bool)$stmt->fetchColumn();
+}
+
 if (!in_array($deleteScope, ['single', 'future'], true)) {
     $deleteScope = 'single';
 }
@@ -237,25 +257,41 @@ if (!empty($event['second_athlete_id'])) {
 
 if (!empty($participants)) {
     $isPendingRequest = (($event['approval_status'] ?? 'approved') === 'pending') && !empty($event['requested_by_athlete_id']);
-    if ($isPendingRequest) {
-        $subject = 'Požadavek termínu byl zamítnut';
-        $body = 'Trenér zamítl váš požadavek na termín ' . date('d.m.Y H:i', strtotime((string)$event['starts_at'])) . '.';
-    } elseif ($deleteScope === 'future') {
-        $subject = 'Zrušení série tréninků';
-        $body = 'Trenér zrušil navazující termíny od ' . date('d.m.Y H:i', strtotime((string)$event['starts_at'])) . '.';
-    } else {
-        $subject = 'Zrušení tréninku';
-        $body = 'Trenér zrušil trénink naplánovaný na ' . date('d.m.Y H:i', strtotime((string)$event['starts_at'])) . '.';
-    }
-
-    if ($paidAffectedCount > 0) {
-        $body .= ' Šlo o již uhrazený termín, který aplikace automaticky započte do další fakturace jako zápočet.';
-    }
+    $startLabel = date('d.m.Y H:i', strtotime((string)$event['starts_at']));
 
     foreach ($participants as $participant) {
         if (($participant['id'] ?? 0) <= 0) {
             continue;
         }
+
+        $participantId = (int)$participant['id'];
+        $hasReplacement = $deleteScope === 'single'
+            && coachHasActiveSlotForAthlete(
+                $pdo,
+                $coachId,
+                $participantId,
+                (string)$event['starts_at'],
+                (string)$event['ends_at']
+            );
+
+        if ($isPendingRequest) {
+            $subject = 'Požadavek termínu byl zamítnut';
+            $body = 'Trenér zamítl váš požadavek na termín ' . $startLabel . '.';
+        } elseif ($deleteScope === 'future') {
+            $subject = 'Zrušení série tréninků';
+            $body = 'Trenér zrušil navazující termíny od ' . $startLabel . '.';
+        } elseif ($hasReplacement) {
+            $subject = 'Úprava termínu tréninku';
+            $body = 'Původní termín ' . $startLabel . ' byl trenérem změněn. Ve stejném čase je evidovaný nový aktivní termín.';
+        } else {
+            $subject = 'Zrušení tréninku';
+            $body = 'Trenér zrušil trénink naplánovaný na ' . $startLabel . '.';
+        }
+
+        if ($paidAffectedCount > 0) {
+            $body .= ' Šlo o již uhrazený termín, který aplikace automaticky započte do další fakturace jako zápočet.';
+        }
+
         createAthleteNotification((int)$participant['id'], $subject, $body);
         if (!empty($participant['email'])) {
             $name = $participant['name'] !== '' ? $participant['name'] : 'sportovec';

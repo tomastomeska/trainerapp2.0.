@@ -38,6 +38,95 @@ if (!function_exists('formatDateTime')) {
     }
 }
 
+if (!function_exists('ibanToNumericString')) {
+  function ibanToNumericString(string $iban): string {
+    $rearranged = substr($iban, 4) . substr($iban, 0, 4);
+    $numeric = '';
+    $len = strlen($rearranged);
+    for ($i = 0; $i < $len; $i++) {
+      $char = $rearranged[$i];
+      if ($char >= '0' && $char <= '9') {
+        $numeric .= $char;
+      } elseif ($char >= 'A' && $char <= 'Z') {
+        $numeric .= (string)(ord($char) - 55);
+      }
+    }
+    return $numeric;
+  }
+}
+
+if (!function_exists('digitsMod97')) {
+  function digitsMod97(string $digits): int {
+    $remainder = 0;
+    $len = strlen($digits);
+    for ($i = 0; $i < $len; $i++) {
+      $remainder = ($remainder * 10 + (int)$digits[$i]) % 97;
+    }
+    return $remainder;
+  }
+}
+
+if (!function_exists('isValidIban')) {
+  function isValidIban(string $iban): bool {
+    if (preg_match('/^[A-Z]{2}[0-9A-Z]{13,32}$/', $iban) !== 1) {
+      return false;
+    }
+
+    return digitsMod97(ibanToNumericString($iban)) === 1;
+  }
+}
+
+if (!function_exists('buildCzIbanFromLocal')) {
+  function buildCzIbanFromLocal(string $localAccount): ?string {
+    if (preg_match('/^(?:(\d{1,6})-)?(\d{2,10})\/(\d{4})$/', $localAccount, $m) !== 1) {
+      return null;
+    }
+
+    $prefix = str_pad((string)($m[1] ?? '0'), 6, '0', STR_PAD_LEFT);
+    $account = str_pad($m[2], 10, '0', STR_PAD_LEFT);
+    $bankCode = $m[3];
+    $bban = $bankCode . $prefix . $account;
+
+    $checkBase = $bban . '123500';
+    $checkDigits = 98 - digitsMod97($checkBase);
+    $iban = 'CZ' . str_pad((string)$checkDigits, 2, '0', STR_PAD_LEFT) . $bban;
+
+    return isValidIban($iban) ? $iban : null;
+  }
+}
+
+if (!function_exists('accountForSpd')) {
+  function accountForSpd(?string $bankAccount): ?string {
+    if ($bankAccount === null || $bankAccount === '') {
+      return null;
+    }
+
+    if (preg_match('/^[A-Z]{2}[0-9A-Z]{13,32}$/', $bankAccount) === 1) {
+      return isValidIban($bankAccount) ? $bankAccount : null;
+    }
+
+    return buildCzIbanFromLocal($bankAccount);
+  }
+}
+
+if (!function_exists('paymentAsciiText')) {
+  function paymentAsciiText(string $value): string {
+    $text = trim($value);
+    if ($text === '') {
+      return '';
+    }
+
+    $converted = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $text);
+    if ($converted !== false) {
+      $text = $converted;
+    }
+
+    $text = preg_replace('/[^A-Za-z0-9 .\/-]/', '', $text) ?? '';
+    $text = preg_replace('/\s+/', ' ', $text) ?? '';
+    return trim($text);
+  }
+}
+
 function calculateAge(?string $birthDate): ?int {
     if (!$birthDate) {
         return null;
@@ -288,55 +377,56 @@ function resizeAndSavePhoto(string $inputName, string $subDir, int $maxDim = 192
         'image/gif'  => 'gif',
         'image/webp' => 'webp',
     ];
+
     if (!array_key_exists($mime, $allowed)) {
-        return null;
+      return null;
     }
 
     $dir = dirname(__DIR__) . '/uploads/' . $subDir . '/';
     if (!is_dir($dir)) {
-        mkdir($dir, 0755, true);
+      mkdir($dir, 0755, true);
     }
 
     // Pokud GD není dostupné, ulož soubor bez resize
     if (!extension_loaded('gd')) {
-        $ext      = $allowed[$mime];
-        $filename = bin2hex(random_bytes(16)) . '.' . $ext;
-        if (!move_uploaded_file($file['tmp_name'], $dir . $filename)) {
-            return null;
-        }
-        return $filename;
+      $ext      = $allowed[$mime];
+      $filename = bin2hex(random_bytes(16)) . '.' . $ext;
+      if (!move_uploaded_file($file['tmp_name'], $dir . $filename)) {
+        return null;
+      }
+      return $filename;
     }
 
     // Načti obraz přes GD
     $src = match ($mime) {
-        'image/jpeg' => @imagecreatefromjpeg($file['tmp_name']),
-        'image/png'  => @imagecreatefrompng($file['tmp_name']),
-        'image/gif'  => @imagecreatefromgif($file['tmp_name']),
-        'image/webp' => @imagecreatefromwebp($file['tmp_name']),
-        default      => false,
+      'image/jpeg' => @imagecreatefromjpeg($file['tmp_name']),
+      'image/png'  => @imagecreatefrompng($file['tmp_name']),
+      'image/gif'  => @imagecreatefromgif($file['tmp_name']),
+      'image/webp' => @imagecreatefromwebp($file['tmp_name']),
+      default      => false,
     };
 
     if (!$src) {
-        // GD nepodporuje soubor, ulož přímo
-        $ext      = $allowed[$mime];
-        $filename = bin2hex(random_bytes(16)) . '.' . $ext;
-        if (!move_uploaded_file($file['tmp_name'], $dir . $filename)) {
-            return null;
-        }
-        return $filename;
+      // GD nepodporuje soubor, ulož přímo
+      $ext      = $allowed[$mime];
+      $filename = bin2hex(random_bytes(16)) . '.' . $ext;
+      if (!move_uploaded_file($file['tmp_name'], $dir . $filename)) {
+        return null;
+      }
+      return $filename;
     }
 
     // Oprav orientaci dle EXIF (fotky z mobilů jsou často "na šířku" se EXIF rotací)
     if ($mime === 'image/jpeg' && function_exists('exif_read_data')) {
-        $exif        = @exif_read_data($file['tmp_name']);
-        $orientation = (int)($exif['Orientation'] ?? 1);
-        if ($orientation > 1) {
-            $corrected = _applyExifOrientation($src, $orientation);
-            if ($corrected !== $src) {
-                imagedestroy($src);
-                $src = $corrected;
-            }
+      $exif        = @exif_read_data($file['tmp_name']);
+      $orientation = (int)($exif['Orientation'] ?? 1);
+      if ($orientation > 1) {
+        $corrected = _applyExifOrientation($src, $orientation);
+        if ($corrected !== $src) {
+          imagedestroy($src);
+          $src = $corrected;
         }
+      }
     }
 
     $origW = imagesx($src);
@@ -344,26 +434,26 @@ function resizeAndSavePhoto(string $inputName, string $subDir, int $maxDim = 192
 
     // Vypočítej nové rozměry (zmenšení jen pokud je větší než maxDim)
     if ($origW > $maxDim || $origH > $maxDim) {
-        $ratio  = min($maxDim / $origW, $maxDim / $origH);
-        $newW   = (int)round($origW * $ratio);
-        $newH   = (int)round($origH * $ratio);
+      $ratio  = min($maxDim / $origW, $maxDim / $origH);
+      $newW   = (int)round($origW * $ratio);
+      $newH   = (int)round($origH * $ratio);
     } else {
-        $newW = $origW;
-        $newH = $origH;
+      $newW = $origW;
+      $newH = $origH;
     }
 
     $dst = imagecreatetruecolor($newW, $newH);
     if (!$dst) {
-        imagedestroy($src);
-        return null;
+      imagedestroy($src);
+      return null;
     }
 
     // Zachovej průhlednost pro PNG
     if ($mime === 'image/png') {
-        imagealphablending($dst, false);
-        imagesavealpha($dst, true);
-        $transparent = imagecolorallocatealpha($dst, 0, 0, 0, 127);
-        imagefilledrectangle($dst, 0, 0, $newW, $newH, $transparent);
+      imagealphablending($dst, false);
+      imagesavealpha($dst, true);
+      $transparent = imagecolorallocatealpha($dst, 0, 0, 0, 127);
+      imagefilledrectangle($dst, 0, 0, $newW, $newH, $transparent);
     }
 
     imagecopyresampled($dst, $src, 0, 0, 0, 0, $newW, $newH, $origW, $origH);
@@ -391,7 +481,7 @@ function resizeAndSavePhoto(string $inputName, string $subDir, int $maxDim = 192
  * @param \GdImage|resource $img
  * @return \GdImage|resource
  */
-function _applyExifOrientation($img, int $orientation) {
+function _applyExifOrientation(GdImage $img, int $orientation): GdImage {
     switch ($orientation) {
         case 2:
             imageflip($img, IMG_FLIP_HORIZONTAL);
@@ -475,6 +565,86 @@ function photoUrl(?string $filename, string $subDir): string {
  * Uloží jednu nebo více fotek z upload inputu.
  * Podporuje input typu single i multiple.
  *
+        if (!function_exists('ibanToNumericString')) {
+          function ibanToNumericString(string $iban): string {
+            $rearranged = substr($iban, 4) . substr($iban, 0, 4);
+            $numeric = '';
+            $len = strlen($rearranged);
+            for ($i = 0; $i < $len; $i++) {
+              $char = $rearranged[$i];
+              if ($char >= '0' && $char <= '9') {
+                $numeric .= $char;
+              } elseif ($char >= 'A' && $char <= 'Z') {
+                $numeric .= (string)(ord($char) - 55);
+              }
+            }
+            return $numeric;
+          }
+        }
+    
+        if (!function_exists('digitsMod97')) {
+          function digitsMod97(string $digits): int {
+            $remainder = 0;
+            $len = strlen($digits);
+            for ($i = 0; $i < $len; $i++) {
+              $remainder = ($remainder * 10 + (int)$digits[$i]) % 97;
+            }
+            return $remainder;
+          }
+        }
+    
+        if (!function_exists('isValidIban')) {
+          function isValidIban(string $iban): bool {
+            if (preg_match('/^[A-Z]{2}[0-9A-Z]{13,32}$/', $iban) !== 1) {
+              return false;
+            }
+            return digitsMod97(ibanToNumericString($iban)) === 1;
+          }
+        }
+    
+        if (!function_exists('buildCzIbanFromLocal')) {
+          function buildCzIbanFromLocal(string $localAccount): ?string {
+            if (preg_match('/^(?:(\d{1,6})-)?(\d{2,10})\/(\d{4})$/', $localAccount, $m) !== 1) {
+              return null;
+            }
+            $prefix = str_pad((string)($m[1] ?? '0'), 6, '0', STR_PAD_LEFT);
+            $account = str_pad($m[2], 10, '0', STR_PAD_LEFT);
+            $bankCode = $m[3];
+            $bban = $bankCode . $prefix . $account;
+            $checkBase = $bban . '123500';
+            $checkDigits = 98 - digitsMod97($checkBase);
+            $iban = 'CZ' . str_pad((string)$checkDigits, 2, '0', STR_PAD_LEFT) . $bban;
+            return isValidIban($iban) ? $iban : null;
+          }
+        }
+    
+        if (!function_exists('accountForSpd')) {
+          function accountForSpd(?string $bankAccount): ?string {
+            if ($bankAccount === null || $bankAccount === '') {
+              return null;
+            }
+            if (preg_match('/^[A-Z]{2}[0-9A-Z]{13,32}$/', $bankAccount) === 1) {
+              return isValidIban($bankAccount) ? $bankAccount : null;
+            }
+            return buildCzIbanFromLocal($bankAccount);
+          }
+        }
+    
+        if (!function_exists('paymentAsciiText')) {
+          function paymentAsciiText(string $value): string {
+            $text = trim($value);
+            if ($text === '') {
+              return '';
+            }
+            $converted = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $text);
+            if ($converted !== false) {
+              $text = $converted;
+            }
+            $text = preg_replace('/[^A-Za-z0-9 .\/-]/', '', $text) ?? '';
+            $text = preg_replace('/\s+/', ' ', $text) ?? '';
+            return trim($text);
+          }
+        }
  * @return string[] Pole názvů uložených souborů.
  */
 function saveTrainingPhotosFromInput(string $inputName, string $subDir = 'trainings', int $maxPhotoSize = 8388608): array {

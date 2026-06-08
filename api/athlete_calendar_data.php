@@ -69,14 +69,15 @@ $eventsStmt->execute([
 $events = $eventsStmt->fetchAll();
 
 foreach ($events as &$event) {
+    $isPending = (($event['approval_status'] ?? 'approved') === 'pending');
     $event['is_mine'] = ((int)$event['athlete_id'] === $athleteId || (int)($event['second_athlete_id'] ?? 0) === $athleteId);
-    $event['is_requested_by_me'] = ((int)($event['requested_by_athlete_id'] ?? 0) === $athleteId);
+    $event['is_requested_by_me'] = $isPending && ((int)($event['requested_by_athlete_id'] ?? 0) === $athleteId);
     $event['is_foreign'] = !($event['is_mine'] || $event['is_requested_by_me']);
     $canCancelOwnership = ($event['is_mine'] || $event['is_requested_by_me']);
     $eventStartTs = strtotime((string)($event['starts_at'] ?? ''));
     $canCancelByTime = ($eventStartTs !== false && $eventStartTs > time());
     $event['can_cancel'] = ($canCancelOwnership && $canCancelByTime);
-    $event['is_pending'] = (($event['approval_status'] ?? 'approved') === 'pending');
+    $event['is_pending'] = $isPending;
     $event['was_modified_by_coach'] = !empty($event['coach_modified_at']);
 
     if ($event['is_foreign']) {

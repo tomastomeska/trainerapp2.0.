@@ -393,6 +393,8 @@ document.addEventListener('DOMContentLoaded', () => {
         green: { backColor: '#22c55e', barColor: '#16a34a', fontColor: '#ffffff' },
         red: { backColor: '#ef4444', barColor: '#dc2626', fontColor: '#ffffff' },
         orange: { backColor: '#f97316', barColor: '#ea580c', fontColor: '#ffffff' },
+        teal: { backColor: '#14b8a6', barColor: '#0f766e', fontColor: '#ffffff' },
+        yellow: { backColor: '#facc15', barColor: '#ca8a04', fontColor: '#111827' },
         purple: { backColor: '#8b5cf6', barColor: '#7c3aed', fontColor: '#ffffff' },
         gray: { backColor: '#6b7280', barColor: '#4b5563', fontColor: '#ffffff' },
     };

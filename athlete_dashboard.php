@@ -72,6 +72,14 @@ if (!$athlete) {
     redirect(BASE_URL . '/login.php');
 }
 
+$supportBankAccount = trim(getAppSetting('support_bank_account', ''));
+$supportContributorName = trim((string)($athlete['first_name'] . ' ' . $athlete['last_name']));
+if ($supportContributorName === '') {
+    $supportContributorName = 'sportovec';
+}
+$supportBankAccountForQr = accountForSpd($supportBankAccount);
+$supportQrNote = paymentAsciiText('Podpora TrainerApp - ' . $supportContributorName);
+
 $unreadInboxCount = 0;
 try {
     $unreadStmt = $pdo->prepare(
@@ -164,16 +172,27 @@ $sessionsStmt->execute([$athleteId]);
 $sessions = $sessionsStmt->fetchAll();
 
 $weightHistory = getAthleteWeightHistory($athleteId, 200);
+usort($weightHistory, static function (array $a, array $b): int {
+    $dateCompare = strcmp((string)($b['measured_at'] ?? ''), (string)($a['measured_at'] ?? ''));
+    if ($dateCompare !== 0) {
+        return $dateCompare;
+    }
+
+    return ((int)($b['id'] ?? 0)) <=> ((int)($a['id'] ?? 0));
+});
 $weightStats = getAthleteWeightStats($athleteId);
 $editWeightLogId = intParam($_GET, 'edit_weight');
 $editingWeightLog = $editWeightLogId > 0 ? getAthleteWeightLogById($editWeightLogId, $athleteId) : null;
 $weightFormAction = $editingWeightLog ? 'update_weight' : 'save_weight';
 $weightFormDate = $editingWeightLog['measured_at'] ?? date('Y-m-d');
 $weightFormValue = $editingWeightLog['weight_kg'] ?? '';
-$weightPreviewLimit = 10;
+$weightPreviewLimit = 5;
 $weightVisibleRows = array_slice($weightHistory, 0, $weightPreviewLimit);
 $weightCollapsedRows = array_slice($weightHistory, $weightPreviewLimit);
 $weightShouldExpandAll = $editingWeightLog !== null;
+$trainingPreviewLimit = 5;
+$trainingVisibleRows = array_slice($sessions, 0, $trainingPreviewLimit);
+$trainingCollapsedRows = array_slice($sessions, $trainingPreviewLimit);
 
 $paymentSummary = null;
 try {
@@ -250,6 +269,16 @@ renderAthleteHeader('Profil sportovce');
         <span class="quick-tile__label"><i class="fas fa-key me-1"></i>Heslo</span>
         <span class="quick-tile__value"><i class="fas fa-chevron-right"></i></span>
     </a>
+</div>
+
+<div class="border rounded-3 bg-light px-3 py-2 mb-4 d-flex flex-wrap justify-content-between align-items-center gap-2">
+    <div class="text-muted small">
+        <i class="fas fa-heart me-1 text-secondary"></i>
+        Pokud chcete podpořit provoz aplikace, je tu i dobrovolná možnost příspěvku.
+    </div>
+    <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#supportContributionModal">
+        Zobrazit možnosti
+    </button>
 </div>
 
 <div class="row g-4 mb-4">
@@ -472,7 +501,7 @@ renderAthleteHeader('Profil sportovce');
                 </tr>
                 </thead>
                 <tbody>
-                <?php foreach ($sessions as $s): ?>
+                <?php foreach ($trainingVisibleRows as $s): ?>
                 <tr>
                     <td><?= formatDateTime((string)$s['started_at']) ?></td>
                     <td><?= h((string)$s['set_name']) ?></td>
@@ -492,10 +521,118 @@ renderAthleteHeader('Profil sportovce');
                 </tr>
                 <?php endforeach; ?>
                 </tbody>
+                <?php if (!empty($trainingCollapsedRows)): ?>
+                <tbody id="athleteTrainingHistoryCollapse" class="collapse">
+                <?php foreach ($trainingCollapsedRows as $s): ?>
+                <tr>
+                    <td><?= formatDateTime((string)$s['started_at']) ?></td>
+                    <td><?= h((string)$s['set_name']) ?></td>
+                    <td><?= !empty($s['location']) ? h((string)$s['location']) : '–' ?></td>
+                    <td>
+                        <?php if (!empty($s['completed_at'])): ?>
+                        <span class="badge bg-success">Dokončeno</span>
+                        <?php else: ?>
+                        <span class="badge bg-warning text-dark">Naplánováno / probíhá</span>
+                        <?php endif; ?>
+                    </td>
+                    <td>
+                        <a href="<?= BASE_URL ?>/athlete_training_detail.php?id=<?= (int)$s['id'] ?>" class="btn btn-sm btn-outline-secondary">
+                            <i class="fas fa-eye me-1"></i>Detail
+                        </a>
+                    </td>
+                </tr>
+                <?php endforeach; ?>
+                </tbody>
+                <?php endif; ?>
             </table>
         </div>
+        <?php if (!empty($trainingCollapsedRows)): ?>
+        <div class="border-top p-3 text-center bg-light">
+            <button class="btn btn-outline-dark btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#athleteTrainingHistoryCollapse" aria-expanded="false" aria-controls="athleteTrainingHistoryCollapse">
+                <i class="fas fa-chevron-down me-1"></i>
+                Zobrazit starší tréninky (<?= count($trainingCollapsedRows) ?>)
+            </button>
+        </div>
+        <?php endif; ?>
         <?php endif; ?>
     </div>
 </div>
+
+<div class="modal fade" id="supportContributionModal" tabindex="-1" aria-labelledby="supportContributionModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-dark text-white">
+                <h5 class="modal-title" id="supportContributionModalLabel"><i class="fas fa-heart me-2 text-warning"></i>Dobrovolná podpora provozu</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Zavřít"></button>
+            </div>
+            <div class="modal-body">
+                <p class="small text-muted mb-2">Jde jen o volitelnou podporu provozu aplikace. Aplikace zůstává zdarma a nic není potřeba platit.</p>
+                <?php if ($supportBankAccountForQr === null): ?>
+                <div class="alert alert-warning mb-3">Pro tento účet zatím není v administraci nastavené číslo účtu.</div>
+                <?php else: ?>
+                <div class="mb-3">
+                    <label for="supportContributionAmount" class="form-label fw-semibold">Částka</label>
+                    <input type="number" min="1" step="1" class="form-control form-control-lg" id="supportContributionAmount" placeholder="Např. 100">
+                </div>
+                <div class="border rounded-3 p-3 bg-light mb-3">
+                    <img id="supportContributionQrImage" src="" alt="QR kód pro příspěvek" class="img-fluid border rounded p-2 bg-white d-none" style="max-width:220px;">
+                    <div id="supportContributionQrEmpty" class="text-muted small">Zadejte částku a QR kód se zobrazí automaticky.</div>
+                </div>
+                <div class="small"><strong>Účet:</strong> <span id="supportContributionAccount"><?= h($supportBankAccount) ?></span></div>
+                <div class="small"><strong>Odesílatel:</strong> <span id="supportContributionSender"><?= h($supportContributorName) ?></span></div>
+                <div class="small"><strong>Poznámka:</strong> <span id="supportContributionNotePreview"><?= h($supportQrNote) ?></span></div>
+                <?php endif; ?>
+            </div>
+            <div class="modal-footer justify-content-between flex-wrap gap-2">
+                <div class="small text-muted">Aplikace zůstává bezplatná. Příspěvek je pouze dobrovolná pomoc s provozem.</div>
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Zavřít</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+    const supportBankAccount = <?= json_encode($supportBankAccountForQr, JSON_UNESCAPED_UNICODE) ?>;
+    const supportContributorName = <?= json_encode($supportContributorName, JSON_UNESCAPED_UNICODE) ?>;
+    const supportQrNote = <?= json_encode($supportQrNote, JSON_UNESCAPED_UNICODE) ?>;
+    const amountInput = document.getElementById('supportContributionAmount');
+    const qrImage = document.getElementById('supportContributionQrImage');
+    const qrEmpty = document.getElementById('supportContributionQrEmpty');
+
+    if (!amountInput || !qrImage || !qrEmpty || supportBankAccount === null) {
+        return;
+    }
+
+    const buildQrUrl = (amount) => {
+        const spd = [
+            'SPD*1.0',
+            'ACC:' + supportBankAccount,
+            'CC:CZK',
+            'AM:' + amount.toFixed(2),
+            'MSG:' + supportQrNote,
+        ].join('*');
+
+        return 'https://quickchart.io/qr?size=220&text=' + encodeURIComponent(spd);
+    };
+
+    const updateQr = () => {
+        const amount = parseFloat(String(amountInput.value || '').replace(',', '.'));
+        if (!Number.isFinite(amount) || amount <= 0) {
+            qrImage.classList.add('d-none');
+            qrEmpty.classList.remove('d-none');
+            qrImage.removeAttribute('src');
+            return;
+        }
+
+        qrImage.src = buildQrUrl(amount);
+        qrImage.classList.remove('d-none');
+        qrEmpty.classList.add('d-none');
+    };
+
+    amountInput.addEventListener('input', updateQr);
+    amountInput.addEventListener('change', updateQr);
+})();
+</script>
 
 <?php renderAthleteFooter();

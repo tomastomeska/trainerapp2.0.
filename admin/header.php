@@ -68,7 +68,7 @@ function renderAdminHeader(string $title = ''): void {
 					<i class="fas fa-gauge-high me-2"></i>Přehled
 				</a>
 				<a href="<?= BASE_URL ?>/admin/coaches.php"
-				   class="nav-link <?= in_array(basename($_SERVER['PHP_SELF']), ['coaches.php','coach_add.php','coach_edit.php','coach_delete.php','coach_deleted_trainings.php']) ? 'active' : '' ?>">
+				   class="nav-link <?= in_array(basename($_SERVER['PHP_SELF']), ['coaches.php','coach_add.php','coach_edit.php','coach_delete.php','coach_deleted_trainings.php','coach_athletes.php']) ? 'active' : '' ?>">
 					<i class="fas fa-user-tie me-2"></i>Trenéři
 				</a>
 				<a href="<?= BASE_URL ?>/admin/exercises.php"

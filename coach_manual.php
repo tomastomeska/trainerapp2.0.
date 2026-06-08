@@ -24,6 +24,10 @@ renderHeader('Návod pro trenéry');
     Tento návod je praktický pracovní postup krok za krokem. Každá kapitola popisuje přesně co otevřít, co vyplnit a co zkontrolovat.
 </div>
 
+<div class="alert alert-success shadow-sm border-0">
+    <strong>Novinky v této verzi:</strong> v kalendáři lze nově pracovat s typem události <strong>Skupinový trénink / skupinová lekce</strong> a v měsíčním přehledu rychle schvalovat čekající požadavky sportovců přímo z přehledu.
+</div>
+
 <div class="card border-0 shadow-sm mb-4">
     <div class="card-header bg-dark text-white fw-semibold">
         <i class="fas fa-list-check me-2"></i>Jak začít od nuly (doporučené pořadí)
@@ -50,7 +54,7 @@ renderHeader('Návod pro trenéry');
         <ol>
             <li>V horním menu otevřete Sportovci.</li>
             <li>Klikněte na Přidat sportovce.</li>
-            <li>Vyplňte povinná pole (jméno, příjmení, přihlašovací údaje a další zobrazená pole).</li>
+            <li>Vyplňte povinná pole (jméno, příjmení, přihlašovací údaje a další zobrazená pole) a zkontrolujte, že sportovec patří pod správného trenéra.</li>
             <li>Zkontrolujte, že nejsou překlepy v e-mailu a uživatelském jménu.</li>
             <li>Klikněte na Uložit.</li>
             <li>Po uložení otevřete detail sportovce a ověřte, že se profil vytvořil správně.</li>
@@ -158,7 +162,7 @@ renderHeader('Návod pro trenéry');
             <li>Otevřete Kalendář.</li>
             <li>Klikněte na Nový termín.</li>
             <li>Zvolte sportovce (nebo dva sportovce pro párový trénink).</li>
-            <li>Vyplňte datum, čas, místo a typ události.</li>
+            <li>Vyplňte datum, čas, místo a typ události. U nových akcí můžete použít i <strong>Skupinový trénink / skupinovou lekci</strong>.</li>
             <li>Uložte termín.</li>
             <li>Zkontrolujte, že se termín zobrazil v kalendáři správně.</li>
         </ol>
@@ -169,6 +173,7 @@ renderHeader('Návod pro trenéry');
             <li>Zvolte Upravit nebo Zrušit.</li>
             <li>Při úpravě změňte potřebná pole a uložte.</li>
             <li>Po zrušení ověřte, že událost zmizela nebo je označená jako zrušená.</li>
+            <li>V měsíčním přehledu si průběžně hlídejte také požadavky na schválení, abyste je nemuseli dohledávat v detailu každého dne.</li>
         </ol>
     </div>
 </div>

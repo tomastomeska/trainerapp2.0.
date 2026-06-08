@@ -8,6 +8,20 @@ requireLogin();
 $coachId = getCurrentCoachId();
 $pdo     = getDB();
 
+$supportBankAccount = trim(getAppSetting('support_bank_account', ''));
+$coachSupportStmt = $pdo->prepare('SELECT id, name, username FROM coaches WHERE id = ? LIMIT 1');
+$coachSupportStmt->execute([$coachId]);
+$coachSupportRow = $coachSupportStmt->fetch() ?: [];
+$supportContributorName = trim((string)($coachSupportRow['name'] ?? ''));
+if ($supportContributorName === '') {
+    $supportContributorName = trim((string)($coachSupportRow['username'] ?? ''));
+}
+if ($supportContributorName === '') {
+    $supportContributorName = 'trenér';
+}
+$supportBankAccountForQr = accountForSpd($supportBankAccount);
+$supportQrNote = paymentAsciiText('Podpora TrainerApp - ' . $supportContributorName);
+
 // Načtení sportovců s doplňkovými info
 $stmt = $pdo->prepare(
     'SELECT a.*, 
@@ -110,6 +124,16 @@ renderHeader('Dashboard');
             <i class="fas fa-plus me-1"></i>Přidat sportovce
         </a>
     </div>
+</div>
+
+<div class="border rounded-3 bg-light px-3 py-2 mb-3 d-flex flex-wrap justify-content-between align-items-center gap-2">
+    <div class="text-muted small">
+        <i class="fas fa-heart me-1 text-secondary"></i>
+        Pokud chcete podpořit provoz aplikace, je tu i dobrovolná možnost příspěvku.
+    </div>
+    <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#supportContributionModal">
+        Zobrazit možnosti
+    </button>
 </div>
 
 <?php if (!empty($activeIndividualSessions) || !empty($activePairedSessions)): ?>
@@ -281,5 +305,82 @@ renderHeader('Dashboard');
     <?php endforeach; ?>
 </div>
 <?php endif; ?>
+
+<div class="modal fade" id="supportContributionModal" tabindex="-1" aria-labelledby="supportContributionModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-dark text-white">
+                <h5 class="modal-title" id="supportContributionModalLabel"><i class="fas fa-heart me-2 text-warning"></i>Dobrovolná podpora provozu</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Zavřít"></button>
+            </div>
+            <div class="modal-body">
+                <p class="small text-muted mb-2">Jde jen o volitelnou podporu provozu aplikace. Aplikace zůstává zdarma a nic není potřeba platit.</p>
+                <?php if ($supportBankAccountForQr === null): ?>
+                <div class="alert alert-warning mb-3">Pro tento účet zatím není v administraci nastavené číslo účtu.</div>
+                <?php else: ?>
+                <div class="mb-3">
+                    <label for="supportContributionAmount" class="form-label fw-semibold">Částka</label>
+                    <input type="number" min="1" step="1" class="form-control form-control-lg" id="supportContributionAmount" placeholder="Např. 100">
+                </div>
+                <div class="border rounded-3 p-3 bg-light mb-3">
+                    <img id="supportContributionQrImage" src="" alt="QR kód pro příspěvek" class="img-fluid border rounded p-2 bg-white d-none" style="max-width:220px;">
+                    <div id="supportContributionQrEmpty" class="text-muted small">Zadejte částku a QR kód se zobrazí automaticky.</div>
+                </div>
+                <div class="small"><strong>Účet:</strong> <span id="supportContributionAccount"><?= h($supportBankAccount) ?></span></div>
+                <div class="small"><strong>Odesílatel:</strong> <span id="supportContributionSender"><?= h($supportContributorName) ?></span></div>
+                <div class="small"><strong>Poznámka:</strong> <span id="supportContributionNotePreview"><?= h($supportQrNote) ?></span></div>
+                <?php endif; ?>
+            </div>
+            <div class="modal-footer justify-content-between flex-wrap gap-2">
+                <div class="small text-muted">Aplikace zůstává bezplatná. Příspěvek je pouze dobrovolná pomoc s provozem.</div>
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Zavřít</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+    const supportBankAccount = <?= json_encode($supportBankAccountForQr, JSON_UNESCAPED_UNICODE) ?>;
+    const supportContributorName = <?= json_encode($supportContributorName, JSON_UNESCAPED_UNICODE) ?>;
+    const supportQrNote = <?= json_encode($supportQrNote, JSON_UNESCAPED_UNICODE) ?>;
+    const amountInput = document.getElementById('supportContributionAmount');
+    const qrImage = document.getElementById('supportContributionQrImage');
+    const qrEmpty = document.getElementById('supportContributionQrEmpty');
+
+    if (!amountInput || !qrImage || !qrEmpty || supportBankAccount === null) {
+        return;
+    }
+
+    const buildQrUrl = (amount) => {
+        const spd = [
+            'SPD*1.0',
+            'ACC:' + supportBankAccount,
+            'CC:CZK',
+            'AM:' + amount.toFixed(2),
+            'MSG:' + supportQrNote,
+        ].join('*');
+
+        return 'https://quickchart.io/qr?size=220&text=' + encodeURIComponent(spd);
+    };
+
+    const updateQr = () => {
+        const amount = parseFloat(String(amountInput.value || '').replace(',', '.'));
+        if (!Number.isFinite(amount) || amount <= 0) {
+            qrImage.classList.add('d-none');
+            qrEmpty.classList.remove('d-none');
+            qrImage.removeAttribute('src');
+            return;
+        }
+
+        qrImage.src = buildQrUrl(amount);
+        qrImage.classList.remove('d-none');
+        qrEmpty.classList.add('d-none');
+    };
+
+    amountInput.addEventListener('input', updateQr);
+    amountInput.addEventListener('change', updateQr);
+})();
+</script>
 
 <?php renderFooter(); ?>

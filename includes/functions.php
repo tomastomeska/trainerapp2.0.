@@ -38,6 +38,95 @@ if (!function_exists('formatDateTime')) {
     }
 }
 
+if (!function_exists('ibanToNumericString')) {
+  function ibanToNumericString(string $iban): string {
+    $rearranged = substr($iban, 4) . substr($iban, 0, 4);
+    $numeric = '';
+    $len = strlen($rearranged);
+    for ($i = 0; $i < $len; $i++) {
+      $char = $rearranged[$i];
+      if ($char >= '0' && $char <= '9') {
+        $numeric .= $char;
+      } elseif ($char >= 'A' && $char <= 'Z') {
+        $numeric .= (string)(ord($char) - 55);
+      }
+    }
+    return $numeric;
+  }
+}
+
+if (!function_exists('digitsMod97')) {
+  function digitsMod97(string $digits): int {
+    $remainder = 0;
+    $len = strlen($digits);
+    for ($i = 0; $i < $len; $i++) {
+      $remainder = ($remainder * 10 + (int)$digits[$i]) % 97;
+    }
+    return $remainder;
+  }
+}
+
+if (!function_exists('isValidIban')) {
+  function isValidIban(string $iban): bool {
+    if (preg_match('/^[A-Z]{2}[0-9A-Z]{13,32}$/', $iban) !== 1) {
+      return false;
+    }
+
+    return digitsMod97(ibanToNumericString($iban)) === 1;
+  }
+}
+
+if (!function_exists('buildCzIbanFromLocal')) {
+  function buildCzIbanFromLocal(string $localAccount): ?string {
+    if (preg_match('/^(?:(\d{1,6})-)?(\d{2,10})\/(\d{4})$/', $localAccount, $m) !== 1) {
+      return null;
+    }
+
+    $prefix = str_pad((string)($m[1] ?? '0'), 6, '0', STR_PAD_LEFT);
+    $account = str_pad($m[2], 10, '0', STR_PAD_LEFT);
+    $bankCode = $m[3];
+    $bban = $bankCode . $prefix . $account;
+
+    $checkBase = $bban . '123500';
+    $checkDigits = 98 - digitsMod97($checkBase);
+    $iban = 'CZ' . str_pad((string)$checkDigits, 2, '0', STR_PAD_LEFT) . $bban;
+
+    return isValidIban($iban) ? $iban : null;
+  }
+}
+
+if (!function_exists('accountForSpd')) {
+  function accountForSpd(?string $bankAccount): ?string {
+    if ($bankAccount === null || $bankAccount === '') {
+      return null;
+    }
+
+    if (preg_match('/^[A-Z]{2}[0-9A-Z]{13,32}$/', $bankAccount) === 1) {
+      return isValidIban($bankAccount) ? $bankAccount : null;
+    }
+
+    return buildCzIbanFromLocal($bankAccount);
+  }
+}
+
+if (!function_exists('paymentAsciiText')) {
+  function paymentAsciiText(string $value): string {
+    $text = trim($value);
+    if ($text === '') {
+      return '';
+    }
+
+    $converted = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $text);
+    if ($converted !== false) {
+      $text = $converted;
+    }
+
+    $text = preg_replace('/[^A-Za-z0-9 .\/-]/', '', $text) ?? '';
+    $text = preg_replace('/\s+/', ' ', $text) ?? '';
+    return trim($text);
+  }
+}
+
 function mealTypeOptions(): array {
   return [
     'breakfast' => 'Snídaně',

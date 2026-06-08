@@ -379,7 +379,7 @@ function resizeAndSavePhoto(string $inputName, string $subDir, int $maxDim = 192
  * Opraví orientaci GD obrazu dle EXIF orientation tagu (1–8).
  * Vrátí nový nebo původní resource.
  */
-function _applyExifOrientation($img, int $orientation) {
+function _applyExifOrientation(GdImage $img, int $orientation): GdImage {
     switch ($orientation) {
         case 2:
             imageflip($img, IMG_FLIP_HORIZONTAL);

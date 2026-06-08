@@ -266,7 +266,7 @@ if (!in_array($repeatMode, $allowedRepeatModes, true)) {
     $repeatMode = 'none';
 }
 
-$allowedColorKeys = ['blue', 'green', 'red', 'orange', 'purple', 'gray'];
+$allowedColorKeys = ['blue', 'green', 'red', 'orange', 'teal', 'yellow', 'purple', 'gray'];
 if (!in_array($colorKey, $allowedColorKeys, true)) {
     $colorKey = 'green';
 }
@@ -372,6 +372,7 @@ if ($eventId > 0) {
         'SELECT e.id,
                 e.athlete_id,
             e.second_athlete_id,
+                e.series_id,
                 e.requested_by_athlete_id,
                 e.approval_status,
                 e.coach_modified_at,
@@ -404,6 +405,8 @@ $startSql = $start->format('Y-m-d H:i:s');
 $endSql = $end->format('Y-m-d H:i:s');
 $targetMonthSql = $start->format('Y-m-01');
 $billingMonthSql = $targetMonthSql;
+$repeatUntilForUpdate = null;
+$shouldCreateRecurrenceFromUpdate = false;
 
 if ($isMakeupSession) {
     if ($athleteId === null || (int)$athleteId <= 0) {
@@ -425,6 +428,28 @@ if ($isMakeupSession) {
     }
 } elseif ($athleteId > 0) {
     $billingMonthSql = resolveOpenBillingMonth($pdo, $coachId, (int)$athleteId, $targetMonthSql);
+}
+
+if ($eventId > 0 && $repeatMode !== 'none') {
+    $existingSeriesId = trim((string)($existingEvent['series_id'] ?? ''));
+    if ($existingSeriesId !== '') {
+        echo json_encode(['success' => false, 'error' => 'Tato událost už je součástí série. Vytvořte nové opakování z jednorázové události.']);
+        exit;
+    }
+
+    $repeatUntilForUpdate = parseRepeatUntil($start, $repeatMode, $repeatUntilRaw);
+    if (!$repeatUntilForUpdate) {
+        echo json_encode(['success' => false, 'error' => 'Neplatné datum opakování']);
+        exit;
+    }
+
+    $nextWeek = (clone $start)->modify('+7 days');
+    if ($nextWeek > $repeatUntilForUpdate) {
+        echo json_encode(['success' => false, 'error' => 'Pro opakování vyberte pozdější datum konce (alespoň o týden).']);
+        exit;
+    }
+
+    $shouldCreateRecurrenceFromUpdate = true;
 }
 
 if ($eventId > 0) {
@@ -461,6 +486,7 @@ if ($eventId > 0) {
         'UPDATE coach_calendar_events
          SET athlete_id = ?,
              second_athlete_id = ?,
+             series_id = ?,
              approval_status = ?,
              coach_modified_at = ?,
              is_makeup_session = ?,
@@ -475,13 +501,19 @@ if ($eventId > 0) {
 
     $oldStart = (string)$existingEvent['starts_at'];
     $oldEnd = (string)$existingEvent['ends_at'];
+    $oldSeriesId = (string)($existingEvent['series_id'] ?? '');
     $oldSecondAthleteId = (int)($existingEvent['second_athlete_id'] ?? 0);
     $oldLocation = (string)($existingEvent['location'] ?? '');
     $oldTitle = (string)($existingEvent['custom_title'] ?? '');
     $oldIsMakeup = (int)($existingEvent['is_makeup_session'] ?? 0);
     $oldBillingMonth = (string)($existingEvent['billing_month'] ?? '');
+    $newSeriesId = $oldSeriesId !== '' ? $oldSeriesId : null;
+    if ($shouldCreateRecurrenceFromUpdate) {
+        $newSeriesId = generateUuidV4();
+    }
     $changed = ($oldStart !== $startSql)
         || ($oldEnd !== $endSql)
+        || ($oldSeriesId !== (string)$newSeriesId)
         || ($oldSecondAthleteId !== (int)($secondAthleteId ?? 0))
         || ($oldLocation !== (string)$location)
         || ($oldTitle !== (string)$customTitle)
@@ -491,7 +523,87 @@ if ($eventId > 0) {
     $nextApprovalStatus = ($approvalAction === 'approve' || $isPendingRequest) ? 'approved' : (string)($existingEvent['approval_status'] ?? 'approved');
     $coachModifiedAt = $changed ? date('Y-m-d H:i:s') : ($existingEvent['coach_modified_at'] ?: null);
 
-    $upd->execute([$athleteId, $secondAthleteId, $nextApprovalStatus, $coachModifiedAt, (int)$isMakeupSession, $billingMonthSql, $colorKey, $customTitle, $location, $startSql, $endSql, $eventId, $coachId]);
+    try {
+        $pdo->beginTransaction();
+
+        $upd->execute([$athleteId, $secondAthleteId, $newSeriesId, $nextApprovalStatus, $coachModifiedAt, (int)$isMakeupSession, $billingMonthSql, $colorKey, $customTitle, $location, $startSql, $endSql, $eventId, $coachId]);
+
+        if ($shouldCreateRecurrenceFromUpdate && $repeatUntilForUpdate instanceof DateTime) {
+            $lockStmtFuture = $pdo->prepare(
+                'SELECT id
+                 FROM coach_calendar_locks
+                 WHERE coach_id = ?
+                   AND starts_at < ?
+                   AND ends_at > ?
+                 LIMIT 1'
+            );
+
+            $overlapStmtFuture = $pdo->prepare(
+                'SELECT id
+                 FROM coach_calendar_events
+                 WHERE coach_id = ?
+                   AND starts_at < ?
+                   AND ends_at > ?
+                 LIMIT 1'
+            );
+
+            $insertStmtFuture = $pdo->prepare(
+                'INSERT INTO coach_calendar_events (coach_id, athlete_id, second_athlete_id, requested_by_athlete_id, approval_status, coach_modified_at, is_makeup_session, billing_month, series_id, color_key, custom_title, location, starts_at, ends_at)
+                 VALUES (?, ?, ?, NULL, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)'
+            );
+
+            $cursor = clone $start;
+            while (true) {
+                $cursor->modify('+7 days');
+                if ($cursor > $repeatUntilForUpdate) {
+                    break;
+                }
+
+                $occurrenceEnd = clone $cursor;
+                $occurrenceEnd->modify('+60 minutes');
+
+                $occurrenceStartSql = $cursor->format('Y-m-d H:i:s');
+                $occurrenceEndSql = $occurrenceEnd->format('Y-m-d H:i:s');
+
+                $lockStmtFuture->execute([$coachId, $occurrenceEndSql, $occurrenceStartSql]);
+                if ($lockStmtFuture->fetch()) {
+                    throw new RuntimeException('Čas je uzamčený: ' . $cursor->format('d.m.Y H:i'));
+                }
+
+                $overlapStmtFuture->execute([$coachId, $occurrenceEndSql, $occurrenceStartSql]);
+                if ($overlapStmtFuture->fetch()) {
+                    throw new RuntimeException('V tomto čase už máte trénink: ' . $cursor->format('d.m.Y H:i'));
+                }
+
+                $occurrenceBillingMonthSql = $isMakeupSession
+                    ? $billingMonthSql
+                    : resolveOpenBillingMonth($pdo, $coachId, (int)($athleteId ?? 0), $cursor->format('Y-m-01'));
+
+                $insertStmtFuture->execute([
+                    $coachId,
+                    $athleteId,
+                    $secondAthleteId,
+                    $nextApprovalStatus,
+                    (int)$isMakeupSession,
+                    $occurrenceBillingMonthSql,
+                    $newSeriesId,
+                    $colorKey,
+                    $customTitle,
+                    $location,
+                    $occurrenceStartSql,
+                    $occurrenceEndSql,
+                ]);
+            }
+        }
+
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+        exit;
+    }
 
     if (!empty($existingEvent['athlete_id'])) {
         if ($changed || ($approvalAction === 'approve' && $isPendingRequest)) {

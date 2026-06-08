@@ -24,7 +24,6 @@ if (!$input) {
 $coachId    = getCurrentCoachId();
 $sessionId  = (int)($input['session_id']  ?? 0);
 $exerciseId = (int)($input['exercise_id'] ?? 0);
-$order      = (int)($input['series_order'] ?? 1);
 $weight     = (float)($input['weight']    ?? 0);
 $reps       = (int)($input['reps']        ?? 0);
 $assist     = (int)($input['assistance_reps'] ?? 0);
@@ -52,11 +51,24 @@ if (!$stmt2->fetch()) {
     exit;
 }
 
-$stmt3 = $pdo->prepare(
-    'INSERT INTO session_series (session_id, exercise_id, series_order, weight, reps, assistance_reps)
-     VALUES (?, ?, ?, ?, ?, ?)'
-);
-$stmt3->execute([$sessionId, $exerciseId, $order, $weight, $reps, $assist]);
-$newId = (int)$pdo->lastInsertId();
+try {
+    $stmtOrder = $pdo->prepare(
+        'SELECT COALESCE(MAX(series_order), 0) + 1 AS next_order
+         FROM session_series
+         WHERE session_id = ? AND exercise_id = ?'
+    );
+    $stmtOrder->execute([$sessionId, $exerciseId]);
+    $nextOrder = max(1, (int)($stmtOrder->fetch()['next_order'] ?? 1));
 
-echo json_encode(['success' => true, 'id' => $newId]);
+    $stmt3 = $pdo->prepare(
+        'INSERT INTO session_series (session_id, exercise_id, series_order, weight, reps, assistance_reps)
+         VALUES (?, ?, ?, ?, ?, ?)'
+    );
+    $stmt3->execute([$sessionId, $exerciseId, $nextOrder, $weight, $reps, $assist]);
+    $newId = (int)$pdo->lastInsertId();
+
+    echo json_encode(['success' => true, 'id' => $newId]);
+} catch (Throwable $e) {
+    error_log('scripts save_series failed: ' . $e->getMessage());
+    echo json_encode(['success' => false, 'error' => 'Serverová chyba při ukládání série']);
+}

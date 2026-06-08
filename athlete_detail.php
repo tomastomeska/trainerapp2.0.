@@ -187,8 +187,16 @@ $stmt->execute([$athleteId]);
 $sessions = $stmt->fetchAll();
 
 $weightHistory = getAthleteWeightHistory($athleteId, 500);
+usort($weightHistory, static function (array $a, array $b): int {
+    $dateCompare = strcmp((string)($b['measured_at'] ?? ''), (string)($a['measured_at'] ?? ''));
+    if ($dateCompare !== 0) {
+        return $dateCompare;
+    }
+
+    return ((int)($b['id'] ?? 0)) <=> ((int)($a['id'] ?? 0));
+});
 $weightStats = getAthleteWeightStats($athleteId);
-$weightPreviewLimit = 10;
+$weightPreviewLimit = 5;
 $weightVisibleRows = array_slice($weightHistory, 0, $weightPreviewLimit);
 $weightCollapsedRows = array_slice($weightHistory, $weightPreviewLimit);
 
@@ -234,6 +242,14 @@ $stmt->execute([$athleteId]);
 $sessions = $stmt->fetchAll();
 
 $weightHistory = getAthleteWeightHistory($athleteId, 500);
+usort($weightHistory, static function (array $a, array $b): int {
+    $dateCompare = strcmp((string)($b['measured_at'] ?? ''), (string)($a['measured_at'] ?? ''));
+    if ($dateCompare !== 0) {
+        return $dateCompare;
+    }
+
+    return ((int)($b['id'] ?? 0)) <=> ((int)($a['id'] ?? 0));
+});
 $weightStats = getAthleteWeightStats($athleteId);
 
 // Poslední trénink
@@ -253,6 +269,10 @@ foreach ($sessions as $s) {
         $olderSessionsByMonth[$monthKey][] = $s;
     }
 }
+
+$currentMonthPreviewLimit = 5;
+$currentMonthVisibleSessions = array_slice($currentMonthSessions, 0, $currentMonthPreviewLimit);
+$currentMonthCollapsedSessions = array_slice($currentMonthSessions, $currentMonthPreviewLimit);
 
 // Sady dostupné pro trénink (pro dropdown "Spustit trénink")
 ensureFlexibleWorkoutSet($coachId);
@@ -741,7 +761,7 @@ renderHeader(h($athlete['first_name'] . ' ' . $athlete['last_name']), true);
                             <td colspan="8" class="text-center text-muted py-4">V aktuálním měsíci zatím nejsou žádné tréninky.</td>
                         </tr>
                         <?php endif; ?>
-                        <?php foreach ($currentMonthSessions as $s): ?>
+                        <?php foreach ($currentMonthVisibleSessions as $s): ?>
                         <tr>
                             <td class="text-center">
                                 <input class="form-check-input training-bulk-check" type="checkbox" name="session_ids[]" value="<?= (int)$s['id'] ?>">
@@ -797,8 +817,76 @@ renderHeader(h($athlete['first_name'] . ' ' . $athlete['last_name']), true);
                         </tr>
                         <?php endforeach; ?>
                     </tbody>
+                    <?php if (!empty($currentMonthCollapsedSessions)): ?>
+                    <tbody id="coachCurrentMonthTrainingsCollapse" class="collapse">
+                        <?php foreach ($currentMonthCollapsedSessions as $s): ?>
+                        <tr>
+                            <td class="text-center">
+                                <input class="form-check-input training-bulk-check" type="checkbox" name="session_ids[]" value="<?= (int)$s['id'] ?>">
+                            </td>
+                            <td>
+                                <strong><?= formatDate($s['started_at']) ?></strong>
+                                <br><small class="text-muted"><?= date('H:i', strtotime($s['started_at'])) ?></small>
+                            </td>
+                            <td><span class="badge bg-secondary fs-6"><?= h($s['set_name']) ?></span></td>
+                            <td class="text-muted"><?= $s['location'] ? h($s['location']) : '–' ?></td>
+                            <td class="text-center"><?= $s['total_series'] ?></td>
+                            <td>
+                                <?php if ($s['completed_at']): ?>
+                                <span class="badge bg-success">Dokončeno</span>
+                                <?php else: ?>
+                                <span class="badge bg-warning text-dark">Probíhá</span>
+                                <?php endif; ?>
+                                <?php if ($s['paired_session_id']): ?>
+                                <span class="badge bg-info text-dark mt-1">
+                                    <i class="fas fa-people-group me-1"></i>Párový
+                                </span>
+                                <?php endif; ?>
+                            </td>
+                            <td class="text-center">
+                                <?php if (!empty($s['training_photo'])): ?>
+                                <a href="<?= BASE_URL ?>/training_detail.php?id=<?= $s['id'] ?>#training-photo"
+                                   title="Zobrazit fotografii">
+                                    <img src="<?= h(photoUrl($s['training_photo'], 'trainings')) ?>"
+                                         alt="foto"
+                                         style="width:44px;height:44px;object-fit:cover;border-radius:6px;border:2px solid #ffc107">
+                                </a>
+                                <?php else: ?>
+                                <span class="text-muted">–</span>
+                                <?php endif; ?>
+                            </td>
+                            <td class="text-end">
+                                <?php if (!$s['completed_at']): ?>
+                                <a href="<?= BASE_URL ?>/training_session.php?id=<?= $s['id'] ?>"
+                                   class="btn btn-warning btn-sm">
+                                    <i class="fas fa-play me-1"></i>Pokračovat
+                                </a>
+                                <?php else: ?>
+                                <a href="<?= BASE_URL ?>/training_detail.php?id=<?= $s['id'] ?>"
+                                   class="btn btn-outline-dark btn-sm">
+                                    <i class="fas fa-eye me-1"></i>Detail
+                                </a>
+                                <?php endif; ?>
+                                <button type="button" class="btn btn-outline-danger btn-sm"
+                                        onclick="deleteSingleTraining(<?= (int)$s['id'] ?>)" title="Smazat trénink">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                    <?php endif; ?>
                 </table>
             </div>
+
+            <?php if (!empty($currentMonthCollapsedSessions)): ?>
+            <div class="border-top p-3 text-center bg-light">
+                <button class="btn btn-outline-dark btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#coachCurrentMonthTrainingsCollapse" aria-expanded="false" aria-controls="coachCurrentMonthTrainingsCollapse">
+                    <i class="fas fa-chevron-down me-1"></i>
+                    Zobrazit starší tréninky (<?= count($currentMonthCollapsedSessions) ?>)
+                </button>
+            </div>
+            <?php endif; ?>
 
             <?php if (!empty($olderSessionsByMonth)): ?>
             <div class="accordion" id="olderMonthsAccordion">
