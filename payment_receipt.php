@@ -34,9 +34,7 @@ function receiptColumnExists(PDO $pdo, string $tableName, string $columnName): b
 
 function receiptFetchHistoricalActualByMonth(PDO $pdo, int $coachId, int $athleteId, string $beforeMonthSql, bool $hasBillingMonth, bool $hasSecondAthlete): array
 {
-    $monthExpr = $hasBillingMonth
-        ? "DATE_FORMAT(COALESCE(e.billing_month, e.starts_at), '%Y-%m-01')"
-        : "DATE_FORMAT(e.starts_at, '%Y-%m-01')";
+    $monthExpr = "DATE_FORMAT(e.starts_at, '%Y-%m-01')";
 
     if ($hasSecondAthlete) {
         $participantsSql = "
@@ -143,6 +141,17 @@ function receiptBuildBillable(int $singleSessions, int $pairedSessions, int $car
     ];
 }
 
+function receiptDecodeSnapshot(?string $raw): ?array
+{
+    $raw = trim((string)$raw);
+    if ($raw === '') {
+        return null;
+    }
+
+    $decoded = json_decode($raw, true);
+    return is_array($decoded) ? $decoded : null;
+}
+
 $monthParam = trim((string)($_GET['month'] ?? ''));
 if (!preg_match('/^\d{4}-\d{2}$/', $monthParam)) {
     $monthParam = date('Y-m');
@@ -155,6 +164,7 @@ $hasIsMakeup = receiptColumnExists($pdo, 'coach_calendar_events', 'is_makeup_ses
 $hasPairedTrainingRate = receiptColumnExists($pdo, 'athletes', 'paired_training_rate');
 $hasPaymentsTable = receiptTableExists($pdo, 'athlete_monthly_payments');
 $hasCarryover = $hasPaymentsTable && receiptColumnExists($pdo, 'athlete_monthly_payments', 'carryover_used_sessions');
+$hasReceiptSnapshot = $hasPaymentsTable && receiptColumnExists($pdo, 'athlete_monthly_payments', 'receipt_snapshot_json');
 
 if ($coachMode) {
     $coachId = (int)getCurrentCoachId();
@@ -210,9 +220,7 @@ if ($coachMode) {
     $pageTitle = 'Moje účtenka platby';
 }
 
-$monthExpr = $hasBillingMonth
-    ? "DATE_FORMAT(COALESCE(e.billing_month, e.starts_at), '%Y-%m-01')"
-    : "DATE_FORMAT(e.starts_at, '%Y-%m-01')";
+$monthExpr = "DATE_FORMAT(e.starts_at, '%Y-%m-01')";
 $monthFilter = $monthExpr . ' = ?';
 $isMakeupSelect = $hasIsMakeup ? 'e.is_makeup_session' : '0';
 $billingMonthSelect = $hasBillingMonth
@@ -318,7 +326,8 @@ if ($hasPaymentsTable) {
     $paymentStmt = $pdo->prepare(
         'SELECT session_rate, planned_sessions, '
         . ($hasCarryover ? 'carryover_used_sessions' : '0 AS carryover_used_sessions') . ',
-                billed_amount, status, paid_at
+        billed_amount, status, paid_at'
+    . ($hasReceiptSnapshot ? ', receipt_snapshot_json' : '') . '
          FROM athlete_monthly_payments
          WHERE coach_id = ?
            AND athlete_id = ?
@@ -327,6 +336,78 @@ if ($hasPaymentsTable) {
     );
     $paymentStmt->execute([$coachId, $athleteId, $monthSql]);
     $paymentRow = $paymentStmt->fetch() ?: null;
+}
+
+$usesSnapshot = false;
+if ($paymentRow && ($paymentRow['status'] ?? '') === 'paid' && $hasReceiptSnapshot) {
+    $snapshot = receiptDecodeSnapshot((string)($paymentRow['receipt_snapshot_json'] ?? ''));
+    if ($snapshot !== null) {
+        $snapshotEvents = $snapshot['event_rows'] ?? null;
+        if (is_array($snapshotEvents)) {
+            $eventRows = [];
+            foreach ($snapshotEvents as $snapshotEvent) {
+                if (!is_array($snapshotEvent)) {
+                    continue;
+                }
+                $eventRows[] = [
+                    'id' => (int)($snapshotEvent['id'] ?? 0),
+                    'starts_at' => (string)($snapshotEvent['starts_at'] ?? ''),
+                    'ends_at' => (string)($snapshotEvent['ends_at'] ?? ''),
+                    'location' => (string)($snapshotEvent['location'] ?? ''),
+                    'billing_month' => (string)($snapshotEvent['billing_month'] ?? ''),
+                    'is_makeup_session' => (int)($snapshotEvent['is_makeup_session'] ?? 0),
+                    'is_paired' => (int)($snapshotEvent['is_paired'] ?? 0),
+                ];
+            }
+        }
+
+        $singleSessions = max(0, (int)($snapshot['single_sessions'] ?? $singleSessions));
+        $pairedSessions = max(0, (int)($snapshot['paired_sessions'] ?? $pairedSessions));
+        $makeupSessions = max(0, (int)($snapshot['makeup_sessions'] ?? $makeupSessions));
+        $transferredSessions = max(0, (int)($snapshot['transferred_sessions'] ?? $transferredSessions));
+
+        $snapshotBreakdown = $snapshot['breakdown'] ?? null;
+        if (is_array($snapshotBreakdown)) {
+            $breakdown = array_merge($breakdown, [
+                'raw_total' => (int)($snapshotBreakdown['total_sessions'] ?? $snapshotBreakdown['raw_total'] ?? $breakdown['raw_total']),
+                'carryover_applied' => (int)($snapshotBreakdown['carryover_used'] ?? $snapshotBreakdown['carryover_applied'] ?? $breakdown['carryover_applied']),
+                'billable_single' => (int)($snapshotBreakdown['billable_single_sessions'] ?? $snapshotBreakdown['billable_single'] ?? $breakdown['billable_single']),
+                'billable_paired' => (int)($snapshotBreakdown['billable_paired_sessions'] ?? $snapshotBreakdown['billable_paired'] ?? $breakdown['billable_paired']),
+                'billable_total' => (int)($snapshotBreakdown['billable_sessions'] ?? $snapshotBreakdown['billable_total'] ?? $breakdown['billable_total']),
+                'single_rate' => array_key_exists('single_rate', $snapshotBreakdown) ? ($snapshotBreakdown['single_rate'] !== null ? (float)$snapshotBreakdown['single_rate'] : null) : $breakdown['single_rate'],
+                'paired_rate' => array_key_exists('paired_rate', $snapshotBreakdown) ? ($snapshotBreakdown['paired_rate'] !== null ? (float)$snapshotBreakdown['paired_rate'] : null) : $breakdown['paired_rate'],
+                'computed_amount' => array_key_exists('amount', $snapshotBreakdown)
+                    ? ($snapshotBreakdown['amount'] !== null ? (float)$snapshotBreakdown['amount'] : null)
+                    : (array_key_exists('computed_amount', $snapshotBreakdown)
+                        ? ($snapshotBreakdown['computed_amount'] !== null ? (float)$snapshotBreakdown['computed_amount'] : null)
+                        : $breakdown['computed_amount']),
+            ]);
+        }
+
+        if (array_key_exists('display_amount', $snapshot) && $snapshot['display_amount'] !== null) {
+            $displayAmount = (float)$snapshot['display_amount'];
+        }
+
+        $usesSnapshot = true;
+    }
+}
+
+$carryoverRemaining = max(0, (int)($breakdown['carryover_applied'] ?? $outstandingBefore));
+$rowCharges = [];
+foreach ($eventRows as $eventRow) {
+    $rowRate = ((int)($eventRow['is_paired'] ?? 0) === 1)
+        ? ($pairedRate ?? $singleRate)
+        : $singleRate;
+    $isCarryover = $carryoverRemaining > 0;
+    $rowCharges[] = [
+        'amount' => ($rowRate !== null && !$isCarryover) ? (float)$rowRate : 0.0,
+        'note' => $isCarryover
+            ? 'Hrazeno v předešlém období' . (!empty($paymentRow['paid_at']) ? ' (' . date('m/Y', strtotime((string)$paymentRow['paid_at'])) . ')' : '')
+            : '',
+    ];
+    if ($carryoverRemaining > 0) {
+        $carryoverRemaining--;
+    }
 }
 
 $displayAmount = $breakdown['computed_amount'];
@@ -537,16 +618,21 @@ if ($coachMode) {
                             <th>Místo</th>
                             <th>Typ</th>
                             <th>Náhradní</th>
+                            <th>Částka</th>
+                            <th>Poznámka</th>
                         </tr>
                     </thead>
                     <tbody>
-                        <?php foreach ($eventRows as $event): ?>
+                        <?php foreach ($eventRows as $index => $event): ?>
+                            <?php $rowCharge = $rowCharges[$index]['amount'] ?? 0.0; $rowNote = $rowCharges[$index]['note'] ?? ''; ?>
                             <tr>
                                 <td><?= h(formatDate((string)$event['starts_at'])) ?></td>
                                 <td><?= h(date('H:i', strtotime((string)$event['starts_at']))) ?> - <?= h(date('H:i', strtotime((string)$event['ends_at']))) ?></td>
                                 <td><?= h((string)($event['location'] ?? '') !== '' ? (string)$event['location'] : '—') ?></td>
                                 <td><?= ((int)$event['is_paired'] === 1) ? 'Párový' : 'Individuální' ?></td>
                                 <td><?= ((int)($event['is_makeup_session'] ?? 0) === 1) ? 'Ano' : 'Ne' ?></td>
+                                <td><?= number_format((float)$rowCharge, 0, ',', ' ') ?> Kč</td>
+                                <td><?= h($rowNote !== '' ? $rowNote : (((string)($event['billing_month'] ?? '') !== $monthSql) ? 'Převod z předchozího období' : '')) ?></td>
                             </tr>
                         <?php endforeach; ?>
                     </tbody>
@@ -600,7 +686,7 @@ if ($coachMode) {
             <div class="alert alert-warning mb-0">Nelze spočítat částku, protože není nastavená sazba za trénink.</div>
         <?php endif; ?>
 
-        <?php if ($paymentRow && ($paymentRow['status'] ?? '') === 'paid' && $breakdown['computed_amount'] !== null): ?>
+        <?php if (!$usesSnapshot && $paymentRow && ($paymentRow['status'] ?? '') === 'paid' && $breakdown['computed_amount'] !== null): ?>
             <?php $delta = abs((float)$paymentRow['billed_amount'] - (float)$breakdown['computed_amount']); ?>
             <?php if ($delta > 0.009): ?>
                 <div class="small text-danger mt-2">Poznámka: evidovaná uhrazená částka se liší od aktuálního přepočtu kalendáře.</div>

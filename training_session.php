@@ -915,7 +915,13 @@ async function saveSeriesEdit() {
                 duration_seconds: durationSeconds
             })
         });
-        const data = await resp.json();
+        const raw = await resp.text();
+        let data;
+        try {
+            data = JSON.parse(raw);
+        } catch (_parseError) {
+            throw new Error('Server vrátil neplatnou odpověď: ' + raw.slice(0, 180));
+        }
         if (!data.success) {
             alert('Chyba při ukládání: ' + (data.error || 'Neznámá chyba'));
             return;
@@ -943,7 +949,7 @@ async function saveSeriesEdit() {
         const modalEl = document.getElementById('editSeriesModal');
         bootstrap.Modal.getOrCreateInstance(modalEl).hide();
     } catch (error) {
-        alert('Chyba připojení k serveru.');
+        alert('Chyba při komunikaci se serverem: ' + (error?.message || 'Neznámá chyba'));
     }
 }
 
@@ -989,7 +995,13 @@ async function addSeries(exerciseId, sessionId) {
                 duration_seconds: durationSeconds
             })
         });
-        const data = await resp.json();
+        const raw = await resp.text();
+        let data;
+        try {
+            data = JSON.parse(raw);
+        } catch (_parseError) {
+            throw new Error('Server vrátil neplatnou odpověď: ' + raw.slice(0, 180));
+        }
         if (data.success) {
             // Přidej řádek do tabulky
             const tr = document.createElement('tr');
@@ -1028,8 +1040,8 @@ async function addSeries(exerciseId, sessionId) {
         } else {
             alert('Chyba při ukládání: ' + (data.error || 'Neznámá chyba'));
         }
-    } catch (e) {
-        alert('Chyba připojení k serveru.');
+    } catch (error) {
+        alert('Chyba při komunikaci se serverem: ' + (error?.message || 'Neznámá chyba'));
     } finally {
         btn.disabled = false;
         btn.innerHTML = '<i class="fas fa-plus me-1"></i>Přidat sérii';
@@ -1046,7 +1058,13 @@ async function deleteSeries(seriesId, exerciseId) {
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({series_id: seriesId})
         });
-        const data = await resp.json();
+        const raw = await resp.text();
+        let data;
+        try {
+            data = JSON.parse(raw);
+        } catch (_parseError) {
+            throw new Error('Server vrátil neplatnou odpověď: ' + raw.slice(0, 180));
+        }
         if (data.success) {
             document.getElementById('series-row-' + seriesId)?.remove();
             renumberSeries(exerciseId);
@@ -1054,8 +1072,8 @@ async function deleteSeries(seriesId, exerciseId) {
         } else {
             alert('Chyba při mazání: ' + (data.error || 'Neznámá chyba'));
         }
-    } catch (e) {
-        alert('Chyba připojení k serveru.');
+    } catch (error) {
+        alert('Chyba při komunikaci se serverem: ' + (error?.message || 'Neznámá chyba'));
     }
 }
 

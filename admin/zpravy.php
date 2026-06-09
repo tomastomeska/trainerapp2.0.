@@ -33,6 +33,7 @@ $messages = $pdo->query("
 		SUM(r.read_at IS NOT NULL)                            AS read_count
 	FROM admin_messages m
 	LEFT JOIN admin_message_recipients r ON r.message_id = m.id
+	WHERE m.from_athlete_id IS NULL
 	GROUP BY m.id
 	ORDER BY m.sent_at DESC
 ")->fetchAll();

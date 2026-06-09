@@ -6,6 +6,7 @@ function renderAthleteHeader(string $title = '', bool $withCharts = false): void
     $flash = getFlash();
     $fullTitle = $title !== '' ? ($title . ' - ' . APP_NAME) : APP_NAME;
     $unread = 0;
+    $unreadInfo = 0;
 
     if ($athlete) {
         try {
@@ -13,8 +14,13 @@ function renderAthleteHeader(string $title = '', bool $withCharts = false): void
             $stmt = $pdo->prepare('SELECT COUNT(*) FROM athlete_notifications WHERE athlete_id = ? AND read_at IS NULL');
             $stmt->execute([(int)$athlete['id']]);
             $unread = (int)$stmt->fetchColumn();
+
+            $infoUnreadStmt = $pdo->prepare("\n                SELECT COUNT(*)\n                FROM info_articles ia\n                JOIN info_categories ic ON ic.id = ia.category_id\n                LEFT JOIN info_article_reads_athlete ir ON ir.article_id = ia.id AND ir.athlete_id = ?\n                WHERE ia.is_active = 1\n                  AND ia.published_at <= NOW()\n                  AND ia.target_audience IN ('all', 'athlete')\n                  AND ic.is_active = 1\n                  AND ic.audience IN ('all', 'athlete')\n                  AND ir.article_id IS NULL\n            ");
+            $infoUnreadStmt->execute([(int)$athlete['id']]);
+            $unreadInfo = (int)$infoUnreadStmt->fetchColumn();
         } catch (Throwable $e) {
             $unread = 0;
+            $unreadInfo = 0;
         }
     }
     ?>
@@ -57,6 +63,11 @@ function renderAthleteHeader(string $title = '', bool $withCharts = false): void
                 </a></li>
             </ul>
             <div class="navbar-nav">
+                <a class="nav-link d-inline-flex align-items-center" href="<?= BASE_URL ?>/athlete_infokanal.php" title="Infokanál" aria-label="Infokanál"><i class="fas fa-lightbulb" style="font-size:1.1rem"></i>
+                    <?php if ($unreadInfo > 0): ?>
+                    <span class="badge rounded-pill bg-danger ms-1" style="font-size:.65rem"><?= $unreadInfo ?></span>
+                    <?php endif; ?>
+                </a>
                 <?php if ($athlete): ?>
                 <span class="nav-link text-secondary"><i class="fas fa-user me-1"></i><?= h(trim((string)$athlete['first_name'] . ' ' . (string)$athlete['last_name'])) ?></span>
                 <?php endif; ?>

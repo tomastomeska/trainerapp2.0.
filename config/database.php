@@ -973,6 +973,101 @@ function ensureSchemaUpgrades(PDO $pdo): void {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ");
 
+    // Zpravy od trenera sportovcum (hromadne i jednotlive) + prehled precteni
+    $pdo->exec(" 
+        CREATE TABLE IF NOT EXISTS `coach_athlete_messages` (
+            `id`         INT AUTO_INCREMENT PRIMARY KEY,
+            `coach_id`   INT NOT NULL,
+            `subject`    VARCHAR(255) NOT NULL,
+            `body`       TEXT NOT NULL,
+            `is_bulk`    TINYINT(1) NOT NULL DEFAULT 0,
+            `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            KEY `idx_coach_athlete_messages_coach_created` (`coach_id`, `created_at`),
+            CONSTRAINT `fk_coach_athlete_messages_coach`
+                FOREIGN KEY (`coach_id`) REFERENCES `coaches`(`id`) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
+    $pdo->exec(" 
+        CREATE TABLE IF NOT EXISTS `coach_athlete_message_recipients` (
+            `id`              INT AUTO_INCREMENT PRIMARY KEY,
+            `message_id`      INT NOT NULL,
+            `athlete_id`      INT NOT NULL,
+            `notification_id` INT NULL,
+            `created_at`      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY `uq_coach_athlete_message_recipient` (`message_id`, `athlete_id`),
+            KEY `idx_coach_athlete_message_recipients_notification` (`notification_id`),
+            KEY `idx_coach_athlete_message_recipients_athlete` (`athlete_id`, `created_at`),
+            CONSTRAINT `fk_coach_athlete_message_recipients_message`
+                FOREIGN KEY (`message_id`) REFERENCES `coach_athlete_messages`(`id`) ON DELETE CASCADE,
+            CONSTRAINT `fk_coach_athlete_message_recipients_athlete`
+                FOREIGN KEY (`athlete_id`) REFERENCES `athletes`(`id`) ON DELETE CASCADE,
+            CONSTRAINT `fk_coach_athlete_message_recipients_notification`
+                FOREIGN KEY (`notification_id`) REFERENCES `athlete_notifications`(`id`) ON DELETE SET NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
+    // Infokanal: kategorie pro tipy/novinky + clanky + stav precteni pro role
+    $pdo->exec(" 
+        CREATE TABLE IF NOT EXISTS `info_categories` (
+            `id`          INT AUTO_INCREMENT PRIMARY KEY,
+            `name`        VARCHAR(180) NOT NULL,
+            `audience`    ENUM('all','coach','athlete') NOT NULL DEFAULT 'all',
+            `sort_order`  INT NOT NULL DEFAULT 100,
+            `is_active`   TINYINT(1) NOT NULL DEFAULT 1,
+            `created_at`  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            `updated_at`  TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            KEY `idx_info_categories_audience` (`audience`, `is_active`, `sort_order`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
+    $pdo->exec(" 
+        CREATE TABLE IF NOT EXISTS `info_articles` (
+            `id`              INT AUTO_INCREMENT PRIMARY KEY,
+            `category_id`     INT NOT NULL,
+            `title`           VARCHAR(220) NOT NULL,
+            `body`            TEXT NOT NULL,
+            `target_audience` ENUM('all','coach','athlete') NOT NULL DEFAULT 'all',
+            `is_active`       TINYINT(1) NOT NULL DEFAULT 1,
+            `published_at`    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `created_by`      INT NULL,
+            `created_at`      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            `updated_at`      TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            KEY `idx_info_articles_category` (`category_id`),
+            KEY `idx_info_articles_visibility` (`is_active`, `published_at`, `target_audience`),
+            CONSTRAINT `fk_info_articles_category`
+                FOREIGN KEY (`category_id`) REFERENCES `info_categories`(`id`) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
+    $pdo->exec(" 
+        CREATE TABLE IF NOT EXISTS `info_article_reads_coach` (
+            `article_id` INT NOT NULL,
+            `coach_id`   INT NOT NULL,
+            `read_at`    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`article_id`, `coach_id`),
+            KEY `idx_info_article_reads_coach_coach` (`coach_id`, `read_at`),
+            CONSTRAINT `fk_info_reads_coach_article`
+                FOREIGN KEY (`article_id`) REFERENCES `info_articles`(`id`) ON DELETE CASCADE,
+            CONSTRAINT `fk_info_reads_coach_coach`
+                FOREIGN KEY (`coach_id`) REFERENCES `coaches`(`id`) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
+    $pdo->exec(" 
+        CREATE TABLE IF NOT EXISTS `info_article_reads_athlete` (
+            `article_id` INT NOT NULL,
+            `athlete_id` INT NOT NULL,
+            `read_at`    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`article_id`, `athlete_id`),
+            KEY `idx_info_article_reads_athlete_athlete` (`athlete_id`, `read_at`),
+            CONSTRAINT `fk_info_reads_athlete_article`
+                FOREIGN KEY (`article_id`) REFERENCES `info_articles`(`id`) ON DELETE CASCADE,
+            CONSTRAINT `fk_info_reads_athlete_athlete`
+                FOREIGN KEY (`athlete_id`) REFERENCES `athletes`(`id`) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
     // Databáze jídel trenéra
     $pdo->exec(" 
         CREATE TABLE IF NOT EXISTS `global_meals` (

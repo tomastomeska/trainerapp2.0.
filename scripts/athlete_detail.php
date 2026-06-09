@@ -693,7 +693,7 @@ const weightHistoryData = <?= json_encode(array_map(
         'label' => formatDate((string)$row['measured_at']),
         'weight' => (float)$row['weight_kg'],
     ],
-    $weightHistory
+    array_reverse($weightHistory)
 ), JSON_UNESCAPED_UNICODE) ?>;
 
 function getTrainingChecks() {

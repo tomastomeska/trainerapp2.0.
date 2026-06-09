@@ -1371,12 +1371,21 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function getEventTitle(event) {
-        if (event.custom_title) {
-            return event.custom_title;
+        if (event.is_foreign) {
+            return 'Obsazeno';
         }
+
+        if (event.second_athlete_id) {
+            return getEventAthletesLabel(event) || 'Párový trénink';
+        }
+
         const athletesLabel = getEventAthletesLabel(event);
         if (athletesLabel) {
             return athletesLabel;
+        }
+
+        if (event.custom_title) {
+            return event.custom_title;
         }
         return 'Trénink';
     }

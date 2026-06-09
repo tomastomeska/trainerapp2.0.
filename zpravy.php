@@ -16,6 +16,63 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     $action = $_POST['action'] ?? '';
 
+    if ($action === 'send_bulk_to_athletes') {
+        $subject = trim((string)($_POST['subject'] ?? ''));
+        $body = trim((string)($_POST['body'] ?? ''));
+
+        if ($subject === '' || $body === '') {
+            flash('danger', 'Vyplňte prosím předmět i text zprávy.');
+            redirect(BASE_URL . '/zpravy.php?tab=inbox');
+        }
+
+        $subject = mb_substr($subject, 0, 200, 'UTF-8');
+        $body = mb_substr($body, 0, 4000, 'UTF-8');
+
+        $athletesStmt = $pdo->prepare('SELECT id FROM athletes WHERE coach_id = ?');
+        $athletesStmt->execute([$coachId]);
+        $athleteIds = array_map(static fn(array $row): int => (int)$row['id'], $athletesStmt->fetchAll());
+
+        if (empty($athleteIds)) {
+            flash('warning', 'Nemáte žádné sportovce, kterým by šla zpráva odeslat.');
+            redirect(BASE_URL . '/zpravy.php?tab=inbox');
+        }
+
+        $sentCount = 0;
+        try {
+            $pdo->beginTransaction();
+
+            $messageStmt = $pdo->prepare(
+                'INSERT INTO coach_athlete_messages (coach_id, subject, body, is_bulk) VALUES (?, ?, ?, 1)'
+            );
+            $messageStmt->execute([$coachId, $subject, $body]);
+            $messageId = (int)$pdo->lastInsertId();
+
+            $notificationStmt = $pdo->prepare('INSERT INTO athlete_notifications (athlete_id, subject, body) VALUES (?, ?, ?)');
+            $recipientStmt = $pdo->prepare(
+                'INSERT INTO coach_athlete_message_recipients (message_id, athlete_id, notification_id) VALUES (?, ?, ?)'
+            );
+
+            foreach ($athleteIds as $athleteId) {
+                $notificationStmt->execute([$athleteId, $subject, $body]);
+                $notificationId = (int)$pdo->lastInsertId();
+
+                $recipientStmt->execute([$messageId, $athleteId, $notificationId]);
+                $sentCount++;
+            }
+
+            $pdo->commit();
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            flash('danger', 'Hromadnou zprávu se nepodařilo odeslat.');
+            redirect(BASE_URL . '/zpravy.php?tab=inbox');
+        }
+
+        flash('success', 'Hromadná zpráva byla odeslána ' . $sentCount . ' sportovcům.');
+        redirect(BASE_URL . '/zpravy.php?tab=sent_athletes');
+    }
+
     if ($action === 'bulk_confirm_read') {
         $messageIds = array_values(array_filter(array_map('intval', (array)($_POST['message_ids'] ?? [])), fn($id) => $id > 0));
         $messageIds = array_values(array_unique($messageIds));
@@ -71,7 +128,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     redirect(BASE_URL . '/zpravy.php' . ($redirectTab ? '?tab=' . urlencode($redirectTab) : ''));
 }
 
-$tab = in_array($_GET['tab'] ?? '', ['archived','deleted']) ? $_GET['tab'] : 'inbox';
+$tab = in_array($_GET['tab'] ?? '', ['archived','deleted','sent_athletes'], true) ? (string)$_GET['tab'] : 'inbox';
 
 // Zprávy pro tohoto trenéra dle záložky
 $messages = $pdo->prepare("
@@ -87,8 +144,70 @@ $messages = $pdo->prepare("
     WHERE r.status = ?
     ORDER BY m.sent_at DESC
 ");
-$messages->execute([$coachId, $tab]);
-$messages = $messages->fetchAll();
+$messages = [];
+$bulkSentMessages = [];
+$bulkRecipientsByMessage = [];
+
+if ($tab === 'sent_athletes') {
+    $bulkSentStmt = $pdo->prepare(
+        "SELECT cam.id,
+                cam.subject,
+                cam.body,
+                cam.created_at,
+                COUNT(car.id) AS recipient_count,
+                SUM(CASE WHEN an.read_at IS NOT NULL THEN 1 ELSE 0 END) AS read_count
+         FROM coach_athlete_messages cam
+         LEFT JOIN coach_athlete_message_recipients car ON car.message_id = cam.id
+         LEFT JOIN athlete_notifications an ON an.id = car.notification_id
+         WHERE cam.coach_id = ? AND cam.is_bulk = 1
+         GROUP BY cam.id
+         ORDER BY cam.created_at DESC, cam.id DESC"
+    );
+    $bulkSentStmt->execute([$coachId]);
+    $bulkSentMessages = $bulkSentStmt->fetchAll();
+
+    $messageIds = array_map(static fn(array $row): int => (int)$row['id'], $bulkSentMessages);
+    if (!empty($messageIds)) {
+        $placeholders = implode(',', array_fill(0, count($messageIds), '?'));
+        $recipientStmt = $pdo->prepare(
+            "SELECT car.message_id,
+                    a.id AS athlete_id,
+                    a.first_name,
+                    a.last_name,
+                    an.read_at
+             FROM coach_athlete_message_recipients car
+             JOIN athletes a ON a.id = car.athlete_id
+             LEFT JOIN athlete_notifications an ON an.id = car.notification_id
+             WHERE car.message_id IN ($placeholders)
+             ORDER BY a.first_name ASC, a.last_name ASC, a.id ASC"
+        );
+        $recipientStmt->execute($messageIds);
+        foreach ($recipientStmt->fetchAll() as $recipient) {
+            $mid = (int)$recipient['message_id'];
+            if (!isset($bulkRecipientsByMessage[$mid])) {
+                $bulkRecipientsByMessage[$mid] = [];
+            }
+            $bulkRecipientsByMessage[$mid][] = $recipient;
+        }
+    }
+} else {
+    // Zprávy pro tohoto trenéra dle záložky
+    $messagesStmt = $pdo->prepare("
+        SELECT m.id, m.subject, m.sent_at, m.attachment_name,
+               r.read_at, r.status,
+               COALESCE(ma.has_actions, 0) AS has_actions
+        FROM admin_messages m
+        JOIN admin_message_recipients r ON r.message_id = m.id AND r.coach_id = ?
+        LEFT JOIN (
+            SELECT DISTINCT message_id, 1 AS has_actions
+            FROM message_actions
+        ) ma ON ma.message_id = m.id
+        WHERE r.status = ?
+        ORDER BY m.sent_at DESC
+    ");
+    $messagesStmt->execute([$coachId, $tab]);
+    $messages = $messagesStmt->fetchAll();
+}
 
 // Počty pro badge záložek
 $counts = $pdo->prepare("
@@ -104,14 +223,23 @@ foreach ($counts->fetchAll() as $row) {
     $tabCounts[$row['status']] = ['cnt' => $row['cnt'], 'unread' => $row['unread']];
 }
 
+$bulkCountStmt = $pdo->prepare('SELECT COUNT(*) FROM coach_athlete_messages WHERE coach_id = ? AND is_bulk = 1');
+$bulkCountStmt->execute([$coachId]);
+$sentAthletesCount = (int)$bulkCountStmt->fetchColumn();
+
 $unreadInbox = (int)($tabCounts['inbox']['unread'] ?? 0);
 
 renderHeader('Zprávy');
 ?>
 
-<h3 class="fw-bold mb-4">
-    <i class="fas fa-envelope me-2 text-primary"></i>Moje zprávy
-</h3>
+<div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-4">
+    <h3 class="fw-bold mb-0">
+        <i class="fas fa-envelope me-2 text-primary"></i>Moje zprávy
+    </h3>
+    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#bulkAthleteMessageModal">
+        <i class="fas fa-paper-plane me-1"></i>Napsat všem sportovcům
+    </button>
+</div>
 
 <!-- Záložky -->
 <ul class="nav nav-tabs mb-3">
@@ -299,5 +427,39 @@ bulkItems.forEach((item) => {
 
 updateBulkState();
 </script>
+
+<div class="modal fade" id="bulkAthleteMessageModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="post">
+                <?= csrfField() ?>
+                <input type="hidden" name="action" value="send_bulk_to_athletes">
+                <div class="modal-header bg-dark text-white">
+                    <h5 class="modal-title"><i class="fas fa-paper-plane me-2 text-warning"></i>Hromadná zpráva sportovcům</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-light border small mb-3">
+                        Zpráva se odešle všem vašim sportovcům do jejich modulu <strong>Zprávy</strong>.
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Předmět <span class="text-danger">*</span></label>
+                        <input type="text" name="subject" class="form-control" maxlength="200" required>
+                    </div>
+                    <div class="mb-0">
+                        <label class="form-label fw-semibold">Text zprávy <span class="text-danger">*</span></label>
+                        <textarea name="body" class="form-control" rows="6" maxlength="4000" required></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Zrušit</button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-paper-plane me-1"></i>Odeslat všem
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
 
 <?php renderFooter(); ?>

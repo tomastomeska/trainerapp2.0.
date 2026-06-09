@@ -30,7 +30,7 @@ function tableExists(PDO $pdo, string $tableName): bool
 
 function isAthleteMonthReleased(int $athleteId, bool $isMonthReleased, array $releasedAthleteIds): bool
 {
-    return $isMonthReleased || isset($releasedAthleteIds[$athleteId]);
+    return isset($releasedAthleteIds[$athleteId]);
 }
 
 function columnExists(PDO $pdo, string $tableName, string $columnName): bool
@@ -309,9 +309,7 @@ function fetchBillingStats(PDO $pdo, int $coachId, string $billingMonthSql, bool
     $transferredExpr = $hasBillingMonth
         ? "SUM(CASE WHEN DATE_FORMAT(t.starts_at, '%Y-%m-01') <> DATE_FORMAT(t.billing_month, '%Y-%m-01') THEN 1 ELSE 0 END)"
         : '0';
-    $billingFilter = $hasBillingMonth
-        ? 'AND t.billing_month = ?'
-        : "AND DATE_FORMAT(t.starts_at, '%Y-%m-01') = ?";
+    $billingFilter = "AND DATE_FORMAT(t.starts_at, '%Y-%m-01') = ?";
 
     if ($hasSecondAthlete) {
         $participantsSql = "
@@ -388,8 +386,8 @@ function fetchBillingStats(PDO $pdo, int $coachId, string $billingMonthSql, bool
 
 function fetchHistoricalActualSessionsByMonth(PDO $pdo, int $coachId, string $beforeMonthSql, bool $hasBillingMonth, bool $hasSecondAthlete): array
 {
-        $monthExpr = $hasBillingMonth ? 't.billing_month' : "DATE_FORMAT(t.starts_at, '%Y-%m-01')";
-        $monthFilter = $hasBillingMonth ? 't.billing_month IS NOT NULL AND t.billing_month < ?' : "DATE_FORMAT(t.starts_at, '%Y-%m-01') < ?";
+        $monthExpr = "DATE_FORMAT(t.starts_at, '%Y-%m-01')";
+        $monthFilter = "DATE_FORMAT(t.starts_at, '%Y-%m-01') < ?";
 
         if ($hasSecondAthlete) {
                 $participantsSql = "
@@ -572,36 +570,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $athleteId = (int)($_POST['athlete_id'] ?? 0);
     $action = trim((string)($_POST['action'] ?? ''));
 
-    if ($action === 'release_month') {
-        try {
-            $releaseUpsert = $pdo->prepare(
-                "INSERT INTO coach_billing_months (coach_id, billing_month, status, released_at)
-                 VALUES (?, ?, 'released', NOW())
-                 ON DUPLICATE KEY UPDATE status = 'released', released_at = NOW()"
-            );
-            $releaseUpsert->execute([$coachId, $selectedMonthSql]);
-            flash('success', 'Měsíc byl otevřen pro výzvy k platbě.');
-        } catch (Throwable $e) {
-            flash('danger', 'Měsíc se nepodařilo otevřít pro platby.');
-        }
-        redirect(BASE_URL . '/payments.php?month=' . urlencode($selectedMonthParam));
-    }
-
-    if ($action === 'unrelease_month') {
-        try {
-            $releaseUpsert = $pdo->prepare(
-                "INSERT INTO coach_billing_months (coach_id, billing_month, status, released_at)
-                 VALUES (?, ?, 'draft', NULL)
-                 ON DUPLICATE KEY UPDATE status = 'draft', released_at = NULL"
-            );
-            $releaseUpsert->execute([$coachId, $selectedMonthSql]);
-            flash('success', 'Měsíc byl vrácen do konceptu. QR výzvy jsou zablokované.');
-        } catch (Throwable $e) {
-            flash('danger', 'Měsíc se nepodařilo vrátit do konceptu.');
-        }
-        redirect(BASE_URL . '/payments.php?month=' . urlencode($selectedMonthParam));
-    }
-
     $athleteStmt = $pdo->prepare(
         'SELECT id, first_name, last_name, email, training_rate'
         . ($hasPairedTrainingRate ? ', paired_training_rate' : '') . '
@@ -652,7 +620,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($action === 'send_payment_email') {
         if (!$isAthleteReleased) {
-            flash('danger', 'Nejdříve otevřete výzvu k platbě (globálně nebo pro konkrétního sportovce).');
+            flash('danger', 'Nejdříve otevřete výzvu k platbě pro konkrétního sportovce.');
             redirect(BASE_URL . '/payments.php?month=' . urlencode($selectedMonthParam));
         }
 
@@ -733,7 +701,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             redirect(BASE_URL . '/payments.php?month=' . urlencode($selectedMonthParam));
         }
         if (!$isAthleteReleased) {
-            flash('danger', 'Nejdříve otevřete výzvu k platbě (globálně nebo pro konkrétního sportovce).');
+            flash('danger', 'Nejdříve otevřete výzvu k platbě pro konkrétního sportovce.');
             redirect(BASE_URL . '/payments.php?month=' . urlencode($selectedMonthParam));
         }
 
@@ -983,26 +951,13 @@ renderHeader('Platby');
     </div>
 </div>
 
-<div class="alert <?= $isMonthReleased ? 'alert-success' : 'alert-warning' ?> d-flex justify-content-between align-items-center flex-wrap gap-2">
+<div class="alert alert-info d-flex justify-content-between align-items-center flex-wrap gap-2">
     <div>
-        <strong><?= $isMonthReleased ? 'Měsíc je otevřen pro platby.' : 'Měsíc je zatím v konceptu.' ?></strong>
+        <strong>Výzvy k platbě se otevírají jednotlivě pro sportovce.</strong>
         <div class="small mt-1">
-            <?= $isMonthReleased
-                ? 'Sportovci vidí QR výzvy a mohou platit.'
-                : 'Můžete buď otevřít celý měsíc, nebo výzvy pustit jen vybraným sportovcům.' ?>
+            Vyberte sportovce v řádku a použijte tlačítko Otevřít výzvu.
         </div>
-        <?php if (!$isMonthReleased): ?>
-            <div class="small mt-1">Individuálně otevřeno: <?= (int)$releasedAthleteCount ?> sportovců.</div>
-        <?php endif; ?>
     </div>
-    <form method="post" class="d-inline">
-        <?= csrfField() ?>
-        <input type="hidden" name="month" value="<?= h($selectedMonthParam) ?>">
-        <input type="hidden" name="action" value="<?= $isMonthReleased ? 'unrelease_month' : 'release_month' ?>">
-        <button type="submit" class="btn <?= $isMonthReleased ? 'btn-outline-danger' : 'btn-success' ?> btn-sm">
-            <?= $isMonthReleased ? 'Vrátit měsíc do konceptu' : 'Otevřít měsíc pro výzvy k platbě' ?>
-        </button>
-    </form>
 </div>
 
 <div class="card border-0 shadow-sm">
@@ -1158,17 +1113,15 @@ renderHeader('Platby');
                                     <a href="<?= BASE_URL ?>/athlete_edit.php?id=<?= $athleteId ?>&return_to=<?= urlencode(BASE_URL . '/payments.php?month=' . $selectedMonthParam) ?>" class="btn btn-outline-secondary btn-sm">
                                         <i class="fas fa-pen me-1"></i>Sazba
                                     </a>
-                                    <?php if (!$isMonthReleased): ?>
-                                        <form method="post" class="d-inline">
-                                            <?= csrfField() ?>
-                                            <input type="hidden" name="month" value="<?= h($selectedMonthParam) ?>">
-                                            <input type="hidden" name="athlete_id" value="<?= $athleteId ?>">
-                                            <input type="hidden" name="action" value="<?= $isAthleteReleased ? 'unrelease_month_athlete' : 'release_month_athlete' ?>">
-                                            <button type="submit" class="btn <?= $isAthleteReleased ? 'btn-outline-warning' : 'btn-outline-success' ?> btn-sm">
-                                                <?= $isAthleteReleased ? 'Zavřít výzvu' : 'Otevřít výzvu' ?>
-                                            </button>
-                                        </form>
-                                    <?php endif; ?>
+                                    <form method="post" class="d-inline">
+                                        <?= csrfField() ?>
+                                        <input type="hidden" name="month" value="<?= h($selectedMonthParam) ?>">
+                                        <input type="hidden" name="athlete_id" value="<?= $athleteId ?>">
+                                        <input type="hidden" name="action" value="<?= $isAthleteReleased ? 'unrelease_month_athlete' : 'release_month_athlete' ?>">
+                                        <button type="submit" class="btn <?= $isAthleteReleased ? 'btn-outline-warning' : 'btn-outline-success' ?> btn-sm">
+                                            <?= $isAthleteReleased ? 'Zavřít výzvu' : 'Otevřít výzvu' ?>
+                                        </button>
+                                    </form>
                                     <?php if ($payment && ($payment['status'] ?? '') === 'paid'): ?>
                                         <form method="post" class="d-inline">
                                             <?= csrfField() ?>

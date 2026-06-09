@@ -173,8 +173,8 @@ $coachBankAccount = $hasCoachBankAccount
     ? athletePaymentsAccountForSpd(athletePaymentsNormalizeBankAccount($athlete['bank_account'] ?? null))
     : null;
 
-$billingSelect = $hasBillingMonth ? 'billing_month' : "DATE_FORMAT(starts_at, '%Y-%m-01')";
-$billingFilter = $hasBillingMonth ? 'billing_month IS NOT NULL' : '1=1';
+$billingSelect = "DATE_FORMAT(starts_at, '%Y-%m-01')";
+$billingFilter = '1=1';
 $transferredExpr = $hasBillingMonth
     ? "SUM(CASE WHEN DATE_FORMAT(starts_at, '%Y-%m-01') <> DATE_FORMAT(billing_month, '%Y-%m-01') THEN 1 ELSE 0 END)"
     : '0';

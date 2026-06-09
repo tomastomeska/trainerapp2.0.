@@ -18,6 +18,37 @@ function renderHeader(string $title = '', bool $withCharts = false): void {
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
     <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/style.css">
+    <style>
+        .coach-navbar .nav-link {
+            white-space: nowrap;
+        }
+
+        .coach-navbar .top-badge {
+            font-size: .6rem !important;
+            line-height: 1;
+            padding: .3em .48em;
+        }
+
+        .coach-navbar .profile-link {
+            display: inline-block;
+            max-width: 165px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            vertical-align: bottom;
+        }
+
+        @media (max-width: 1399.98px) {
+            .coach-navbar .nav-link {
+                padding-left: .45rem;
+                padding-right: .45rem;
+                font-size: .92rem;
+            }
+
+            .coach-navbar .profile-link {
+                max-width: 125px;
+            }
+        }
+    </style>
     <?php if ($withCharts): ?>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <?php endif; ?>
@@ -27,6 +58,7 @@ function renderHeader(string $title = '', bool $withCharts = false): void {
 <?php
 $unreadMsgCount = 0;
 $pendingCalendarCount = 0;
+$unreadInfoCount = 0;
 if ($coach) {
     try {
         $pdo = getDB();
@@ -46,14 +78,19 @@ if ($coach) {
         ");
         $pendingCalendarStmt->execute([$coach['id']]);
         $pendingCalendarCount = (int)$pendingCalendarStmt->fetchColumn();
+
+        $infoUnreadStmt = $pdo->prepare("\n            SELECT COUNT(*)\n            FROM info_articles ia\n            JOIN info_categories ic ON ic.id = ia.category_id\n            LEFT JOIN info_article_reads_coach ir ON ir.article_id = ia.id AND ir.coach_id = ?\n            WHERE ia.is_active = 1\n              AND ia.published_at <= NOW()\n              AND ia.target_audience IN ('all', 'coach')\n              AND ic.is_active = 1\n              AND ic.audience IN ('all', 'coach')\n              AND ir.article_id IS NULL\n        ");
+        $infoUnreadStmt->execute([(int)$coach['id']]);
+        $unreadInfoCount = (int)$infoUnreadStmt->fetchColumn();
     } catch (Throwable $e) {
         $unreadMsgCount = 0;
         $pendingCalendarCount = 0;
+        $unreadInfoCount = 0;
     }
 }
 ?>
 
-<nav class="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm sticky-top">
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm sticky-top coach-navbar">
     <div class="container-fluid px-4">
         <a class="navbar-brand fw-bold text-warning" href="<?= BASE_URL ?>/dashboard.php">
             <i class="fas fa-dumbbell me-2"></i><?= h($appName) ?>
@@ -117,15 +154,23 @@ if ($coach) {
             <?php if ($coach): ?>
             <div class="navbar-nav">
                 <a class="nav-link d-inline-flex align-items-center" href="<?= BASE_URL ?>/zpravy.php" title="Zprávy">
-                    <i class="fas fa-envelope me-1"></i>Zprávy
+                    <i class="fas fa-envelope me-1"></i><span class="d-none d-xl-inline">Zprávy</span>
                     <?php if ($unreadMsgCount > 0): ?>
-                    <span class="badge rounded-pill bg-danger ms-1" style="font-size:.65rem">
+                    <span class="badge rounded-pill bg-danger ms-1 top-badge">
                         <?= $unreadMsgCount ?>
                     </span>
                     <?php endif; ?>
                 </a>
+                <a class="nav-link d-inline-flex align-items-center" href="<?= BASE_URL ?>/infokanal.php" title="Infokanál" aria-label="Infokanál">
+                    <i class="fas fa-lightbulb" style="font-size:1.1rem"></i>
+                    <?php if ($unreadInfoCount > 0): ?>
+                    <span class="badge rounded-pill bg-danger ms-1 top-badge">
+                        <?= $unreadInfoCount ?>
+                    </span>
+                    <?php endif; ?>
+                </a>
                 <a class="nav-link text-secondary" href="<?= BASE_URL ?>/profile.php">
-                    <i class="fas fa-user-tie me-1"></i><?= h($coach['name'] ?: $coach['username']) ?>
+                    <i class="fas fa-user-tie me-1"></i><span class="profile-link"><?= h($coach['name'] ?: $coach['username']) ?></span>
                 </a>
                 <a class="nav-link text-danger" href="<?= BASE_URL ?>/logout.php">
                     <i class="fas fa-sign-out-alt me-1"></i>Odhlásit
