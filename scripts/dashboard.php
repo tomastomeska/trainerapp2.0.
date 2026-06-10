@@ -8,6 +8,28 @@ requireLogin();
 $coachId = getCurrentCoachId();
 $pdo     = getDB();
 
+$sortOptions = [
+    'first_name' => [
+        'label' => 'Jméno (A-Z)',
+        'sql' => 'a.first_name ASC, a.last_name ASC, a.id ASC',
+    ],
+    'last_name' => [
+        'label' => 'Příjmení (A-Z)',
+        'sql' => 'a.last_name ASC, a.first_name ASC, a.id ASC',
+    ],
+    'last_training' => [
+        'label' => 'Poslední trénink (nejnovější)',
+        'sql' => 'CASE WHEN last_session_date IS NULL THEN 1 ELSE 0 END ASC, last_session_date DESC, a.first_name ASC, a.last_name ASC, a.id ASC',
+    ],
+];
+
+$selectedSort = (string)($_GET['sort'] ?? 'first_name');
+if (!isset($sortOptions[$selectedSort])) {
+    $selectedSort = 'first_name';
+}
+
+$athleteOrderSql = $sortOptions[$selectedSort]['sql'];
+
 $supportBankAccount = trim(getAppSetting('support_bank_account', ''));
 $coachSupportStmt = $pdo->prepare('SELECT id, name, username FROM coaches WHERE id = ? LIMIT 1');
 $coachSupportStmt->execute([$coachId]);
@@ -66,7 +88,7 @@ $stmt = $pdo->prepare(
             (SELECT w.weight_kg FROM athlete_weight_logs w WHERE w.athlete_id = a.id ORDER BY w.measured_at ASC LIMIT 1) AS initial_weight
      FROM athletes a
      WHERE a.coach_id = ?
-     ORDER BY a.last_name, a.first_name'
+             ORDER BY ' . $athleteOrderSql
 );
 $stmt->execute([$coachId]);
 $athletes = $stmt->fetchAll();
@@ -115,6 +137,16 @@ renderHeader('Dashboard');
 <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
     <h2 class="mb-0"><i class="fas fa-users me-2 text-warning"></i>Moji sportovci</h2>
     <div class="d-flex gap-2 flex-wrap">
+        <form method="get" class="d-flex align-items-center gap-2">
+            <label for="sortAthletes" class="small text-muted">Řazení</label>
+            <select id="sortAthletes" name="sort" class="form-select form-select-sm" onchange="this.form.submit()">
+                <?php foreach ($sortOptions as $sortKey => $sortMeta): ?>
+                <option value="<?= h($sortKey) ?>" <?= $selectedSort === $sortKey ? 'selected' : '' ?>>
+                    <?= h($sortMeta['label']) ?>
+                </option>
+                <?php endforeach; ?>
+            </select>
+        </form>
         <?php if (count($athletes) >= 2): ?>
         <a href="<?= BASE_URL ?>/training_paired_start.php" class="btn btn-sm fw-bold btn-paired-highlight">
             <i class="fas fa-people-group me-1"></i>Párový trénink

@@ -798,7 +798,7 @@ $athletesStmt = $pdo->prepare(
     . ($hasPairedTrainingRate ? ', paired_training_rate' : '') . '
      FROM athletes
      WHERE coach_id = ?
-     ORDER BY last_name ASC, first_name ASC'
+    ORDER BY first_name ASC, last_name ASC'
 );
 $athletesStmt->execute([$coachId]);
 $athletes = $athletesStmt->fetchAll();

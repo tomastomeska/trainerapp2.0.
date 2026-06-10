@@ -98,6 +98,8 @@ function resolveAutoMakeupBillingMonth(PDO $pdo, int $coachId, int $athleteId, s
     $hasBillingMonth = saveEventColumnExists($pdo, 'coach_calendar_events', 'billing_month');
     $hasSecondAthlete = saveEventColumnExists($pdo, 'coach_calendar_events', 'second_athlete_id');
     $hasCarryoverUsed = saveEventColumnExists($pdo, 'athlete_monthly_payments', 'carryover_used_sessions');
+    $currentMonthSql = (new DateTime('now'))->format('Y-m-01');
+    $carryoverCutoffSql = strcmp($targetMonthSql, $currentMonthSql) < 0 ? $targetMonthSql : $currentMonthSql;
 
     $monthExpr = $hasBillingMonth
         ? "DATE_FORMAT(COALESCE(t.billing_month, t.starts_at), '%Y-%m-01')"
@@ -128,7 +130,7 @@ function resolveAutoMakeupBillingMonth(PDO $pdo, int $coachId, int $athleteId, s
         if ($excludeSql !== '') {
             $actualParams[] = $excludeEventId;
         }
-        $actualParams[] = $targetMonthSql;
+        $actualParams[] = $carryoverCutoffSql;
     } else {
         $participantsSql = "
             SELECT starts_at, {$billingField}
@@ -141,7 +143,7 @@ function resolveAutoMakeupBillingMonth(PDO $pdo, int $coachId, int $athleteId, s
         if ($excludeSql !== '') {
             $actualParams[] = $excludeEventId;
         }
-        $actualParams[] = $targetMonthSql;
+        $actualParams[] = $carryoverCutoffSql;
     }
 
     $actualByMonthStmt = $pdo->prepare(
@@ -165,10 +167,10 @@ function resolveAutoMakeupBillingMonth(PDO $pdo, int $coachId, int $athleteId, s
          WHERE coach_id = ?
            AND athlete_id = ?
            AND status = "paid"
-           AND billing_month < ?
+            AND billing_month < ?
          ORDER BY billing_month ASC'
     );
-    $paymentStmt->execute([$coachId, $athleteId, $targetMonthSql]);
+        $paymentStmt->execute([$coachId, $athleteId, $carryoverCutoffSql]);
 
     $balances = [];
     foreach ($paymentStmt->fetchAll() as $row) {

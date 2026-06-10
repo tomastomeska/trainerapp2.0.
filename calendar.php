@@ -12,7 +12,7 @@ $athleteStmt = $pdo->prepare(
     'SELECT id, first_name, last_name
      FROM athletes
      WHERE coach_id = ?
-     ORDER BY last_name, first_name'
+    ORDER BY first_name, last_name'
 );
 $athleteStmt->execute([$coachId]);
 $athletes = $athleteStmt->fetchAll();

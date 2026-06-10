@@ -13,7 +13,7 @@ $coach   = getCurrentCoach();
 // Načíst seznam sportovců trenéra
 $stmtAthletes = $pdo->prepare(
     'SELECT id, first_name, last_name, email, photo
-     FROM athletes WHERE coach_id = ? ORDER BY last_name, first_name'
+    FROM athletes WHERE coach_id = ? ORDER BY first_name, last_name'
 );
 $stmtAthletes->execute([$coachId]);
 $athletes = $stmtAthletes->fetchAll();

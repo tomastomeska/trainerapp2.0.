@@ -81,6 +81,8 @@ function athleteResolveAutoMakeupBillingMonth(PDO $pdo, int $coachId, int $athle
     $hasBillingMonth = athleteReserveColumnExists($pdo, 'coach_calendar_events', 'billing_month');
     $hasSecondAthlete = athleteReserveColumnExists($pdo, 'coach_calendar_events', 'second_athlete_id');
     $hasCarryoverUsed = athleteReserveColumnExists($pdo, 'athlete_monthly_payments', 'carryover_used_sessions');
+    $currentMonthSql = (new DateTime('now'))->format('Y-m-01');
+    $carryoverCutoffSql = strcmp($targetMonthSql, $currentMonthSql) < 0 ? $targetMonthSql : $currentMonthSql;
 
     $monthExpr = $hasBillingMonth
         ? "DATE_FORMAT(COALESCE(t.billing_month, t.starts_at), '%Y-%m-01')"
@@ -101,7 +103,7 @@ function athleteResolveAutoMakeupBillingMonth(PDO $pdo, int $coachId, int $athle
               AND approval_status = 'approved'
               AND second_athlete_id = ?
         ";
-        $actualParams = [$coachId, $athleteId, $coachId, $athleteId, $targetMonthSql];
+        $actualParams = [$coachId, $athleteId, $coachId, $athleteId, $carryoverCutoffSql];
     } else {
         $participantsSql = "
             SELECT starts_at, {$billingField}
@@ -110,7 +112,7 @@ function athleteResolveAutoMakeupBillingMonth(PDO $pdo, int $coachId, int $athle
               AND approval_status = 'approved'
               AND athlete_id = ?
         ";
-        $actualParams = [$coachId, $athleteId, $targetMonthSql];
+        $actualParams = [$coachId, $athleteId, $carryoverCutoffSql];
     }
 
     $actualByMonthStmt = $pdo->prepare(
@@ -134,10 +136,10 @@ function athleteResolveAutoMakeupBillingMonth(PDO $pdo, int $coachId, int $athle
          WHERE coach_id = ?
            AND athlete_id = ?
            AND status = "paid"
-           AND billing_month < ?
+            AND billing_month < ?
          ORDER BY billing_month ASC'
     );
-    $paymentStmt->execute([$coachId, $athleteId, $targetMonthSql]);
+        $paymentStmt->execute([$coachId, $athleteId, $carryoverCutoffSql]);
 
     $balances = [];
     foreach ($paymentStmt->fetchAll() as $row) {

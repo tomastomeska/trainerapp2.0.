@@ -116,7 +116,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // Načtení sportovců a sad pro formulář
 $stmtA = $pdo->prepare(
-    'SELECT id, first_name, last_name FROM athletes WHERE coach_id = ? ORDER BY last_name, first_name'
+    'SELECT id, first_name, last_name FROM athletes WHERE coach_id = ? ORDER BY first_name, last_name'
 );
 $stmtA->execute([$coachId]);
 $athletes = $stmtA->fetchAll();

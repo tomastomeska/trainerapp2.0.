@@ -7,14 +7,14 @@ requireLogin();
 $coachId = (int)getCurrentCoachId();
 $pdo = getDB();
 
-$athleteStmt = $pdo->prepare(
+$athletesStmt = $pdo->prepare(
     'SELECT id, first_name, last_name
      FROM athletes
      WHERE coach_id = ?
-     ORDER BY last_name, first_name'
+     ORDER BY first_name, last_name'
 );
-$athleteStmt->execute([$coachId]);
-$athletes = $athleteStmt->fetchAll();
+$athletesStmt->execute([$coachId]);
+$athletes = $athletesStmt->fetchAll();
 
 $venues = array_values(array_filter(getTrainingVenues(), fn($row) => !empty($row['name'])));
 

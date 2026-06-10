@@ -41,6 +41,8 @@ if (!$start) {
 }
 
 $targetMonthSql = $start->format('Y-m-01');
+$currentMonthSql = (new DateTime('now'))->format('Y-m-01');
+$carryoverCutoffSql = strcmp($targetMonthSql, $currentMonthSql) < 0 ? $targetMonthSql : $currentMonthSql;
 
 $pdo = getDB();
 
@@ -100,7 +102,7 @@ if ($hasSecondAthlete) {
           AND approval_status = 'approved'
           AND second_athlete_id = ?
     ";
-    $params = [$coachId, $athleteId, $coachId, $athleteId, $targetMonthSql];
+    $params = [$coachId, $athleteId, $coachId, $athleteId, $carryoverCutoffSql];
 } else {
     $participantsSql = "
         SELECT starts_at, billing_month
@@ -109,7 +111,7 @@ if ($hasSecondAthlete) {
           AND approval_status = 'approved'
           AND athlete_id = ?
     ";
-    $params = [$coachId, $athleteId, $targetMonthSql];
+    $params = [$coachId, $athleteId, $carryoverCutoffSql];
 }
 
 $actualByMonthStmt = $pdo->prepare(
@@ -133,10 +135,10 @@ $paymentStmt = $pdo->prepare(
      WHERE coach_id = ?
        AND athlete_id = ?
        AND status = "paid"
-       AND billing_month < ?
+    AND billing_month < ?
      ORDER BY billing_month ASC'
 );
-$paymentStmt->execute([$coachId, $athleteId, $targetMonthSql]);
+$paymentStmt->execute([$coachId, $athleteId, $carryoverCutoffSql]);
 
 $outstanding = 0;
 foreach ($paymentStmt->fetchAll() as $row) {

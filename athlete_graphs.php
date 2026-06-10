@@ -16,6 +16,15 @@ if (!$athlete) {
     redirect(BASE_URL . '/login.php');
 }
 
+$weightDataStmt = $pdo->prepare(
+    'SELECT measured_at, weight_kg
+     FROM athlete_weight_logs
+     WHERE athlete_id = ?
+     ORDER BY measured_at ASC, id ASC'
+);
+$weightDataStmt->execute([$athleteId]);
+$weightData = $weightDataStmt->fetchAll();
+
 $exerciseStmt = $pdo->prepare(
     'SELECT DISTINCT e.id, e.name
      FROM exercises e
@@ -61,8 +70,21 @@ renderAthleteHeader('Grafy', true);
 ?>
 
 <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
-    <h2 class="mb-0"><i class="fas fa-chart-line me-2 text-warning"></i>Grafy výkonu</h2>
+    <h2 class="mb-0"><i class="fas fa-chart-line me-2 text-warning"></i>Grafy výkonu a váhy</h2>
     <a href="<?= BASE_URL ?>/athlete_dashboard.php" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left me-1"></i>Zpět na profil</a>
+</div>
+
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-header bg-dark text-white">
+        <i class="fas fa-weight-scale me-2 text-warning"></i>Vývoj tělesné hmotnosti
+    </div>
+    <div class="card-body">
+        <?php if (empty($weightData)): ?>
+        <div class="alert alert-info mb-0">Zatím nemáte zadané žádné váhové záznamy.</div>
+        <?php else: ?>
+        <canvas id="bodyWeightChart" style="max-height:320px"></canvas>
+        <?php endif; ?>
+    </div>
 </div>
 
 <?php if (empty($exercises)): ?>
@@ -147,6 +169,37 @@ new Chart(document.getElementById('volumeChart'), {
 });
 </script>
 <?php endif; ?>
+<?php endif; ?>
+
+<?php if (!empty($weightData)): ?>
+<script>
+const bodyWeightRows = <?= json_encode($weightData, JSON_UNESCAPED_UNICODE) ?>;
+const bodyWeightLabels = bodyWeightRows.map(r => {
+    const dt = new Date(`${r.measured_at}T00:00:00`);
+    const dd = String(dt.getDate()).padStart(2, '0');
+    const mm = String(dt.getMonth() + 1).padStart(2, '0');
+    const yy = dt.getFullYear();
+    return `${dd}.${mm}.${yy}`;
+});
+
+new Chart(document.getElementById('bodyWeightChart'), {
+    type: 'line',
+    data: {
+        labels: bodyWeightLabels,
+        datasets: [{
+            label: 'Tělesná hmotnost (kg)',
+            data: bodyWeightRows.map(r => Number(r.weight_kg || 0)),
+            borderColor: '#10b981',
+            backgroundColor: 'rgba(16, 185, 129, 0.2)',
+            borderWidth: 3,
+            tension: 0.25,
+            fill: true,
+            pointRadius: 3,
+        }]
+    },
+    options: { responsive: true, maintainAspectRatio: false }
+});
+</script>
 <?php endif; ?>
 
 <?php renderAthleteFooter();

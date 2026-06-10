@@ -428,7 +428,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $athleteIds = [];
         if ($target === 'all') {
-            $athletesStmt = $pdo->prepare('SELECT id FROM athletes WHERE coach_id = ? ORDER BY last_name, first_name');
+            $athletesStmt = $pdo->prepare('SELECT id FROM athletes WHERE coach_id = ? ORDER BY first_name, last_name');
             $athletesStmt->execute([$coachId]);
             $athleteIds = array_map(static fn(array $row): int => (int)$row['id'], $athletesStmt->fetchAll());
         } elseif ($target === 'single') {
@@ -558,7 +558,7 @@ $athletesStmt = $pdo->prepare(
     'SELECT id, first_name, last_name
      FROM athletes
      WHERE coach_id = ?
-     ORDER BY last_name ASC, first_name ASC'
+    ORDER BY first_name ASC, last_name ASC'
 );
 $athletesStmt->execute([$coachId]);
 $athletes = $athletesStmt->fetchAll();
@@ -613,7 +613,7 @@ if ($selectedPlanId > 0) {
          WHERE a.meal_plan_id = ?
            AND a.coach_id = ?
            AND a.removed_at IS NULL
-         ORDER BY at.last_name ASC, at.first_name ASC'
+         ORDER BY at.first_name ASC, at.last_name ASC'
     );
     $assignmentsStmt->execute([$selectedPlanId, $coachId]);
     $activeAssignments = $assignmentsStmt->fetchAll();
