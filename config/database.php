@@ -24,6 +24,22 @@ if (!defined('DB_USER'))    define('DB_USER',    'root');
 if (!defined('DB_PASS'))    define('DB_PASS',    '');
 if (!defined('DB_CHARSET')) define('DB_CHARSET', 'utf8mb4');
 
+function isLocalDbHostEntry(string $hostEntry): bool {
+    $host = trim($hostEntry);
+    if ($host === '') {
+        return false;
+    }
+
+    if (preg_match('/^\[(.+)\]:(\d+)$/', $host, $m)) {
+        $host = $m[1];
+    } elseif (preg_match('/^([^:]+):(\d+)$/', $host, $m)) {
+        $host = $m[1];
+    }
+
+    $host = strtolower(trim($host));
+    return in_array($host, ['localhost', '127.0.0.1', '::1'], true);
+}
+
 function getDB(): PDO {
     static $pdo = null;
     if ($pdo === null) {
@@ -43,11 +59,32 @@ function getDB(): PDO {
         if (empty($hosts)) {
             $hosts[] = 'localhost';
         }
-        if (!in_array('localhost', $hosts, true)) {
-            $hosts[] = 'localhost';
+
+        // Pokud je v konfiguraci kombinace lokalnich a vzdalenych hostu,
+        // zkus nejdriv vzdaleny host a lokalni nech jako fallback.
+        if (count($hosts) > 1) {
+            $remoteHosts = [];
+            $localHosts = [];
+            foreach ($hosts as $entry) {
+                if (isLocalDbHostEntry($entry)) {
+                    $localHosts[] = $entry;
+                } else {
+                    $remoteHosts[] = $entry;
+                }
+            }
+            if (!empty($remoteHosts) && !empty($localHosts)) {
+                $hosts = array_merge($remoteHosts, $localHosts);
+            }
         }
-        if (!in_array('127.0.0.1', $hosts, true)) {
-            $hosts[] = '127.0.0.1';
+
+        // Fallback na druhou local variantu zkus jen tehdy,
+        // kdy konfigurace obsahuje pouze jednu lokalni hodnotu bez portu.
+        if (count($hosts) === 1) {
+            if ($hosts[0] === 'localhost') {
+                $hosts[] = '127.0.0.1';
+            } elseif ($hosts[0] === '127.0.0.1') {
+                $hosts[] = 'localhost';
+            }
         }
 
         $errors = [];
@@ -74,6 +111,17 @@ function getDB(): PDO {
                 try {
                     $pdo = new PDO($dsn, DB_USER, DB_PASS, $options);
                     ensureSchemaUpgrades($pdo);
+                    if (!empty($errors) && function_exists('appLogEvent')) {
+                        appLogEvent(
+                            'db_connect_retry',
+                            'warning',
+                            'Pripojeni k DB probehlo az po opakovani',
+                            ['attempt_errors' => $errors],
+                            'system',
+                            null,
+                            'database'
+                        );
+                    }
                     break;
                 } catch (PDOException $e) {
                     $errors[] = $host . ': ' . $e->getMessage();
@@ -99,6 +147,30 @@ function getDB(): PDO {
 }
 
 function ensureSchemaUpgrades(PDO $pdo): void {
+    $pdo->exec(" 
+        CREATE TABLE IF NOT EXISTS `app_event_log` (
+            `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            `event_type` VARCHAR(64) NOT NULL,
+            `severity` ENUM('info','warning','error','critical') NOT NULL DEFAULT 'info',
+            `message` VARCHAR(500) NOT NULL,
+            `context_json` TEXT NULL,
+            `user_type` ENUM('admin','coach','athlete','guest','system') NOT NULL DEFAULT 'guest',
+            `user_id` INT NULL,
+            `user_name` VARCHAR(120) NULL,
+            `request_uri` VARCHAR(255) NULL,
+            `request_method` VARCHAR(10) NULL,
+            `http_status` SMALLINT NULL,
+            `duration_ms` INT NULL,
+            `ip_address` VARCHAR(45) NULL,
+            `user_agent` VARCHAR(255) NULL,
+            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            KEY `idx_app_event_log_created` (`created_at`),
+            KEY `idx_app_event_log_user` (`user_type`, `user_id`, `created_at`),
+            KEY `idx_app_event_log_severity` (`severity`, `created_at`),
+            KEY `idx_app_event_log_event_type` (`event_type`, `created_at`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
     // Kompatibilita: starsi instalace mely u sportovce pouze sloupec "age".
     $stmt = $pdo->query("SHOW COLUMNS FROM athletes LIKE 'birth_date'");
     if (!$stmt->fetch()) {

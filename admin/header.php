@@ -110,6 +110,10 @@ function renderAdminHeader(string $title = ''): void {
 					<span class="badge bg-danger ms-1"><?= $supportNewCount ?></span>
 					<?php endif; ?>
 				</a>
+				<a href="<?= BASE_URL ?>/admin/errorlog.php"
+				   class="nav-link <?= in_array(basename($_SERVER['PHP_SELF']), ['errorlog.php','errorlog_user.php']) ? 'active' : '' ?>">
+					<i class="fas fa-triangle-exclamation me-2"></i>Errorlog
+				</a>
 				<a href="<?= BASE_URL ?>/admin/zpravy.php"
 				   class="nav-link <?= in_array(basename($_SERVER['PHP_SELF']), ['zpravy.php','zprava_nova.php','zprava_detail.php']) ? 'active' : '' ?>">
 					<i class="fas fa-comments me-2"></i>Zprávy trenérům

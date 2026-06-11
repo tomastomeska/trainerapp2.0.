@@ -188,6 +188,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 if ($coach && password_verify($password, $coach['password'])) {
                     if (!$coach['is_active']) {
+                        appLogEvent(
+                            'login_blocked',
+                            'warning',
+                            'Pokus o prihlaseni na deaktivovany ucet trenera',
+                            ['username' => $username],
+                            'coach',
+                            (int)$coach['id'],
+                            (string)($coach['name'] ?: $username)
+                        );
                         $error = 'Váš účet byl zablokován. Kontaktujte správce.';
                     } else {
                         session_regenerate_id(true);
@@ -196,9 +205,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $_SESSION['coach_name'] = $coach['name'] ?: $username;
                         // Aktualizace posledního přihlášení
                         $pdo->prepare('UPDATE coaches SET last_login = NOW() WHERE id = ?')->execute([$coach['id']]);
+                        appLogEvent(
+                            'login_success',
+                            'info',
+                            'Uspesne prihlaseni trenera',
+                            [],
+                            'coach',
+                            (int)$coach['id'],
+                            (string)($coach['name'] ?: $username)
+                        );
                         redirect(BASE_URL . '/dashboard.php');
                     }
                 } else {
+                    appLogEvent(
+                        'login_failed',
+                        'warning',
+                        'Neplatne prihlasovaci udaje trenera',
+                        ['username' => $username],
+                        'guest',
+                        null,
+                        $username
+                    );
                     $error = 'Nesprávné přihlašovací údaje.';
                 }
             } else {
@@ -214,8 +241,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $athlete = $stmt->fetch();
 
                 if (!$athlete || !(int)$athlete['login_enabled']) {
+                    appLogEvent(
+                        'login_blocked',
+                        'warning',
+                        'Pokus o prihlaseni neaktivniho sportovce',
+                        ['email' => $email],
+                        'guest',
+                        null,
+                        $email
+                    );
                     $error = 'Účet sportovce ještě není aktivovaný. Kontaktujte trenéra.';
                 } elseif (empty($athlete['password']) || !password_verify($password, (string)$athlete['password'])) {
+                    appLogEvent(
+                        'login_failed',
+                        'warning',
+                        'Neplatne prihlasovaci udaje sportovce',
+                        ['email' => $email],
+                        'athlete',
+                        (int)($athlete['id'] ?? 0) ?: null,
+                        trim((string)($athlete['first_name'] ?? '') . ' ' . (string)($athlete['last_name'] ?? ''))
+                    );
                     $error = 'Nesprávné přihlašovací údaje.';
                 } else {
                     session_regenerate_id(true);
@@ -226,6 +271,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $_SESSION['athlete_force_password_change'] = (int)($athlete['force_password_change'] ?? 1);
 
                     $pdo->prepare('UPDATE athletes SET last_login = NOW() WHERE id = ?')->execute([(int)$athlete['id']]);
+                    appLogEvent(
+                        'login_success',
+                        'info',
+                        'Uspesne prihlaseni sportovce',
+                        [],
+                        'athlete',
+                        (int)$athlete['id'],
+                        trim((string)$athlete['first_name'] . ' ' . (string)$athlete['last_name'])
+                    );
 
                     if (!empty($_SESSION['athlete_force_password_change'])) {
                         redirect(BASE_URL . '/athlete_change_password.php');

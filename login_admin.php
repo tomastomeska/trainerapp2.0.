@@ -31,14 +31,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 session_regenerate_id(true);
                 $_SESSION['superadmin_id']   = $admin['id'];
                 $_SESSION['superadmin_name'] = $admin['name'] ?: $username;
+                appLogEvent(
+                    'login_success',
+                    'info',
+                    'Uspesne prihlaseni administratora',
+                    [],
+                    'admin',
+                    (int)$admin['id'],
+                    (string)($admin['name'] ?: $username)
+                );
                 // Aktualizace posledního přihlášení nesmí blokovat samotné přihlášení.
                 try {
                     $pdo->prepare('UPDATE superadmins SET last_login = NOW() WHERE id = ?')->execute([$admin['id']]);
                 } catch (Throwable $e) {
+                    appLogDbIssue('admin_last_login_update', $e, ['admin_id' => (int)$admin['id']]);
                     error_log('Admin last_login update failed: ' . $e->getMessage());
                 }
                 redirect($adminBase . '/admin/coaches.php');
             } else {
+                appLogEvent(
+                    'login_failed',
+                    'warning',
+                    'Neplatne prihlasovaci udaje administratora',
+                    ['username' => $username],
+                    'guest',
+                    null,
+                    $username
+                );
                 // Záměrné zpoždění pro ochranu proti brute-force
                 usleep(500000);
                 $error = 'Nesprávné přihlašovací údaje.';

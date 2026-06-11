@@ -6,6 +6,7 @@
 require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/functions.php';
+require_once __DIR__ . '/app_monitor.php';
 
 if (session_status() === PHP_SESSION_NONE) {
     $cookiePath = (defined('BASE_URL') && BASE_URL !== '') ? BASE_URL : '/';
