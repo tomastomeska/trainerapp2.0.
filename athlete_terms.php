@@ -5,6 +5,111 @@ require_once __DIR__ . '/includes/athlete_header.php';
 
 requireAthleteLogin();
 
+$pdo = getDB();
+$athlete = getCurrentAthlete();
+$athleteId = (int)($athlete['id'] ?? 0);
+$coachId = (int)($athlete['coach_id'] ?? 0);
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!verifyCsrf($_POST['csrf_token'] ?? '')) {
+        flash('danger', 'Neplatný bezpečnostní token.');
+        redirect(BASE_URL . '/athlete_terms.php?tab=agreement');
+    }
+
+    $action = (string)($_POST['action'] ?? '');
+    if ($action === 'respond_agreement') {
+        $agreementId = (int)($_POST['agreement_id'] ?? 0);
+        $response = (string)($_POST['response'] ?? '');
+        if ($agreementId <= 0 || !in_array($response, ['approved', 'rejected'], true)) {
+            flash('danger', 'Neplatná volba dohody.');
+            redirect(BASE_URL . '/athlete_terms.php?tab=agreement');
+        }
+
+        $agreementStmt = $pdo->prepare(
+            'SELECT id
+             FROM coach_athlete_agreements
+             WHERE id = ? AND coach_id = ? AND is_active = 1
+             LIMIT 1'
+        );
+        $agreementStmt->execute([$agreementId, $coachId]);
+        $agreementExists = $agreementStmt->fetch();
+
+        if (!$agreementExists) {
+            flash('danger', 'Dohoda už není aktivní.');
+            redirect(BASE_URL . '/athlete_terms.php?tab=agreement');
+        }
+
+        $alreadyStmt = $pdo->prepare(
+            'SELECT id
+             FROM coach_athlete_agreement_responses
+             WHERE agreement_id = ? AND athlete_id = ?
+             LIMIT 1'
+        );
+        $alreadyStmt->execute([$agreementId, $athleteId]);
+        if ($alreadyStmt->fetch()) {
+            flash('info', 'Na tuto dohodu jste již reagovali. Volbu nelze změnit.');
+            redirect(BASE_URL . '/athlete_terms.php?tab=agreement');
+        }
+
+        $ip = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? ($_SERVER['REMOTE_ADDR'] ?? '');
+        if (str_contains((string)$ip, ',')) {
+            $ip = trim(explode(',', (string)$ip)[0]);
+        }
+        $ip = mb_substr((string)$ip, 0, 45);
+        $ua = mb_substr((string)($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 1000);
+
+        $saveStmt = $pdo->prepare(
+            'INSERT INTO coach_athlete_agreement_responses (agreement_id, athlete_id, response, responded_at, ip_address, user_agent)
+             VALUES (?, ?, ?, NOW(), ?, ?)'
+        );
+        $saveStmt->execute([$agreementId, $athleteId, $response, $ip, $ua]);
+
+        flash('success', 'Vaše volba byla uložena. Děkujeme.');
+        redirect(BASE_URL . '/athlete_terms.php?tab=agreement');
+    }
+}
+
+$tab = (($_GET['tab'] ?? '') === 'agreement') ? 'agreement' : 'terms';
+
+$activeAgreementStmt = $pdo->prepare(
+    'SELECT id, version, title, body, approve_label, reject_label, attachment_path, attachment_name, created_at
+     FROM coach_athlete_agreements
+     WHERE coach_id = ? AND is_active = 1
+     ORDER BY version DESC, id DESC
+     LIMIT 1'
+);
+$activeAgreementStmt->execute([$coachId]);
+$activeAgreement = $activeAgreementStmt->fetch() ?: null;
+
+$athleteAgreementResponse = null;
+$athletePreviousAgreementResponse = null;
+if ($activeAgreement) {
+    $responseStmt = $pdo->prepare(
+        'SELECT response, responded_at
+         FROM coach_athlete_agreement_responses
+         WHERE agreement_id = ? AND athlete_id = ?
+         LIMIT 1'
+    );
+    $responseStmt->execute([(int)$activeAgreement['id'], $athleteId]);
+    $athleteAgreementResponse = $responseStmt->fetch() ?: null;
+
+    if ($athleteAgreementResponse === null) {
+        $previousStmt = $pdo->prepare(
+            'SELECT car.response, car.responded_at, ca.version
+             FROM coach_athlete_agreement_responses car
+             JOIN coach_athlete_agreements ca ON ca.id = car.agreement_id
+             WHERE car.athlete_id = ?
+               AND ca.coach_id = ?
+             ORDER BY ca.version DESC, ca.id DESC, car.responded_at DESC
+             LIMIT 1'
+        );
+        $previousStmt->execute([$athleteId, $coachId]);
+        $athletePreviousAgreementResponse = $previousStmt->fetch() ?: null;
+    }
+}
+
+$agreementNeedsAction = ($activeAgreement !== null && $athleteAgreementResponse === null);
+
 renderAthleteHeader('Všeobecné podmínky pro sportovce');
 ?>
 
@@ -19,6 +124,33 @@ renderAthleteHeader('Všeobecné podmínky pro sportovce');
         </button>
     </div>
 </div>
+
+<ul class="nav nav-tabs mb-4">
+    <li class="nav-item">
+        <a class="nav-link <?= $tab === 'terms' ? 'active' : '' ?>" href="<?= BASE_URL ?>/athlete_terms.php?tab=terms">
+            <i class="fas fa-file-contract me-1"></i>Všeobecné podmínky
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link <?= $tab === 'agreement' ? 'active' : '' ?>" href="<?= BASE_URL ?>/athlete_terms.php?tab=agreement">
+            <i class="fas fa-handshake me-1"></i>Dohoda s trenérem
+            <?php if ($agreementNeedsAction): ?>
+            <span class="badge rounded-pill bg-danger ms-1" style="font-size:.65rem">Akce</span>
+            <?php endif; ?>
+        </a>
+    </li>
+</ul>
+
+<?php if ($agreementNeedsAction && $tab !== 'agreement'): ?>
+<div class="alert alert-warning border-0 shadow-sm mb-4 d-flex align-items-center justify-content-between flex-wrap gap-2">
+    <span><i class="fas fa-exclamation-triangle me-2"></i>Vyžadována akce v záložce <strong>Dohoda s trenérem</strong>.</span>
+    <a href="<?= BASE_URL ?>/athlete_terms.php?tab=agreement" class="btn btn-sm btn-outline-dark">
+        <i class="fas fa-hand-pointer me-1"></i>Přejít na dohodu
+    </a>
+</div>
+<?php endif; ?>
+
+<?php if ($tab === 'terms'): ?>
 
 <div class="alert alert-warning border-0 shadow-sm">
     Tento dokument obsahuje všeobecné podmínky používání aplikace pro sportovce, včetně omezení odpovědnosti a účelu projektu.
@@ -158,4 +290,81 @@ renderAthleteHeader('Všeobecné podmínky pro sportovce');
     Datum poslední úpravy podmínek: <?= date('d.m.Y') ?>
 </div>
 
+<?php else: ?>
+
+<?php if (!$activeAgreement): ?>
+<div class="alert alert-info border-0 shadow-sm mb-4">
+    Trenér zatím nezveřejnil žádnou aktivní dohodu.
+</div>
+<?php else: ?>
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-header bg-dark text-white fw-semibold d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <span><i class="fas fa-handshake me-2"></i><?= h((string)$activeAgreement['title']) ?></span>
+        <small class="text-white-50">Verze v<?= (int)$activeAgreement['version'] ?> • zveřejněno: <?= formatDateTime((string)$activeAgreement['created_at']) ?></small>
+    </div>
+    <div class="card-body">
+        <div class="agreement-body"><?= (string)$activeAgreement['body'] ?></div>
+        <?php if (!empty($activeAgreement['attachment_path']) && !empty($activeAgreement['attachment_name'])): ?>
+        <hr>
+        <a class="btn btn-outline-primary btn-sm" href="<?= BASE_URL ?>/agreement_attachment.php?agreement_id=<?= (int)$activeAgreement['id'] ?>">
+            <i class="fas fa-download me-1"></i>Stáhnout přílohu: <?= h((string)$activeAgreement['attachment_name']) ?>
+        </a>
+        <?php endif; ?>
+    </div>
+</div>
+
+<?php if ($athleteAgreementResponse): ?>
+<?php
+$response = (string)($athleteAgreementResponse['response'] ?? '');
+$badgeClass = $response === 'approved' ? 'bg-success' : 'bg-danger';
+$label = $response === 'approved' ? (string)$activeAgreement['approve_label'] : (string)$activeAgreement['reject_label'];
+?>
+<div class="alert alert-secondary border-0 shadow-sm mb-4">
+    Vaše volba: <span class="badge <?= $badgeClass ?>"><?= h($label) ?></span>
+    <br>
+    <small class="text-muted">Potvrzeno dne <?= formatDateTime((string)$athleteAgreementResponse['responded_at']) ?>. Volbu již nelze změnit.</small>
+</div>
+<?php else: ?>
+<?php if ($athletePreviousAgreementResponse): ?>
+<?php
+$prevResponse = (string)($athletePreviousAgreementResponse['response'] ?? '');
+$prevLabel = $prevResponse === 'rejected' ? 'Zamítnuto' : 'Schváleno';
+?>
+<div class="alert alert-info border-0 shadow-sm mb-4">
+    Poslední potvrzená dohoda: verze v<?= (int)$athletePreviousAgreementResponse['version'] ?>
+    (<?= h($prevLabel) ?> dne <?= formatDateTime((string)$athletePreviousAgreementResponse['responded_at']) ?>).
+    Aktuální verze v<?= (int)$activeAgreement['version'] ?> vyžaduje novou volbu.
+</div>
+<?php endif; ?>
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-body">
+        <p class="mb-3">Prosím vyberte jednu možnost. Po potvrzení už volbu nelze změnit.</p>
+        <form method="post" class="d-flex flex-wrap gap-2">
+            <?= csrfField() ?>
+            <input type="hidden" name="action" value="respond_agreement">
+            <input type="hidden" name="agreement_id" value="<?= (int)$activeAgreement['id'] ?>">
+            <button type="submit" name="response" value="approved" class="btn btn-success fw-bold"
+                    onclick="return confirm('Opravdu chcete potvrdit tuto volbu? Tuto akci nelze změnit.');">
+                <i class="fas fa-check me-1"></i><?= h((string)$activeAgreement['approve_label']) ?>
+            </button>
+            <button type="submit" name="response" value="rejected" class="btn btn-danger fw-bold"
+                    onclick="return confirm('Opravdu chcete potvrdit tuto volbu? Tuto akci nelze změnit.');">
+                <i class="fas fa-times me-1"></i><?= h((string)$activeAgreement['reject_label']) ?>
+            </button>
+        </form>
+    </div>
+</div>
+<?php endif; ?>
+<?php endif; ?>
+
+<?php endif; ?>
+
 <?php renderAthleteFooter(); ?>
+
+<style>
+.agreement-body p:last-child,
+.agreement-body ul:last-child,
+.agreement-body ol:last-child {
+    margin-bottom: 0;
+}
+</style>

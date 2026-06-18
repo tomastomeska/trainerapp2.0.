@@ -580,6 +580,23 @@ renderHeader(h($athlete['first_name'] . ' ' . $athlete['last_name']), true);
                     Zatím nejsou evidované žádné záznamy hmotnosti.
                 </div>
                 <?php else: ?>
+                <div class="d-flex flex-wrap gap-3 align-items-center mb-3">
+                    <div>
+                        <label for="coachWeightRangeFilter" class="form-label fw-semibold mb-1">Období</label>
+                        <select id="coachWeightRangeFilter" class="form-select form-select-sm">
+                            <option value="week">Týden</option>
+                            <option value="month" selected>1 měsíc</option>
+                            <option value="quarter">Čtvrtletí</option>
+                            <option value="year">Rok</option>
+                            <option value="all">Vše</option>
+                        </select>
+                    </div>
+                    <div class="ms-md-auto">
+                        <span class="text-muted fw-semibold me-2">Trend:</span>
+                        <span id="coachWeightTrendBadge" class="badge bg-secondary">-</span>
+                        <span id="coachWeightTrendValue" class="ms-2 text-muted"></span>
+                    </div>
+                </div>
                 <canvas id="athleteWeightChart" style="max-height:340px"></canvas>
                 <?php endif; ?>
             </div>
@@ -985,6 +1002,7 @@ renderHeader(h($athlete['first_name'] . ' ' . $athlete['last_name']), true);
 let forceSingleDeleteSubmit = false;
 const weightHistoryData = <?= json_encode(array_map(
     static fn(array $row): array => [
+        'measured_at' => (string)$row['measured_at'],
         'label' => formatDate((string)$row['measured_at']),
         'weight' => (float)$row['weight_kg'],
     ],
@@ -1035,14 +1053,78 @@ function confirmBulkDeleteTrainings() {
 
 document.addEventListener('DOMContentLoaded', function () {
     const weightCanvas = document.getElementById('athleteWeightChart');
+    const rangeFilter = document.getElementById('coachWeightRangeFilter');
+    const trendBadge = document.getElementById('coachWeightTrendBadge');
+    const trendValue = document.getElementById('coachWeightTrendValue');
+
+    function parseWeightDate(dateStr) {
+        return new Date(`${dateStr}T00:00:00`);
+    }
+
+    function addMonths(dateObj, months) {
+        const next = new Date(dateObj);
+        next.setMonth(next.getMonth() + months);
+        return next;
+    }
+
+    function getFilteredWeightRows(rangeKey) {
+        if (!Array.isArray(weightHistoryData) || weightHistoryData.length === 0 || rangeKey === 'all') {
+            return weightHistoryData;
+        }
+
+        const lastRow = weightHistoryData[weightHistoryData.length - 1];
+        const lastDate = parseWeightDate(lastRow.measured_at);
+        let startDate = new Date(lastDate);
+
+        if (rangeKey === 'week') {
+            startDate.setDate(startDate.getDate() - 7);
+        } else if (rangeKey === 'month') {
+            startDate.setDate(startDate.getDate() - 30);
+        } else if (rangeKey === 'quarter') {
+            startDate = addMonths(startDate, -4);
+        } else if (rangeKey === 'year') {
+            startDate = addMonths(startDate, -12);
+        }
+
+        return weightHistoryData.filter((row) => parseWeightDate(row.measured_at) >= startDate);
+    }
+
+    function updateWeightTrend(rows) {
+        if (!trendBadge || !trendValue || !Array.isArray(rows) || rows.length < 2) {
+            if (trendBadge) trendBadge.textContent = 'Nedostatek dat';
+            if (trendBadge) trendBadge.className = 'badge bg-secondary';
+            if (trendValue) trendValue.textContent = '';
+            return;
+        }
+
+        const firstWeight = Number(rows[0].weight || 0);
+        const lastWeight = Number(rows[rows.length - 1].weight || 0);
+        const diff = lastWeight - firstWeight;
+        const absDiff = Math.abs(diff);
+
+        if (absDiff <= 1.5) {
+            trendBadge.textContent = 'Stabilní váha';
+            trendBadge.className = 'badge bg-secondary';
+        } else if (diff <= -1.51) {
+            trendBadge.textContent = 'Hubnutí';
+            trendBadge.className = 'badge bg-success';
+        } else {
+            trendBadge.textContent = 'Přibírání na váze';
+            trendBadge.className = 'badge bg-danger';
+        }
+
+        const sign = diff > 0 ? '+' : '';
+        trendValue.textContent = `${sign}${diff.toFixed(1).replace('.', ',')} kg`;
+    }
+
     if (weightCanvas && Array.isArray(weightHistoryData) && weightHistoryData.length > 0 && window.Chart) {
-        new Chart(weightCanvas, {
+        const weightChart = new Chart(weightCanvas, {
             type: 'line',
             data: {
-                labels: weightHistoryData.map((p) => p.label),
+                labels: [],
                 datasets: [{
                     label: 'Hmotnost (kg)',
-                    data: weightHistoryData.map((p) => p.weight),
+                    data: [],
                     borderColor: '#0d6efd',
                     backgroundColor: 'rgba(13,110,253,0.15)',
                     borderWidth: 2,
@@ -1073,6 +1155,22 @@ document.addEventListener('DOMContentLoaded', function () {
                 },
             },
         });
+
+        function applyWeightRange(rangeKey) {
+            const filtered = getFilteredWeightRows(rangeKey);
+            weightChart.data.labels = filtered.map((p) => p.label);
+            weightChart.data.datasets[0].data = filtered.map((p) => p.weight);
+            weightChart.update();
+            updateWeightTrend(filtered);
+        }
+
+        if (rangeFilter) {
+            rangeFilter.addEventListener('change', function (event) {
+                applyWeightRange(event.target.value);
+            });
+        }
+
+        applyWeightRange(rangeFilter ? rangeFilter.value : 'month');
     }
 
     const checks = getTrainingChecks();

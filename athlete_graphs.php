@@ -82,6 +82,23 @@ renderAthleteHeader('Grafy', true);
         <?php if (empty($weightData)): ?>
         <div class="alert alert-info mb-0">Zatím nemáte zadané žádné váhové záznamy.</div>
         <?php else: ?>
+        <div class="d-flex flex-wrap gap-3 align-items-center mb-3">
+            <div>
+                <label for="weightRangeFilter" class="form-label fw-semibold mb-1">Období</label>
+                <select id="weightRangeFilter" class="form-select form-select-sm">
+                    <option value="week">Týden</option>
+                    <option value="month" selected>1 měsíc</option>
+                    <option value="quarter">Čtvrtletí</option>
+                    <option value="year">Rok</option>
+                    <option value="all">Vše</option>
+                </select>
+            </div>
+            <div class="ms-md-auto">
+                <span class="text-muted fw-semibold me-2">Trend:</span>
+                <span id="weightTrendBadge" class="badge bg-secondary">-</span>
+                <span id="weightTrendValue" class="ms-2 text-muted"></span>
+            </div>
+        </div>
         <canvas id="bodyWeightChart" style="max-height:320px"></canvas>
         <?php endif; ?>
     </div>
@@ -174,21 +191,85 @@ new Chart(document.getElementById('volumeChart'), {
 <?php if (!empty($weightData)): ?>
 <script>
 const bodyWeightRows = <?= json_encode($weightData, JSON_UNESCAPED_UNICODE) ?>;
-const bodyWeightLabels = bodyWeightRows.map(r => {
-    const dt = new Date(`${r.measured_at}T00:00:00`);
+const rangeFilter = document.getElementById('weightRangeFilter');
+const trendBadge = document.getElementById('weightTrendBadge');
+const trendValue = document.getElementById('weightTrendValue');
+
+function formatWeightDate(dateStr) {
+    const dt = new Date(`${dateStr}T00:00:00`);
     const dd = String(dt.getDate()).padStart(2, '0');
     const mm = String(dt.getMonth() + 1).padStart(2, '0');
     const yy = dt.getFullYear();
     return `${dd}.${mm}.${yy}`;
-});
+}
 
-new Chart(document.getElementById('bodyWeightChart'), {
+function parseWeightDate(dateStr) {
+    return new Date(`${dateStr}T00:00:00`);
+}
+
+function addMonths(dateObj, months) {
+    const next = new Date(dateObj);
+    next.setMonth(next.getMonth() + months);
+    return next;
+}
+
+function getFilteredWeightRows(rangeKey) {
+    if (!Array.isArray(bodyWeightRows) || bodyWeightRows.length === 0 || rangeKey === 'all') {
+        return bodyWeightRows;
+    }
+
+    const lastRow = bodyWeightRows[bodyWeightRows.length - 1];
+    const lastDate = parseWeightDate(lastRow.measured_at);
+    let startDate = new Date(lastDate);
+
+    if (rangeKey === 'week') {
+        startDate.setDate(startDate.getDate() - 7);
+    } else if (rangeKey === 'month') {
+        startDate.setDate(startDate.getDate() - 30);
+    } else if (rangeKey === 'quarter') {
+        startDate = addMonths(startDate, -4);
+    } else if (rangeKey === 'year') {
+        startDate = addMonths(startDate, -12);
+    }
+
+    return bodyWeightRows.filter((row) => parseWeightDate(row.measured_at) >= startDate);
+}
+
+function updateWeightTrend(rows) {
+    if (!trendBadge || !trendValue || !Array.isArray(rows) || rows.length < 2) {
+        if (trendBadge) trendBadge.textContent = 'Nedostatek dat';
+        if (trendBadge) trendBadge.className = 'badge bg-secondary';
+        if (trendValue) trendValue.textContent = '';
+        return;
+    }
+
+    const firstWeight = Number(rows[0].weight_kg || 0);
+    const lastWeight = Number(rows[rows.length - 1].weight_kg || 0);
+    const diff = lastWeight - firstWeight;
+    const absDiff = Math.abs(diff);
+
+    if (absDiff <= 1.5) {
+        trendBadge.textContent = 'Stabilní váha';
+        trendBadge.className = 'badge bg-secondary';
+    } else if (diff <= -1.51) {
+        trendBadge.textContent = 'Hubnutí';
+        trendBadge.className = 'badge bg-success';
+    } else {
+        trendBadge.textContent = 'Přibírání na váze';
+        trendBadge.className = 'badge bg-danger';
+    }
+
+    const sign = diff > 0 ? '+' : '';
+    trendValue.textContent = `${sign}${diff.toFixed(1).replace('.', ',')} kg`;
+}
+
+const bodyWeightChart = new Chart(document.getElementById('bodyWeightChart'), {
     type: 'line',
     data: {
-        labels: bodyWeightLabels,
+        labels: [],
         datasets: [{
             label: 'Tělesná hmotnost (kg)',
-            data: bodyWeightRows.map(r => Number(r.weight_kg || 0)),
+            data: [],
             borderColor: '#10b981',
             backgroundColor: 'rgba(16, 185, 129, 0.2)',
             borderWidth: 3,
@@ -199,6 +280,22 @@ new Chart(document.getElementById('bodyWeightChart'), {
     },
     options: { responsive: true, maintainAspectRatio: false }
 });
+
+function applyWeightRange(rangeKey) {
+    const filtered = getFilteredWeightRows(rangeKey);
+    bodyWeightChart.data.labels = filtered.map((row) => formatWeightDate(row.measured_at));
+    bodyWeightChart.data.datasets[0].data = filtered.map((row) => Number(row.weight_kg || 0));
+    bodyWeightChart.update();
+    updateWeightTrend(filtered);
+}
+
+if (rangeFilter) {
+    rangeFilter.addEventListener('change', (event) => {
+        applyWeightRange(event.target.value);
+    });
+}
+
+applyWeightRange(rangeFilter ? rangeFilter.value : 'month');
 </script>
 <?php endif; ?>
 

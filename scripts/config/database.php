@@ -648,6 +648,60 @@ function ensureSchemaUpgrades(PDO $pdo): void {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ");
 
+    // Dohoda s trenérem: text dohody + reakce sportovce (schváleno/zamítnuto)
+    $pdo->exec(" 
+        CREATE TABLE IF NOT EXISTS `coach_athlete_agreements` (
+            `id`            INT AUTO_INCREMENT PRIMARY KEY,
+            `coach_id`      INT NOT NULL,
+            `version`       INT NOT NULL DEFAULT 1,
+            `title`         VARCHAR(255) NOT NULL,
+            `body`          TEXT NOT NULL,
+            `approve_label` VARCHAR(80) NOT NULL DEFAULT 'Schvaluji',
+            `reject_label`  VARCHAR(80) NOT NULL DEFAULT 'Zamítám',
+            `attachment_path` VARCHAR(500) NULL,
+            `attachment_name` VARCHAR(255) NULL,
+            `is_active`     TINYINT(1) NOT NULL DEFAULT 1,
+            `created_at`    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            KEY `idx_coach_athlete_agreements_coach` (`coach_id`, `is_active`, `created_at`),
+            KEY `idx_coach_athlete_agreements_version` (`coach_id`, `version`),
+            CONSTRAINT `fk_coach_athlete_agreements_coach`
+                FOREIGN KEY (`coach_id`) REFERENCES `coaches`(`id`) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
+    $stmtAgreementVersion = $pdo->query("SHOW COLUMNS FROM coach_athlete_agreements LIKE 'version'");
+    if (!$stmtAgreementVersion->fetch()) {
+        $pdo->exec("ALTER TABLE coach_athlete_agreements ADD COLUMN `version` INT NOT NULL DEFAULT 1 AFTER `coach_id`");
+    }
+
+    $stmtAgreementAttachmentPath = $pdo->query("SHOW COLUMNS FROM coach_athlete_agreements LIKE 'attachment_path'");
+    if (!$stmtAgreementAttachmentPath->fetch()) {
+        $pdo->exec("ALTER TABLE coach_athlete_agreements ADD COLUMN `attachment_path` VARCHAR(500) NULL AFTER `reject_label`");
+    }
+
+    $stmtAgreementAttachmentName = $pdo->query("SHOW COLUMNS FROM coach_athlete_agreements LIKE 'attachment_name'");
+    if (!$stmtAgreementAttachmentName->fetch()) {
+        $pdo->exec("ALTER TABLE coach_athlete_agreements ADD COLUMN `attachment_name` VARCHAR(255) NULL AFTER `attachment_path`");
+    }
+
+    $pdo->exec(" 
+        CREATE TABLE IF NOT EXISTS `coach_athlete_agreement_responses` (
+            `id`           INT AUTO_INCREMENT PRIMARY KEY,
+            `agreement_id` INT NOT NULL,
+            `athlete_id`   INT NOT NULL,
+            `response`     ENUM('approved','rejected') NOT NULL,
+            `responded_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `ip_address`   VARCHAR(45) NULL,
+            `user_agent`   TEXT NULL,
+            UNIQUE KEY `uq_coach_athlete_agreement_response` (`agreement_id`, `athlete_id`),
+            KEY `idx_coach_athlete_agreement_responses_athlete` (`athlete_id`, `responded_at`),
+            CONSTRAINT `fk_coach_athlete_agreement_responses_agreement`
+                FOREIGN KEY (`agreement_id`) REFERENCES `coach_athlete_agreements`(`id`) ON DELETE CASCADE,
+            CONSTRAINT `fk_coach_athlete_agreement_responses_athlete`
+                FOREIGN KEY (`athlete_id`) REFERENCES `athletes`(`id`) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
     // Decommission: odstranění tabulek zrušených sportů (běh/golf).
     try {
         $pdo->exec('SET FOREIGN_KEY_CHECKS=0');
