@@ -69,8 +69,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 		$pdo->beginTransaction();
 		try {
 			$stmtMsg = $pdo->prepare("
-				INSERT INTO admin_messages (subject, body, attachment_path, attachment_name, sent_at)
-				VALUES (?, ?, ?, ?, NOW())
+				INSERT INTO admin_messages (subject, body, attachment_path, attachment_name, sent_at, message_source)
+				VALUES (?, ?, ?, ?, NOW(), 'admin')
 			");
 			$stmtMsg->execute([$subject, $body, $attachPath, $attachName]);
 			$messageId = (int)$pdo->lastInsertId();

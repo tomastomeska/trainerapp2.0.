@@ -25,7 +25,7 @@ renderAthleteHeader('Návod pro sportovce');
 </div>
 
 <div class="alert alert-success shadow-sm border-0">
-    <strong>Novinky v této verzi:</strong> v kalendáři lépe poznáte <strong>čekající požadavky na změnu termínu</strong> a také se zobrazují přesnější typy událostí, včetně <strong>skupinového tréninku / skupinové lekce</strong>.
+    <strong>Novinky v této verzi:</strong> na profilu nyní v kartě <strong>Platby</strong> vidíte přehled posledních období podobně jako v sekci Platby, a v profilu můžete průběžně vést <strong>historii hmotnosti</strong>.
 </div>
 
 <div class="card border-0 shadow-sm mb-4">
@@ -36,6 +36,7 @@ renderAthleteHeader('Návod pro sportovce');
         <ol class="mb-0">
             <li>Přihlaste se přístupem od trenéra.</li>
             <li>Otevřete Profil a zkontrolujte osobní údaje.</li>
+            <li>Volitelně doplňte aktuální hmotnost do sekce hmotnosti v profilu.</li>
             <li>V Kalendáři ověřte nejbližší termíny tréninku.</li>
             <li>V Jídelníčcích projděte aktuálně přiřazený plán.</li>
             <li>V Platbách zkontrolujte přehled období a zbývajících tréninků.</li>
@@ -62,6 +63,15 @@ renderAthleteHeader('Návod pro sportovce');
             <li>Zadejte nové heslo a jeho potvrzení.</li>
             <li>Klikněte na Uložit.</li>
             <li>Při příštím přihlášení použijte nové heslo.</li>
+        </ol>
+
+        <h6 class="fw-bold mt-3">Jak zapisovat hmotnost</h6>
+        <ol>
+            <li>V Profilu najděte sekci Zaznamenat aktuální hmotnost.</li>
+            <li>Zadejte datum vážení a hodnotu v kg.</li>
+            <li>Klikněte na Uložit.</li>
+            <li>V historii hmotnosti můžete záznam kdykoliv upravit nebo smazat.</li>
+            <li>Zadaná hmotnost se ukládá do vaší historie a trenér ji uvidí při vedení tréninku.</li>
         </ol>
     </div>
 </div>
@@ -133,11 +143,12 @@ renderAthleteHeader('Návod pro sportovce');
     <div class="card-header fw-semibold"><i class="fas fa-wallet me-2 text-warning"></i>5) Platby: jak číst přehled</div>
     <div class="card-body">
         <ol>
-            <li>Otevřete Platby.</li>
-            <li>Vyberte poslední záznam platby a zkontrolujte období.</li>
-            <li>Ověřte počet zbývajících tréninků.</li>
+            <li>V Profilu v kartě Platby zkontrolujte rychlý přehled posledních období.</li>
+            <li>Pro plný přehled klikněte na Zobrazit platby.</li>
+            <li>Zkontrolujte období, počet započítaných tréninků, částku a stav (Čeká na úhradu / Uhrazeno).</li>
+            <li>Pokud je platba čekající, otevřete QR a uhraďte podle pokynů.</li>
+            <li>Po úhradě ověřte, že se stav změnil na Uhrazeno.</li>
             <li>V případě nesrovnalostí kontaktujte trenéra přes Zprávy.</li>
-            <li>Pokud je k dispozici účtenka, otevřete detail a případně vytiskněte.</li>
         </ol>
     </div>
 </div>
@@ -187,6 +198,7 @@ renderAthleteHeader('Návod pro sportovce');
         <ol class="mb-0">
             <li>Ráno: ověřte dnešní termín v Kalendáři.</li>
             <li>Během dne: dodržujte jídelníček podle aktuálního plánu.</li>
+            <li>Po kontrole progresu: doplňte aktuální hmotnost do profilu.</li>
             <li>Po tréninku: otevřete detail tréninku a zhodnoťte výkon.</li>
             <li>Večer: zkontrolujte Zprávy a potvrďte další kroky s trenérem.</li>
         </ol>

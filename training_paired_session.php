@@ -24,7 +24,17 @@ if (!$paired) {
 // Načtení všech session v tomto párovém tréninku
 $stmt = $pdo->prepare(
     'SELECT ts.*, a.first_name, a.last_name, a.id AS athlete_id,
-            ws.name AS set_name
+            ws.name AS set_name,
+            (SELECT aw.weight_kg
+             FROM athlete_weight_logs aw
+             WHERE aw.athlete_id = a.id
+             ORDER BY aw.measured_at DESC, aw.id DESC
+             LIMIT 1) AS latest_weight_kg,
+            (SELECT aw.measured_at
+             FROM athlete_weight_logs aw
+             WHERE aw.athlete_id = a.id
+             ORDER BY aw.measured_at DESC, aw.id DESC
+             LIMIT 1) AS latest_weight_measured_at
      FROM training_sessions ts
      JOIN athletes a ON ts.athlete_id = a.id
      JOIN workout_sets ws ON ts.workout_set_id = ws.id
@@ -125,6 +135,15 @@ renderHeader('Párový trénink');
                 <div class="small text-muted">
                     <i class="fas fa-layer-group me-1"></i><?= h($sd['session']['set_name']) ?>
                 </div>
+                <?php if ($sd['session']['latest_weight_kg'] !== null): ?>
+                <div class="small text-muted">
+                    <i class="fas fa-weight-scale me-1"></i>
+                    Poslední váha: <?= number_format((float)$sd['session']['latest_weight_kg'], 1, ',', '') ?> kg
+                    <?php if (!empty($sd['session']['latest_weight_measured_at'])): ?>
+                        (<?= formatDate((string)$sd['session']['latest_weight_measured_at']) ?>)
+                    <?php endif; ?>
+                </div>
+                <?php endif; ?>
             </div>
             <?php if (!empty($availableExercises)): ?>
             <div class="ms-auto d-flex gap-2 align-items-center">

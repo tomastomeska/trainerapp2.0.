@@ -103,7 +103,17 @@ $activeSessionsStmt = $pdo->prepare(
             ts.started_at,
             a.first_name,
             a.last_name,
-            ws.name AS set_name
+            ws.name AS set_name,
+            (SELECT w.weight_kg
+             FROM athlete_weight_logs w
+             WHERE w.athlete_id = a.id
+             ORDER BY w.measured_at DESC, w.id DESC
+             LIMIT 1) AS latest_weight_kg,
+            (SELECT w.measured_at
+             FROM athlete_weight_logs w
+             WHERE w.athlete_id = a.id
+             ORDER BY w.measured_at DESC, w.id DESC
+             LIMIT 1) AS latest_weight_measured_at
      FROM training_sessions ts
      JOIN athletes a ON a.id = ts.athlete_id
      JOIN workout_sets ws ON ws.id = ts.workout_set_id
@@ -375,6 +385,15 @@ renderHeader('Dashboard');
                     <div class="border rounded-3 p-2 h-100 bg-light d-flex flex-column gap-1">
                         <div class="fw-bold small"><?= h($session['first_name'] . ' ' . $session['last_name']) ?></div>
                         <div class="text-muted small"><?= h($session['set_name']) ?> · <?= formatDateTime($session['started_at']) ?></div>
+                        <?php if ($session['latest_weight_kg'] !== null): ?>
+                        <div class="text-muted small">
+                            <i class="fas fa-weight-scale me-1"></i>
+                            <?= number_format((float)$session['latest_weight_kg'], 1, ',', '') ?> kg
+                            <?php if (!empty($session['latest_weight_measured_at'])): ?>
+                                (<?= formatDate((string)$session['latest_weight_measured_at']) ?>)
+                            <?php endif; ?>
+                        </div>
+                        <?php endif; ?>
                         <a href="<?= BASE_URL ?>/training_session.php?id=<?= (int)$session['session_id'] ?>"
                            class="btn btn-sm btn-warning fw-bold align-self-start">
                             <i class="fas fa-play me-1"></i>Pokračovat
@@ -404,6 +423,20 @@ renderHeader('Dashboard');
                             <span class="badge bg-white text-dark border small">
                                 <?= h($session['first_name'] . ' ' . $session['last_name']) ?>
                             </span>
+                            <?php endforeach; ?>
+                        </div>
+                        <div class="small text-muted">
+                            <?php foreach ($pair['sessions'] as $session): ?>
+                                <?php if ($session['latest_weight_kg'] !== null): ?>
+                                <div>
+                                    <i class="fas fa-weight-scale me-1"></i>
+                                    <?= h($session['first_name'] . ' ' . $session['last_name']) ?>:
+                                    <?= number_format((float)$session['latest_weight_kg'], 1, ',', '') ?> kg
+                                    <?php if (!empty($session['latest_weight_measured_at'])): ?>
+                                        (<?= formatDate((string)$session['latest_weight_measured_at']) ?>)
+                                    <?php endif; ?>
+                                </div>
+                                <?php endif; ?>
                             <?php endforeach; ?>
                         </div>
                         <a href="<?= BASE_URL ?>/training_paired_session.php?id=<?= (int)$pair['paired_session_id'] ?>"

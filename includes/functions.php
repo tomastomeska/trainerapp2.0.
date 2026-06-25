@@ -127,6 +127,12 @@ if (!function_exists('paymentAsciiText')) {
   }
 }
 
+if (!function_exists('athletePaymentsAscii')) {
+  function athletePaymentsAscii(string $value): string {
+    return paymentAsciiText($value);
+  }
+}
+
 function mealTypeOptions(): array {
   return [
     'breakfast' => 'Snídaně',
@@ -1697,7 +1703,7 @@ function sendAthleteCalendarNotificationEmail(string $toEmail, string $athleteNa
 
 function createCoachSystemMessage(int $coachId, string $subject, string $body, bool $sendEmail = true): ?int {
   $pdo = getDB();
-  $ins = $pdo->prepare('INSERT INTO admin_messages (subject, body, sent_at) VALUES (?, ?, NOW())');
+  $ins = $pdo->prepare("INSERT INTO admin_messages (subject, body, sent_at, message_source) VALUES (?, ?, NOW(), 'system')");
   $ins->execute([$subject, $body]);
   $messageId = (int)$pdo->lastInsertId();
 
@@ -1730,7 +1736,7 @@ function createAthleteNotification(int $athleteId, string $subject, string $body
  */
 function createAthleteToCoachMessage(int $athleteId, int $coachId, string $subject, string $body): int {
   $pdo = getDB();
-  $ins = $pdo->prepare('INSERT INTO admin_messages (subject, body, from_athlete_id, sent_at) VALUES (?, ?, ?, NOW())');
+  $ins = $pdo->prepare("INSERT INTO admin_messages (subject, body, from_athlete_id, sent_at, message_source) VALUES (?, ?, ?, NOW(), 'athlete')");
   $ins->execute([$subject, $body, $athleteId]);
   $messageId = (int)$pdo->lastInsertId();
 
@@ -2142,12 +2148,12 @@ function processBirthdayNotifications(): array {
     // Sportovci s narozeninami dnes – pouze pokud gratulace ještě nebyla odeslána letos
     $todayRows = $pdo->query(
         "SELECT a.id, a.first_name, a.last_name, a.birth_date,
+                c.id AS coach_id,
                 c.email AS coach_email, c.name AS coach_name, c.username AS coach_username
          FROM athletes a
          JOIN coaches c ON c.id = a.coach_id
          WHERE a.birth_date IS NOT NULL
            AND DATE_FORMAT(a.birth_date, '%m-%d') = DATE_FORMAT(CURDATE(), '%m-%d')
-           AND c.email IS NOT NULL AND c.email != ''
            AND NOT EXISTS (
                SELECT 1 FROM birthday_notifications bn
                WHERE bn.athlete_id = a.id
@@ -2163,12 +2169,23 @@ function processBirthdayNotifications(): array {
             $age = (int)(new DateTime())->diff(new DateTime($a['birth_date']))->y;
         } catch (\Exception $e) {}
 
-        $sent = sendBirthdayTodayEmail(
-            $a['coach_email'], $coachName,
-            $a['first_name'], $a['last_name'],
-            $age
-        );
-        if ($sent) {
+        $fullName = trim((string)$a['first_name'] . ' ' . (string)$a['last_name']);
+        $messageSubject = 'Narozeniny: ' . $fullName;
+        $messageBody = 'Dnes má narozeniny váš sportovec ' . $fullName
+            . ' (' . $age . ' let). Nezapomeňte mu/jí popřát.';
+        $messageId = createCoachSystemMessage((int)$a['coach_id'], $messageSubject, $messageBody, false);
+
+        $canSendEmail = !empty($a['coach_email']) && filter_var((string)$a['coach_email'], FILTER_VALIDATE_EMAIL);
+        $sent = false;
+        if ($canSendEmail) {
+            $sent = sendBirthdayTodayEmail(
+                $a['coach_email'], $coachName,
+                $a['first_name'], $a['last_name'],
+                $age
+            );
+        }
+
+        if ($sent || $messageId !== null) {
             try {
                 $pdo->prepare(
                     "INSERT IGNORE INTO birthday_notifications (athlete_id, notification_type, year, sent_at)
@@ -2182,7 +2199,7 @@ function processBirthdayNotifications(): array {
             'type'        => 'birthday',
             'athlete'     => $a['first_name'] . ' ' . $a['last_name'],
             'coach_email' => $a['coach_email'],
-            'sent'        => $sent,
+          'sent'        => ($sent || $messageId !== null),
             'age'         => $age,
         ];
     }

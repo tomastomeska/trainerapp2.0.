@@ -14,14 +14,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delet
 	}
 	$mid = intParam($_POST, 'message_id');
 	// Smaže i přílohu
-	$row = $pdo->prepare('SELECT attachment_path FROM admin_messages WHERE id = ?');
+	$row = $pdo->prepare("SELECT attachment_path FROM admin_messages WHERE id = ? AND message_source = 'admin'");
 	$row->execute([$mid]);
 	$msg = $row->fetch();
 	if ($msg && $msg['attachment_path']) {
 		$full = dirname(__DIR__) . '/uploads/messages/' . basename($msg['attachment_path']);
 		if (file_exists($full)) @unlink($full);
 	}
-	$pdo->prepare('DELETE FROM admin_messages WHERE id = ?')->execute([$mid]);
+	if (!$msg) {
+		flash('warning', 'Lze mazat pouze zprávy odeslané administrátorem.');
+		redirect(BASE_URL . '/admin/zpravy.php');
+	}
+	$pdo->prepare("DELETE FROM admin_messages WHERE id = ? AND message_source = 'admin'")->execute([$mid]);
 	flash('success', 'Zpráva byla smazána.');
 	redirect(BASE_URL . '/admin/zpravy.php');
 }
@@ -33,6 +37,7 @@ $messages = $pdo->query("
 		SUM(r.read_at IS NOT NULL)                            AS read_count
 	FROM admin_messages m
 	LEFT JOIN admin_message_recipients r ON r.message_id = m.id
+	WHERE m.message_source = 'admin'
 	GROUP BY m.id
 	ORDER BY m.sent_at DESC
 ")->fetchAll();
@@ -41,7 +46,10 @@ renderAdminHeader('Zprávy');
 ?>
 
 <div class="d-flex justify-content-between align-items-center mb-4">
-	<h2 class="fw-bold mb-0"><i class="fas fa-envelope-open-text me-2 text-primary"></i>Zprávy trenérům</h2>
+	<div>
+		<h2 class="fw-bold mb-1"><i class="fas fa-envelope-open-text me-2 text-primary"></i>Zprávy trenérům</h2>
+		<span class="badge text-bg-light border">Pouze admin zprávy</span>
+	</div>
 	<a href="<?= BASE_URL ?>/admin/zprava_nova.php" class="btn btn-primary">
 		<i class="fas fa-plus me-1"></i>Nová zpráva
 	</a>

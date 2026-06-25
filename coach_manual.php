@@ -25,7 +25,7 @@ renderHeader('Návod pro trenéry');
 </div>
 
 <div class="alert alert-success shadow-sm border-0">
-    <strong>Novinky v této verzi:</strong> v kalendáři lze nově pracovat s typem události <strong>Skupinový trénink / skupinová lekce</strong> a v měsíčním přehledu rychle schvalovat čekající požadavky sportovců přímo z přehledu.
+    <strong>Novinky v této verzi:</strong> při vedení tréninku se u sportovce zobrazuje <strong>poslední zadaná hmotnost s datem</strong>, notifikace k narozeninám chodí trenérovi <strong>e-mailem i do Zpráv</strong> a platební výzvy se sportovci zobrazují přehledněji i na dashboardu.
 </div>
 
 <div class="card border-0 shadow-sm mb-4">
@@ -127,6 +127,7 @@ renderHeader('Návod pro trenéry');
             <li>Otevřete Sportovci a přejděte do detailu sportovce.</li>
             <li>Klikněte na Spustit trénink.</li>
             <li>Vyberte sadu, kterou chcete jet.</li>
+            <li>V hlavičce tréninku zkontrolujte poslední hmotnost sportovce (kg + datum vážení).</li>
             <li>U každého cviku vyplňujte série (opakování, váha nebo čas podle typu cviku).</li>
             <li>Průběžně kontrolujte, že se data ukládají do správného cviku/série.</li>
             <li>Na konci klikněte na Dokončit trénink.</li>
@@ -148,6 +149,7 @@ renderHeader('Návod pro trenéry');
             <li>Spusťte párový trénink z příslušné akce v aplikaci.</li>
             <li>Vyberte oba sportovce.</li>
             <li>Zvolte sadu pro párovou jednotku.</li>
+            <li>U obou sportovců v hlavičce ověřte poslední hmotnost (kg + datum).</li>
             <li>Zapisujte průběh tréninku a dokončete párovou session.</li>
             <li>Zkontrolujte výsledek v detailu obou sportovců.</li>
         </ol>
@@ -181,18 +183,19 @@ renderHeader('Návod pro trenéry');
 <div class="card border-0 shadow-sm mb-4">
     <div class="card-header fw-semibold"><i class="fas fa-wallet me-2 text-warning"></i>6) Platby: zápis a kontrola</div>
     <div class="card-body">
-        <h6 class="fw-bold">Jak zapsat novou platbu</h6>
+        <h6 class="fw-bold">Jak připravit a otevřít výzvu k úhradě</h6>
         <ol>
             <li>Otevřete Platby.</li>
-            <li>Klikněte na Přidat platbu.</li>
-            <li>Vyberte sportovce.</li>
-            <li>Zadejte období, částku a další potřebná pole.</li>
-            <li>Uložte platbu.</li>
-            <li>Zkontrolujte, že se aktualizoval přehled zbývajících tréninků.</li>
+            <li>Zvolte období (měsíc), které chcete uzavřít/řešit.</li>
+            <li>Zkontrolujte přehled tréninků a vypočtené částky pro sportovce.</li>
+            <li>Výzvu otevřete globálně nebo po sportovcích (released).</li>
+            <li>U sportovce lze odeslat e-mail s výzvou a QR kódem.</li>
+            <li>Ověřte, že sportovec vidí výzvu v sekci Platby.</li>
         </ol>
 
         <h6 class="fw-bold mt-3">Jak pracovat s potvrzením platby</h6>
         <ol>
+            <li>Po přijetí platby označte platbu jako Uhrazeno.</li>
             <li>V seznamu plateb otevřete konkrétní záznam.</li>
             <li>Klikněte na detail/účtenku.</li>
             <li>Použijte tisk nebo sdílení podle potřeby.</li>
@@ -254,6 +257,13 @@ renderHeader('Návod pro trenéry');
             <li>Klikněte na Odeslat.</li>
             <li>Ověřte ve vláknu, že zpráva odešla.</li>
         </ol>
+
+        <h6 class="fw-bold mt-3">Automatické systémové zprávy</h6>
+        <ol>
+            <li>Notifikace k narozeninám sportovců chodí automaticky e-mailem i do Zpráv.</li>
+            <li>Kalendářové požadavky sportovců sledujte v přehledech a následně potvrzujte/odmítejte.</li>
+            <li>Změny hmotnosti, které si sportovec zapisuje v profilu, již nezatěžují inbox samostatnými zprávami.</li>
+        </ol>
     </div>
 </div>
 
@@ -290,6 +300,7 @@ renderHeader('Návod pro trenéry');
             <li>Ráno: otevřete Kalendář a ověřte dnešní termíny.</li>
             <li>Po každém tréninku: zkontrolujte uložení výsledků.</li>
             <li>Odpoledne: projděte Zprávy a odpovězte na dotazy.</li>
+            <li>Průběžně: kontrolujte platební výzvy ve vybraném období a označujte uhrazené položky.</li>
             <li>Večer: zkontrolujte Platby, případně doplňte chybějící záznamy.</li>
             <li>1x týdně: vyhodnoťte Grafy a upravte sady/jídelníčky.</li>
         </ol>

@@ -895,6 +895,27 @@ function ensureSchemaUpgrades(PDO $pdo): void {
         $pdo->exec("ALTER TABLE admin_messages ADD COLUMN `from_athlete_id` INT NULL AFTER `sent_at`");
     }
 
+    // Typ odesílatele zprávy pro oddělení admin / systém / sportovec
+    $stmtMsgSource = $pdo->query("SHOW COLUMNS FROM admin_messages LIKE 'message_source'");
+    if (!$stmtMsgSource->fetch()) {
+        $pdo->exec("ALTER TABLE admin_messages ADD COLUMN `message_source` ENUM('admin','system','athlete') NULL AFTER `from_athlete_id`");
+
+        // Backfill stávajících dat při prvním nasazení sloupce.
+        $pdo->exec("UPDATE admin_messages SET message_source = 'athlete' WHERE message_source IS NULL AND from_athlete_id IS NOT NULL");
+        $pdo->exec("UPDATE admin_messages SET message_source = 'system' WHERE message_source IS NULL AND (
+            subject LIKE 'Nová hmotnost - %'
+            OR subject LIKE 'Upravená hmotnost - %'
+            OR subject LIKE 'Smazaná hmotnost - %'
+            OR subject LIKE 'Nový požadavek termínu - %'
+            OR subject LIKE 'Sportovec zrušil termín - %'
+            OR subject LIKE 'Narozeniny: %'
+            OR subject LIKE 'Podpora #% - %'
+            OR subject = 'Nový soubor v galerii od administrátora'
+        )");
+        $pdo->exec("UPDATE admin_messages SET message_source = 'admin' WHERE message_source IS NULL");
+        $pdo->exec("ALTER TABLE admin_messages MODIFY COLUMN `message_source` ENUM('admin','system','athlete') NOT NULL DEFAULT 'system'");
+    }
+
     // Akční tlačítka zpráv (volitelná tlačítka/podpisy přidaná adminem do zprávy)
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS `message_actions` (

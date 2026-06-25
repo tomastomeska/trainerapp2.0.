@@ -7,7 +7,7 @@ requireAdminLogin();
 $pdo = getDB();
 
 $id = intParam($_GET, 'id');
-$msg = $pdo->prepare("SELECT * FROM admin_messages WHERE id = ?");
+$msg = $pdo->prepare("SELECT * FROM admin_messages WHERE id = ? AND message_source = 'admin'");
 $msg->execute([$id]);
 $message = $msg->fetch();
 if (!$message) {

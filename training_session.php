@@ -13,7 +13,17 @@ $trainingVenues = getTrainingVenues();
 // Načtení session + ověření, že patří trenérovi
 $stmt = $pdo->prepare(
     'SELECT ts.*, a.first_name, a.last_name, a.id AS athlete_id,
-            ws.name AS set_name
+            ws.name AS set_name,
+            (SELECT aw.weight_kg
+             FROM athlete_weight_logs aw
+             WHERE aw.athlete_id = a.id
+             ORDER BY aw.measured_at DESC, aw.id DESC
+             LIMIT 1) AS latest_weight_kg,
+            (SELECT aw.measured_at
+             FROM athlete_weight_logs aw
+             WHERE aw.athlete_id = a.id
+             ORDER BY aw.measured_at DESC, aw.id DESC
+             LIMIT 1) AS latest_weight_measured_at
      FROM training_sessions ts
      JOIN athletes a ON ts.athlete_id = a.id
      JOIN workout_sets ws ON ts.workout_set_id = ws.id
@@ -62,6 +72,14 @@ renderHeader('Aktivní trénink');
         </h2>
         <div class="text-muted">
             <span class="badge bg-warning text-dark me-2 fs-6"><?= h($session['set_name']) ?></span>
+            <?php if ($session['latest_weight_kg'] !== null): ?>
+            <span class="badge bg-info text-dark me-2 fs-6">
+                Poslední váha: <?= number_format((float)$session['latest_weight_kg'], 1, ',', '') ?> kg
+                <?php if (!empty($session['latest_weight_measured_at'])): ?>
+                    (<?= formatDate((string)$session['latest_weight_measured_at']) ?>)
+                <?php endif; ?>
+            </span>
+            <?php endif; ?>
             Zahájeno: <?= formatDateTime($session['started_at']) ?>
         </div>
     </div>

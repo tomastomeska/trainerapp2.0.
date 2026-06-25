@@ -127,6 +127,12 @@ if (!function_exists('paymentAsciiText')) {
   }
 }
 
+if (!function_exists('athletePaymentsAscii')) {
+  function athletePaymentsAscii(string $value): string {
+    return paymentAsciiText($value);
+  }
+}
+
 function calculateAge(?string $birthDate): ?int {
     if (!$birthDate) {
         return null;
