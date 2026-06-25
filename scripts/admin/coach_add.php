@@ -39,7 +39,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } else {
                 $hash = password_hash($password, PASSWORD_DEFAULT);
                 $pdo->prepare(
-                    'INSERT INTO coaches (username, password, name, email, is_active) VALUES (?, ?, ?, ?, ?)'
+                    'INSERT INTO coaches (username, password, name, email, is_active, force_password_change) VALUES (?, ?, ?, ?, ?, 1)'
                 )->execute([$username, $hash, $name ?: null, $email ?: null, $isActive]);
 
                 // Odeslani prihlasovacich udaju e-mailem (pokud je zadany e-mail)

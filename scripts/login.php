@@ -53,7 +53,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (isLoginRateLimited($pdo, loginClientIpAddress())) {
                 $error = 'Příliš mnoho pokusů o přihlášení. Zkuste to prosím znovu za několik minut.';
             } else {
-            $stmt = $pdo->prepare('SELECT id, password, name, is_active FROM coaches WHERE username = ?');
+            $stmt = $pdo->prepare('SELECT id, password, name, is_active, force_password_change FROM coaches WHERE username = ?');
             $stmt->execute([$username]);
             $coach = $stmt->fetch();
 
@@ -65,6 +65,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     unset($_SESSION['athlete_id'], $_SESSION['athlete_name'], $_SESSION['athlete_coach_id'], $_SESSION['athlete_force_password_change']);
                     $_SESSION['coach_id']   = $coach['id'];
                     $_SESSION['coach_name'] = $coach['name'] ?: $username;
+                    $_SESSION['coach_force_password_change'] = (int)($coach['force_password_change'] ?? 0);
                     // Aktualizace posledního přihlášení
                     $pdo->prepare('UPDATE coaches SET last_login = NOW() WHERE id = ?')->execute([$coach['id']]);
                     redirect(BASE_URL . '/dashboard.php');

@@ -15,8 +15,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'Neplatný bezpečnostní token.';
     } else {
         $action = $_POST['action'] ?? '';
+        $mustChangePassword = !empty($_SESSION['coach_force_password_change']);
 
-        if ($action === 'update_profile') {
+        if ($mustChangePassword && $action !== 'change_password') {
+            $error = 'Při prvním přihlášení je nutné nejdříve změnit heslo.';
+        }
+
+        if ($error === null && $action === 'update_profile') {
             $name  = trim($_POST['name'] ?? '');
             $email = trim($_POST['email'] ?? '');
 
@@ -33,7 +38,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
 
-        if ($action === 'change_password') {
+        if ($error === null && $action === 'change_password') {
             $currentPassword = $_POST['current_password'] ?? '';
             $newPassword     = $_POST['new_password'] ?? '';
             $confirmPassword = $_POST['confirm_password'] ?? '';
@@ -53,8 +58,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $error = 'Aktuální heslo není správné.';
                 } else {
                     $newHash = password_hash($newPassword, PASSWORD_DEFAULT);
-                    $pdo->prepare('UPDATE coaches SET password = ? WHERE id = ?')
+                    $pdo->prepare('UPDATE coaches SET password = ?, force_password_change = 0 WHERE id = ?')
                         ->execute([$newHash, $coachId]);
+                    $_SESSION['coach_force_password_change'] = 0;
 
                     flash('success', 'Heslo bylo úspěšně změněno.');
                     redirect(BASE_URL . '/profile.php');

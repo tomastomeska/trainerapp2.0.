@@ -57,6 +57,14 @@ function requireLogin(): void {
         }
         exit;
     }
+
+    if (!empty($_SESSION['coach_force_password_change'])) {
+        $script = basename((string)($_SERVER['SCRIPT_NAME'] ?? ''));
+        if ($script !== 'dashboard.php' && $script !== 'logout.php') {
+            header('Location: ' . BASE_URL . '/dashboard.php');
+            exit;
+        }
+    }
 }
 
 function getCurrentCoachId(): ?int {

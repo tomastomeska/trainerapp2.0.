@@ -173,6 +173,22 @@ function supportStatusLabel(string $status): string {
     };
 }
 
+function isCoachAccessRequest(array $ticket): bool {
+    $subject = mb_strtolower((string)($ticket['subject'] ?? ''), 'UTF-8');
+    $issueType = mb_strtolower((string)($ticket['issue_type'] ?? ''), 'UTF-8');
+    $reporterType = (string)($ticket['reporter_type'] ?? '');
+
+    return $reporterType === 'coach'
+        && (
+            str_contains($subject, 'žádost o přístup trenéra')
+            || str_contains($subject, 'zadost o pristup trenera')
+        )
+        && (
+            str_contains($issueType, 'žádost o přístup')
+            || str_contains($issueType, 'zadost o pristup')
+        );
+}
+
 renderAdminHeader('Podpora');
 ?>
 
@@ -293,6 +309,16 @@ renderAdminHeader('Podpora');
                 <div class="mb-3">
                     <label class="form-label fw-semibold mb-1">Historie vyjádření administrace</label>
                     <div class="border rounded p-3 bg-light" style="white-space:pre-wrap;"><?= h((string)$selectedTicket['admin_note']) ?></div>
+                </div>
+                <?php endif; ?>
+
+                <?php if (isCoachAccessRequest($selectedTicket) && (string)$selectedTicket['status'] !== 'resolved'): ?>
+                <div class="mb-3">
+                    <a href="<?= BASE_URL ?>/admin/coach_add.php?from_ticket_id=<?= (int)$selectedTicket['id'] ?>&name=<?= rawurlencode((string)$selectedTicket['reporter_name']) ?>&email=<?= rawurlencode((string)$selectedTicket['reporter_email']) ?>"
+                       class="btn btn-sm btn-primary">
+                        <i class="fas fa-user-plus me-1"></i>Schválit a vytvořit trenéra
+                    </a>
+                    <div class="small text-muted mt-1">Po vytvoření trenéra se tento ticket automaticky označí jako Vyřešený.</div>
                 </div>
                 <?php endif; ?>
 

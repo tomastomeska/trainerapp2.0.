@@ -7,6 +7,46 @@ requireLogin();
 
 $coachId = getCurrentCoachId();
 $pdo     = getDB();
+$mustChangePassword = !empty($_SESSION['coach_force_password_change']);
+$forcePasswordError = null;
+
+if ($mustChangePassword && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!verifyCsrf($_POST['csrf_token'] ?? '')) {
+        $forcePasswordError = 'Neplatný bezpečnostní token.';
+    } else {
+        $action = (string)($_POST['action'] ?? '');
+        if ($action !== 'force_change_password') {
+            $forcePasswordError = 'Při prvním přihlášení je nutné nejdříve změnit heslo.';
+        } else {
+            $currentPassword = (string)($_POST['current_password'] ?? '');
+            $newPassword = (string)($_POST['new_password'] ?? '');
+            $confirmPassword = (string)($_POST['confirm_password'] ?? '');
+
+            if ($currentPassword === '' || $newPassword === '' || $confirmPassword === '') {
+                $forcePasswordError = 'Vyplňte všechna pole pro změnu hesla.';
+            } elseif (strlen($newPassword) < 6) {
+                $forcePasswordError = 'Nové heslo musí mít alespoň 6 znaků.';
+            } elseif ($newPassword !== $confirmPassword) {
+                $forcePasswordError = 'Nová hesla se neshodují.';
+            } else {
+                $stmtCoachAuth = $pdo->prepare('SELECT password FROM coaches WHERE id = ? LIMIT 1');
+                $stmtCoachAuth->execute([$coachId]);
+                $coachAuth = $stmtCoachAuth->fetch();
+
+                if (!$coachAuth || !password_verify($currentPassword, (string)$coachAuth['password'])) {
+                    $forcePasswordError = 'Aktuální heslo není správné.';
+                } else {
+                    $newHash = password_hash($newPassword, PASSWORD_DEFAULT);
+                    $pdo->prepare('UPDATE coaches SET password = ?, force_password_change = 0 WHERE id = ?')
+                        ->execute([$newHash, $coachId]);
+                    $_SESSION['coach_force_password_change'] = 0;
+                    flash('success', 'Heslo bylo úspěšně změněno.');
+                    redirect(BASE_URL . '/dashboard.php');
+                }
+            }
+        }
+    }
+}
 
 $sortOptions = [
     'first_name' => [
@@ -143,6 +183,12 @@ foreach ($activeSessions as $session) {
 
 renderHeader('Dashboard');
 ?>
+
+<?php if ($mustChangePassword): ?>
+<div class="alert alert-warning mb-3">
+    Po prvním přihlášení je nutné změnit heslo, než budete pokračovat v práci.
+</div>
+<?php endif; ?>
 
 <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
     <h2 class="mb-0"><i class="fas fa-users me-2 text-warning"></i>Moji sportovci</h2>
@@ -447,5 +493,54 @@ renderHeader('Dashboard');
     amountInput.addEventListener('change', updateQr);
 })();
 </script>
+
+<?php if ($mustChangePassword): ?>
+<style>
+    .force-password-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(15, 18, 25, 0.66);
+        z-index: 2000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 16px;
+    }
+    .force-password-card {
+        width: 100%;
+        max-width: 520px;
+        background: #fff;
+        border-radius: 12px;
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.22);
+        padding: 20px;
+    }
+</style>
+<div class="force-password-overlay" role="dialog" aria-modal="true" aria-labelledby="forcePasswordChangeTitle">
+    <div class="force-password-card">
+        <h5 class="mb-3" id="forcePasswordChangeTitle"><i class="fas fa-key me-2"></i>Povinná změna hesla</h5>
+        <p class="mb-3">Z bezpečnostních důvodů je při prvním přihlášení nutné změnit heslo.</p>
+        <?php if ($forcePasswordError): ?>
+        <div class="alert alert-danger py-2"><?= h($forcePasswordError) ?></div>
+        <?php endif; ?>
+        <form method="post" novalidate>
+            <?= csrfField() ?>
+            <input type="hidden" name="action" value="force_change_password">
+            <div class="mb-3">
+                <label class="form-label">Aktuální heslo</label>
+                <input type="password" name="current_password" class="form-control" autocomplete="current-password" required>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Nové heslo</label>
+                <input type="password" name="new_password" class="form-control" autocomplete="new-password" required>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Potvrzení nového hesla</label>
+                <input type="password" name="confirm_password" class="form-control" autocomplete="new-password" required>
+            </div>
+            <button type="submit" class="btn btn-warning w-100 fw-bold">Změnit heslo a pokračovat</button>
+        </form>
+    </div>
+</div>
+<?php endif; ?>
 
 <?php renderFooter(); ?>

@@ -415,6 +415,11 @@ function ensureSchemaUpgrades(PDO $pdo): void {
         $pdo->exec('ALTER TABLE superadmins ADD COLUMN two_factor_enabled TINYINT(1) NOT NULL DEFAULT 1 AFTER email');
     }
 
+    $stmtAdminTwoFactorSkip = $pdo->query("SHOW COLUMNS FROM superadmins LIKE 'two_factor_skip_until'");
+    if (!$stmtAdminTwoFactorSkip->fetch()) {
+        $pdo->exec('ALTER TABLE superadmins ADD COLUMN two_factor_skip_until DATETIME NULL AFTER two_factor_enabled');
+    }
+
     // Párový trénink: tabulka skupin a cizí klíč v training_sessions
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS `paired_sessions` (

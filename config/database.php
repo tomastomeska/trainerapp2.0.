@@ -571,6 +571,12 @@ function ensureSchemaUpgrades(PDO $pdo): void {
         $pdo->exec('ALTER TABLE coaches ADD COLUMN last_login DATETIME NULL');
     }
 
+    // Vynuceni zmeny hesla trenera po prvnim prihlaseni
+    $stmtCoachForcePass = $pdo->query("SHOW COLUMNS FROM coaches LIKE 'force_password_change'");
+    if (!$stmtCoachForcePass->fetch()) {
+        $pdo->exec('ALTER TABLE coaches ADD COLUMN force_password_change TINYINT(1) NOT NULL DEFAULT 0 AFTER is_active');
+    }
+
     // Číslo účtu trenéra pro QR platby
     $stmtCoachBank = $pdo->query("SHOW COLUMNS FROM coaches LIKE 'bank_account'");
     if (!$stmtCoachBank->fetch()) {
@@ -599,6 +605,11 @@ function ensureSchemaUpgrades(PDO $pdo): void {
     $stmtSATwoFactor = $pdo->query("SHOW COLUMNS FROM superadmins LIKE 'two_factor_enabled'");
     if (!$stmtSATwoFactor->fetch()) {
         $pdo->exec('ALTER TABLE superadmins ADD COLUMN two_factor_enabled TINYINT(1) NOT NULL DEFAULT 1 AFTER email');
+    }
+
+    $stmtSATwoFactorSkip = $pdo->query("SHOW COLUMNS FROM superadmins LIKE 'two_factor_skip_until'");
+    if (!$stmtSATwoFactorSkip->fetch()) {
+        $pdo->exec('ALTER TABLE superadmins ADD COLUMN two_factor_skip_until DATETIME NULL AFTER two_factor_enabled');
     }
 
     // Aktivni stav trenera

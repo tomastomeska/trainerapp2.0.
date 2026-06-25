@@ -622,7 +622,23 @@ HTML;
         $mail->send();
         return true;
     } catch (\Exception $e) {
-        error_log('sendCoachWelcomeEmail error: ' . $mail->ErrorInfo . ' | Exception: ' . $e->getMessage());
+        error_log('sendCoachWelcomeEmail SMTP error: ' . $mail->ErrorInfo . ' | Exception: ' . $e->getMessage());
+    }
+
+    try {
+        $fallback = new PHPMailer\PHPMailer\PHPMailer(true);
+        $fallback->isMail();
+        $fallback->CharSet = 'UTF-8';
+        $fallback->setFrom(SMTP_FROM, SMTP_FROM_NAME);
+        $fallback->addAddress($toEmail);
+        $fallback->isHTML(true);
+        $fallback->Subject = 'Přihlašovací údaje do TrainerApp';
+        $fallback->Body = $htmlBody;
+        $fallback->AltBody = $altBody;
+        $fallback->send();
+        return true;
+    } catch (\Exception $e) {
+        error_log('sendCoachWelcomeEmail fallback error: ' . $e->getMessage());
         return false;
     }
 }

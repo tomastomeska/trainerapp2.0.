@@ -209,7 +209,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (isLoginRateLimited($pdo, loginClientIpAddress())) {
                     $error = 'Příliš mnoho pokusů o přihlášení. Zkuste to prosím znovu za několik minut.';
                 } else {
-                $stmt = $pdo->prepare('SELECT id, password, name, is_active FROM coaches WHERE username = ?');
+                $stmt = $pdo->prepare('SELECT id, password, name, is_active, force_password_change FROM coaches WHERE username = ?');
                 $stmt->execute([$username]);
                 $coach = $stmt->fetch();
 
@@ -230,6 +230,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         unset($_SESSION['athlete_id'], $_SESSION['athlete_name'], $_SESSION['athlete_coach_id'], $_SESSION['athlete_force_password_change']);
                         $_SESSION['coach_id']   = $coach['id'];
                         $_SESSION['coach_name'] = $coach['name'] ?: $username;
+                        $_SESSION['coach_force_password_change'] = (int)($coach['force_password_change'] ?? 0);
                         // Aktualizace posledního přihlášení
                         $pdo->prepare('UPDATE coaches SET last_login = NOW() WHERE id = ?')->execute([$coach['id']]);
                         appLogEvent(
@@ -302,6 +303,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $_SESSION['athlete_name'] = trim((string)$athlete['first_name'] . ' ' . (string)$athlete['last_name']);
                     $_SESSION['athlete_coach_id'] = (int)$athlete['coach_id'];
                     $_SESSION['athlete_force_password_change'] = (int)($athlete['force_password_change'] ?? 1);
+                    unset($_SESSION['coach_force_password_change']);
 
                     $pdo->prepare('UPDATE athletes SET last_login = NOW() WHERE id = ?')->execute([(int)$athlete['id']]);
                     appLogEvent(
@@ -733,7 +735,7 @@ $showFormOnLoad = $_SERVER['REQUEST_METHOD'] === 'POST';
                         <h5 class="modal-title">Žádost o přístup trenéra</h5>
                         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zavřít"></button>
                     </div>
-                    <form method="post" novalidate>
+                    <form method="post" novalidate id="coachAccessForm">
                         <div class="modal-body">
                             <?= csrfField() ?>
                             <input type="hidden" name="action" value="request_coach_access">
@@ -764,8 +766,13 @@ $showFormOnLoad = $_SERVER['REQUEST_METHOD'] === 'POST';
                             </div>
                         </div>
                         <div class="modal-footer">
-                            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Zrušit</button>
-                            <button type="submit" class="btn btn-primary">Odeslat žádost</button>
+                            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal" id="coachAccessCancelBtn">Zrušit</button>
+                            <button type="submit" class="btn btn-primary" id="coachAccessSubmitBtn">
+                                <span class="coach-access-submit-label">Odeslat žádost</span>
+                                <span class="coach-access-submit-loading d-none">
+                                    <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Odesílám...
+                                </span>
+                            </button>
                         </div>
                     </form>
                 </div>
@@ -876,6 +883,27 @@ $showFormOnLoad = $_SERVER['REQUEST_METHOD'] === 'POST';
                 applyResetType(resetTypeInput.value === 'athlete' ? 'athlete' : 'coach');
             });
             applyResetType(resetTypeInput.value === 'athlete' ? 'athlete' : 'coach');
+        }
+
+        const coachAccessForm = document.getElementById('coachAccessForm');
+        const coachAccessSubmitBtn = document.getElementById('coachAccessSubmitBtn');
+        const coachAccessCancelBtn = document.getElementById('coachAccessCancelBtn');
+        if (coachAccessForm && coachAccessSubmitBtn) {
+            let coachAccessSubmitting = false;
+            coachAccessForm.addEventListener('submit', function(event) {
+                if (coachAccessSubmitting) {
+                    event.preventDefault();
+                    return;
+                }
+                coachAccessSubmitting = true;
+
+                coachAccessSubmitBtn.disabled = true;
+                coachAccessSubmitBtn.querySelector('.coach-access-submit-label')?.classList.add('d-none');
+                coachAccessSubmitBtn.querySelector('.coach-access-submit-loading')?.classList.remove('d-none');
+                if (coachAccessCancelBtn) {
+                    coachAccessCancelBtn.disabled = true;
+                }
+            });
         }
 
         const modalToOpen = <?= json_encode($openModal) ?>;

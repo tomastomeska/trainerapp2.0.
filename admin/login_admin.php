@@ -27,16 +27,20 @@ function sendAdminTwoFactorCodeEmail(string $toEmail, string $adminName, string 
 
     $mail = new PHPMailer\PHPMailer\PHPMailer(true);
     try {
-        $mail->isSMTP();
-        $mail->Host = SMTP_HOST;
-        $mail->SMTPAuth = true;
-        $mail->AuthType = 'LOGIN';
-        $mail->Username = SMTP_USER;
-        $mail->Password = SMTP_PASS;
-        $mail->SMTPSecure = PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_STARTTLS;
-        $mail->Port = defined('SMTP_PORT') ? SMTP_PORT : 587;
-        $mail->CharSet = 'UTF-8';
-        $mail->setFrom(SMTP_FROM, SMTP_FROM_NAME);
+        if (function_exists('_configureMail')) {
+            _configureMail($mail);
+        } else {
+            $mail->isSMTP();
+            $mail->Host = SMTP_HOST;
+            $mail->SMTPAuth = true;
+            $mail->AuthType = 'LOGIN';
+            $mail->Username = SMTP_USER;
+            $mail->Password = SMTP_PASS;
+            $mail->SMTPSecure = PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_STARTTLS;
+            $mail->Port = defined('SMTP_PORT') ? SMTP_PORT : 587;
+            $mail->CharSet = 'UTF-8';
+            $mail->setFrom(SMTP_FROM, SMTP_FROM_NAME);
+        }
 
         $safeName = htmlspecialchars($adminName, ENT_QUOTES, 'UTF-8');
         $mail->addAddress($toEmail);
@@ -50,7 +54,44 @@ function sendAdminTwoFactorCodeEmail(string $toEmail, string $adminName, string 
         $mail->send();
         return true;
     } catch (Throwable $e) {
-        error_log('sendAdminTwoFactorCodeEmail error: ' . $e->getMessage());
+        error_log('sendAdminTwoFactorCodeEmail SMTP error: ' . $e->getMessage());
+    }
+
+    // Fallback for shared-hosting setups where external SMTP can be blocked.
+    try {
+        $fallback = new PHPMailer\PHPMailer\PHPMailer(true);
+        $fallback->isMail();
+        $fallback->CharSet = 'UTF-8';
+        $fallback->setFrom(SMTP_FROM, SMTP_FROM_NAME);
+        $safeName = htmlspecialchars($adminName, ENT_QUOTES, 'UTF-8');
+        $fallback->addAddress($toEmail);
+        $fallback->isHTML(true);
+        $fallback->Subject = '2FA kód pro přihlášení do administrace';
+        $fallback->Body = '<p>Dobrý den ' . $safeName . ',</p>'
+            . '<p>váš ověřovací kód pro přihlášení je:</p>'
+            . '<p style="font-size:28px;font-weight:700;letter-spacing:4px;">' . $code . '</p>'
+            . '<p>Kód je platný 10 minut.</p>';
+        $fallback->AltBody = "Váš ověřovací kód pro přihlášení je: {$code}. Kód je platný 10 minut.";
+        $fallback->send();
+        return true;
+    } catch (Throwable $e) {
+        error_log('sendAdminTwoFactorCodeEmail fallback error: ' . $e->getMessage());
+        if (function_exists('appLogEvent')) {
+            appLogEvent(
+                'admin_2fa_email_failed',
+                'error',
+                '2FA email delivery failed (SMTP + fallback)',
+                [
+                    'smtp_host' => defined('SMTP_HOST') ? SMTP_HOST : null,
+                    'smtp_port' => defined('SMTP_PORT') ? SMTP_PORT : null,
+                    'to_email' => $toEmail,
+                    'error' => $e->getMessage(),
+                ],
+                'guest',
+                null,
+                $adminName
+            );
+        }
         return false;
     }
 }
@@ -98,7 +139,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $_SESSION['superadmin_name'] = $adminName;
                     unset($_SESSION['pending_superadmin_id'], $_SESSION['pending_superadmin_name'], $_SESSION['pending_superadmin_username'], $_SESSION['pending_superadmin_2fa_hash'], $_SESSION['pending_superadmin_2fa_expires'], $_SESSION['pending_superadmin_2fa_attempts'], $_SESSION['pending_superadmin_2fa_email']);
                     try {
-                        $pdo->prepare('UPDATE superadmins SET last_login = NOW() WHERE id = ?')->execute([$adminId]);
+                        $pdo->prepare('UPDATE superadmins SET last_login = NOW(), two_factor_skip_until = DATE_ADD(NOW(), INTERVAL 7 DAY) WHERE id = ?')->execute([$adminId]);
                     } catch (Throwable $e) {
                         error_log('Admin last_login update failed: ' . $e->getMessage());
                     }
@@ -113,31 +154,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $error = 'Vyplňte uživatelské jméno i heslo.';
             } else {
                 $pdo  = getDB();
-                $stmt = $pdo->prepare('SELECT id, password, name, email, COALESCE(two_factor_enabled, 1) AS two_factor_enabled FROM superadmins WHERE username = ?');
+                $stmt = $pdo->prepare('SELECT id, password, name, email, COALESCE(two_factor_enabled, 1) AS two_factor_enabled, two_factor_skip_until FROM superadmins WHERE username = ?');
                 $stmt->execute([$username]);
                 $admin = $stmt->fetch();
 
                 if ($admin && password_verify($password, (string)$admin['password'])) {
-                    $adminEmail = trim((string)($admin['email'] ?? ''));
-                    if (!filter_var($adminEmail, FILTER_VALIDATE_EMAIL)) {
-                        $error = 'Admin účet nemá nastavený platný e-mail pro 2FA. Kontaktujte správce systému.';
-                    } else {
-                        $code = (string)random_int(100000, 999999);
-                        $_SESSION['pending_superadmin_id'] = (int)$admin['id'];
-                        $_SESSION['pending_superadmin_name'] = (string)($admin['name'] ?: $username);
-                        $_SESSION['pending_superadmin_username'] = $username;
-                        $_SESSION['pending_superadmin_2fa_hash'] = hash('sha256', $code);
-                        $_SESSION['pending_superadmin_2fa_expires'] = time() + 600;
-                        $_SESSION['pending_superadmin_2fa_attempts'] = 0;
-                        $_SESSION['pending_superadmin_2fa_email'] = $adminEmail;
+                    $twoFactorEnabled = ((int)($admin['two_factor_enabled'] ?? 1) === 1);
+                    $skipUntilTs = !empty($admin['two_factor_skip_until']) ? strtotime((string)$admin['two_factor_skip_until']) : false;
+                    $twoFactorSkipActive = ($skipUntilTs !== false && $skipUntilTs > time());
 
-                        if (!sendAdminTwoFactorCodeEmail($adminEmail, (string)($admin['name'] ?: $username), $code)) {
-                            unset($_SESSION['pending_superadmin_id'], $_SESSION['pending_superadmin_name'], $_SESSION['pending_superadmin_username'], $_SESSION['pending_superadmin_2fa_hash'], $_SESSION['pending_superadmin_2fa_expires'], $_SESSION['pending_superadmin_2fa_attempts'], $_SESSION['pending_superadmin_2fa_email']);
-                            $error = 'Nepodařilo se odeslat 2FA kód e-mailem. Zkuste to prosím znovu.';
+                    if (!$twoFactorEnabled || $twoFactorSkipActive) {
+                        $adminId = (int)$admin['id'];
+                        $adminName = (string)($admin['name'] ?: $username);
+                        session_regenerate_id(true);
+                        $_SESSION['superadmin_id'] = $adminId;
+                        $_SESSION['superadmin_name'] = $adminName;
+                        unset($_SESSION['pending_superadmin_id'], $_SESSION['pending_superadmin_name'], $_SESSION['pending_superadmin_username'], $_SESSION['pending_superadmin_2fa_hash'], $_SESSION['pending_superadmin_2fa_expires'], $_SESSION['pending_superadmin_2fa_attempts'], $_SESSION['pending_superadmin_2fa_email']);
+                        try {
+                            $pdo->prepare('UPDATE superadmins SET last_login = NOW() WHERE id = ?')->execute([$adminId]);
+                        } catch (Throwable $e) {
+                            error_log('Admin last_login update failed: ' . $e->getMessage());
+                        }
+                        redirect(BASE_URL . '/admin/dashboard.php');
+                    } else {
+                        $adminEmail = trim((string)($admin['email'] ?? ''));
+                        if (!filter_var($adminEmail, FILTER_VALIDATE_EMAIL)) {
+                            $error = 'Admin účet nemá nastavený platný e-mail pro 2FA. Kontaktujte správce systému.';
                         } else {
-                            $pending2fa = true;
-                            $masked = preg_replace('/(^.).*(@.*$)/', '$1***$2', $adminEmail) ?: $adminEmail;
-                            $info = 'Ověřovací kód byl odeslán na e-mail ' . $masked . '.';
+                            $code = (string)random_int(100000, 999999);
+                            $_SESSION['pending_superadmin_id'] = (int)$admin['id'];
+                            $_SESSION['pending_superadmin_name'] = (string)($admin['name'] ?: $username);
+                            $_SESSION['pending_superadmin_username'] = $username;
+                            $_SESSION['pending_superadmin_2fa_hash'] = hash('sha256', $code);
+                            $_SESSION['pending_superadmin_2fa_expires'] = time() + 600;
+                            $_SESSION['pending_superadmin_2fa_attempts'] = 0;
+                            $_SESSION['pending_superadmin_2fa_email'] = $adminEmail;
+
+                            if (!sendAdminTwoFactorCodeEmail($adminEmail, (string)($admin['name'] ?: $username), $code)) {
+                                unset($_SESSION['pending_superadmin_id'], $_SESSION['pending_superadmin_name'], $_SESSION['pending_superadmin_username'], $_SESSION['pending_superadmin_2fa_hash'], $_SESSION['pending_superadmin_2fa_expires'], $_SESSION['pending_superadmin_2fa_attempts'], $_SESSION['pending_superadmin_2fa_email']);
+                                $error = 'Nepodařilo se odeslat 2FA kód e-mailem. Zkuste to prosím znovu.';
+                            } else {
+                                $pending2fa = true;
+                                $masked = preg_replace('/(^.).*(@.*$)/', '$1***$2', $adminEmail) ?: $adminEmail;
+                                $info = 'Ověřovací kód byl odeslán na e-mail ' . $masked . '.';
+                            }
                         }
                     }
                 } else {
