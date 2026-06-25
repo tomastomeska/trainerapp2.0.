@@ -456,6 +456,11 @@ function ensureSchemaUpgrades(PDO $pdo): void {
         $pdo->exec('ALTER TABLE superadmins ADD COLUMN last_login DATETIME NULL');
     }
 
+    $stmtSATwoFactor = $pdo->query("SHOW COLUMNS FROM superadmins LIKE 'two_factor_enabled'");
+    if (!$stmtSATwoFactor->fetch()) {
+        $pdo->exec('ALTER TABLE superadmins ADD COLUMN two_factor_enabled TINYINT(1) NOT NULL DEFAULT 1 AFTER email');
+    }
+
     // Aktivni stav trenera
     $stmtAct = $pdo->query("SHOW COLUMNS FROM coaches LIKE 'is_active'");
     if (!$stmtAct->fetch()) {
@@ -522,6 +527,11 @@ function ensureSchemaUpgrades(PDO $pdo): void {
     $stmtAdminLogin = $pdo->query("SHOW COLUMNS FROM superadmins LIKE 'last_login'");
     if (!$stmtAdminLogin->fetch()) {
         $pdo->exec('ALTER TABLE superadmins ADD COLUMN last_login DATETIME NULL');
+    }
+
+    $stmtAdminTwoFactor = $pdo->query("SHOW COLUMNS FROM superadmins LIKE 'two_factor_enabled'");
+    if (!$stmtAdminTwoFactor->fetch()) {
+        $pdo->exec('ALTER TABLE superadmins ADD COLUMN two_factor_enabled TINYINT(1) NOT NULL DEFAULT 1 AFTER email');
     }
 
     // Párový trénink: tabulka skupin a cizí klíč v training_sessions

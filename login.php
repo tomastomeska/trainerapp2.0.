@@ -27,6 +27,30 @@ $resetRequest = [
     'identity' => '',
 ];
 
+function loginClientIpAddress(): string {
+    $ip = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? ($_SERVER['REMOTE_ADDR'] ?? '');
+    if (str_contains((string)$ip, ',')) {
+        $ip = trim(explode(',', (string)$ip)[0]);
+    }
+    return mb_substr((string)$ip, 0, 45);
+}
+
+function isLoginRateLimited(PDO $pdo, string $ipAddress, int $windowMinutes = 15, int $maxAttempts = 20): bool {
+    try {
+        $stmt = $pdo->prepare(
+            'SELECT COUNT(*)
+             FROM app_event_log
+             WHERE event_type IN ("login_failed", "login_blocked")
+               AND ip_address = ?
+               AND created_at >= (NOW() - INTERVAL ? MINUTE)'
+        );
+        $stmt->execute([$ipAddress, max(1, $windowMinutes)]);
+        return (int)$stmt->fetchColumn() >= max(1, $maxAttempts);
+    } catch (Throwable $e) {
+        return false;
+    }
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = (string)($_POST['action'] ?? 'login');
 
@@ -182,6 +206,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $error = 'Vyplňte uživatelské jméno i heslo.';
             } elseif ($loginType === 'coach') {
                 $pdo  = getDB();
+                if (isLoginRateLimited($pdo, loginClientIpAddress())) {
+                    $error = 'Příliš mnoho pokusů o přihlášení. Zkuste to prosím znovu za několik minut.';
+                } else {
                 $stmt = $pdo->prepare('SELECT id, password, name, is_active FROM coaches WHERE username = ?');
                 $stmt->execute([$username]);
                 $coach = $stmt->fetch();
@@ -226,10 +253,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         null,
                         $username
                     );
+                    usleep(350000);
                     $error = 'Nesprávné přihlašovací údaje.';
                 }
+            }
             } else {
                 $pdo = getDB();
+            if (isLoginRateLimited($pdo, loginClientIpAddress())) {
+                $error = 'Příliš mnoho pokusů o přihlášení. Zkuste to prosím znovu za několik minut.';
+            } else {
                 $email = mb_strtolower($username, 'UTF-8');
                 $stmt = $pdo->prepare(
                     'SELECT id, coach_id, email, password, first_name, last_name, login_enabled, force_password_change
@@ -261,6 +293,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         (int)($athlete['id'] ?? 0) ?: null,
                         trim((string)($athlete['first_name'] ?? '') . ' ' . (string)($athlete['last_name'] ?? ''))
                     );
+                    usleep(350000);
                     $error = 'Nesprávné přihlašovací údaje.';
                 } else {
                     session_regenerate_id(true);
@@ -286,6 +319,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                     redirect(BASE_URL . '/athlete_dashboard.php');
                 }
+            }
             }
         }
     }

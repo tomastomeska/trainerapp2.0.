@@ -3,6 +3,8 @@ require_once __DIR__ . '/config/config.php';
 require_once __DIR__ . '/config/database.php';
 require_once __DIR__ . '/includes/functions.php';
 
+header('Referrer-Policy: no-referrer');
+
 $token = trim((string)($_GET['token'] ?? $_POST['token'] ?? ''));
 $invite = getAthleteWeightInviteByToken($token);
 
@@ -45,6 +47,7 @@ $athleteName = $invite
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="referrer" content="no-referrer">
     <title>Zadani hmotnosti - TrainerApp</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
 </head>

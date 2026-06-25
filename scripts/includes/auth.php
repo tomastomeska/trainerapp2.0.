@@ -10,6 +10,16 @@ if (ob_get_level() === 0) {
 require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../config/database.php';
 
+if (!headers_sent()) {
+    header('X-Content-Type-Options: nosniff');
+    header('X-Frame-Options: SAMEORIGIN');
+    header('Referrer-Policy: strict-origin-when-cross-origin');
+    header('Permissions-Policy: geolocation=(), microphone=(), camera=()');
+    if ((defined('SESSION_SECURE') && SESSION_SECURE) || (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')) {
+        header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
+    }
+}
+
 if (session_status() === PHP_SESSION_NONE) {
     $cookiePath = (defined('BASE_URL') && BASE_URL !== '') ? BASE_URL : '/';
     if (!headers_sent()) {

@@ -16,6 +16,11 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 $input    = json_decode(file_get_contents('php://input'), true);
+if (!is_array($input) || !verifyCsrf((string)($input['csrf_token'] ?? ''))) {
+    echo json_encode(['success' => false, 'error' => 'Neplatný požadavek']);
+    exit;
+}
+
 $seriesId = (int)($input['series_id'] ?? 0);
 $coachId  = getCurrentCoachId();
 $pdo      = getDB();

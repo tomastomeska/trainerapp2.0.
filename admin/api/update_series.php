@@ -21,6 +21,11 @@ if (!$input) {
     exit;
 }
 
+if (!verifyCsrf((string)($input['csrf_token'] ?? ''))) {
+    echo json_encode(['success' => false, 'error' => 'Neplatný požadavek']);
+    exit;
+}
+
 $coachId = getCurrentCoachId();
 $seriesId = (int)($input['series_id'] ?? 0);
 $weight = (float)($input['weight'] ?? 0);
