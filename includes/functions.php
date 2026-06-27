@@ -1766,7 +1766,7 @@ function createAthleteToCoachMessage(int $athleteId, int $coachId, string $subje
  * Odešle superadminům e-mailovou notifikaci o novém ticketu podpory.
  * Vrací počet úspěšně odeslaných e-mailů.
  */
-function sendSupportTicketNotificationEmail(int $ticketId, array $ticket): int {
+function sendSupportTicketNotificationEmail(int $ticketId, array $ticket, array $extraRecipients = []): int {
   $phpmailerSrc = dirname(__DIR__) . '/vendor/phpmailer/phpmailer/src';
   if (!file_exists($phpmailerSrc . '/PHPMailer.php')) {
     return 0;
@@ -1820,13 +1820,22 @@ function sendSupportTicketNotificationEmail(int $ticketId, array $ticket): int {
     . "Detail ticketu: {$ticketUrl}\n\n"
     . "TrainerApp – automatické notifikace";
 
-  $sent = 0;
+  $recipientMap = [];
   foreach ($admins as $admin) {
     $to = trim((string)($admin['email'] ?? ''));
-    if ($to === '') {
-      continue;
+    if ($to !== '' && filter_var($to, FILTER_VALIDATE_EMAIL)) {
+      $recipientMap[mb_strtolower($to, 'UTF-8')] = $to;
     }
+  }
+  foreach ($extraRecipients as $extraRecipient) {
+    $to = trim((string)$extraRecipient);
+    if ($to !== '' && filter_var($to, FILTER_VALIDATE_EMAIL)) {
+      $recipientMap[mb_strtolower($to, 'UTF-8')] = $to;
+    }
+  }
 
+  $sent = 0;
+  foreach ($recipientMap as $to) {
     $mail = new PHPMailer\PHPMailer\PHPMailer(true);
     try {
       _configureMail($mail);

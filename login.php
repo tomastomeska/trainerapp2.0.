@@ -112,7 +112,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'screenshot_path' => null,
             ];
 
-            sendSupportTicketNotificationEmail($ticketId, $ticketPayload);
+            sendSupportTicketNotificationEmail($ticketId, $ticketPayload, ['info@reservio.online']);
             sendCoachAccessRequestOwnerEmail('tomas.tomeska@seznam.cz', [
                 'first_name' => $accessRequest['first_name'],
                 'last_name' => $accessRequest['last_name'],
@@ -819,7 +819,7 @@ $showFormOnLoad = $_SERVER['REQUEST_METHOD'] === 'POST';
             <div>
                 Vytvořil <strong>Tomáš Tomeška</strong>
                 &nbsp;·&nbsp;
-                <a href="mailto:tomas.tomeska@seznam.cz?subject=Zpr%C3%A1va%20z%20TrainerApp">Kontaktujte nás</a>
+                <a href="mailto:info@reservio.online?subject=Zpr%C3%A1va%20z%20TrainerApp">Kontaktujte nás</a>
             </div>
         </div>
     </div>

@@ -95,8 +95,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <div>
             Vytvořil <strong class="text-white">Tomáš Tomeška</strong>
             &nbsp;·&nbsp;
-            <a href="mailto:tomas.tomeska@seznam.cz?subject=Zpr%C3%A1va%20z%20TrainerApp" class="text-warning text-decoration-none">
-                <i class="fas fa-envelope me-1"></i>tomas.tomeska@seznam.cz
+            <a href="mailto:info@reservio.online?subject=Zpr%C3%A1va%20z%20TrainerApp" class="text-warning text-decoration-none">
+                <i class="fas fa-envelope me-1"></i>info@reservio.online
             </a>
         </div>
     </div>

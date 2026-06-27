@@ -471,7 +471,7 @@ $showFormOnLoad = $_SERVER['REQUEST_METHOD'] === 'POST';
             <div>
                 Vytvořil <strong>WebNexGen</strong>
                 &nbsp;·&nbsp;
-                <a href="mailto:tomas.tomeska@seznam.cz?subject=Zpr%C3%A1va%20z%20TrainerApp">Kontaktujte nás</a>
+                <a href="mailto:info@reservio.online?subject=Zpr%C3%A1va%20z%20TrainerApp">Kontaktujte nás</a>
             </div>
         </div>
     </div>
