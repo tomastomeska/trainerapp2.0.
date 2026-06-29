@@ -577,6 +577,14 @@ document.addEventListener('DOMContentLoaded', () => {
         return startDate > new Date();
     }
 
+    function isLateCancellationWindow(event) {
+        if (!event || !event.starts_at) return false;
+        const startDate = fromSqlDateTime(event.starts_at);
+        if (!(startDate instanceof Date) || Number.isNaN(startDate.getTime())) return false;
+        const diffMs = startDate.getTime() - Date.now();
+        return diffMs > 0 && diffMs < (12 * 60 * 60 * 1000);
+    }
+
     function getWeekRangeLabel() {
         const start = new Date(currentWeekStart);
         const end = addDays(start, 6);
@@ -655,6 +663,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const endDate = fromSqlDateTime(event.ends_at);
         const statusMeta = getEventStatusMeta(event);
         const canCancel = Boolean(event.can_cancel ?? (event.is_mine || event.is_requested_by_me));
+        const lateCancellation = isLateCancellationWindow(event);
 
         selectedEventForDetail = event;
         eventDetailTitleEl.textContent = title;
@@ -673,8 +682,13 @@ document.addEventListener('DOMContentLoaded', () => {
         if (canCancel) {
             eventDetailCancelBtn.classList.remove('d-none');
             eventDetailCancelBtn.disabled = false;
-            eventDetailCancelInfoEl.className = 'alert alert-light border mt-3 mb-0 py-2';
-            eventDetailCancelInfoEl.textContent = 'Tento termín lze zrušit.';
+            if (lateCancellation) {
+                eventDetailCancelInfoEl.className = 'alert alert-danger mt-3 mb-0 py-2';
+                eventDetailCancelInfoEl.textContent = 'Pozor: Zrušení méně než 12 hodin před začátkem je bez nároku na kompenzaci. Tento termín nelze nahradit.';
+            } else {
+                eventDetailCancelInfoEl.className = 'alert alert-light border mt-3 mb-0 py-2';
+                eventDetailCancelInfoEl.textContent = 'Tento termín lze zrušit.';
+            }
         } else {
             eventDetailCancelBtn.classList.add('d-none');
             eventDetailCancelInfoEl.className = 'alert alert-secondary mt-3 mb-0 py-2';
@@ -731,13 +745,42 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function renderReserveMakeupSuggestion(payload, startDate) {
-        if (!payload || !payload.success || !payload.has_outstanding) {
+        if (!payload || !payload.success) {
+            clearReserveMakeupSuggestion();
+            return;
+        }
+
+        const hasOutstandingPaid = Boolean(payload.has_outstanding);
+        const hasRequiredReplacement = Boolean(payload.has_required_replacement);
+        if (!hasOutstandingPaid && !hasRequiredReplacement) {
             clearReserveMakeupSuggestion();
             return;
         }
 
         const targetMonthLabel = payload.target_month_label || `${String(startDate.getMonth() + 1).padStart(2, '0')}/${startDate.getFullYear()}`;
-        reserveMakeupSuggestionText.textContent = `Máte ${payload.outstanding_sessions} nevyužitý(é) uhrazený(é) trénink(y). Můžete je použít jako náhradu pro ${targetMonthLabel}.`;
+        const lines = [];
+
+        if (hasRequiredReplacement) {
+            const count = Number(payload.required_replacement_count || 0);
+            const deadlineRaw = payload.required_replacement_deadline_at || '';
+            const deadlineText = deadlineRaw ? new Date(String(deadlineRaw).replace(' ', 'T')).toLocaleDateString('cs-CZ') : '';
+            lines.push(
+                count > 1
+                    ? `Máte ${count} zrušené termíny, které je potřeba nahradit.`
+                    : 'Máte zrušený termín, který je potřeba nahradit.'
+            );
+            if (deadlineText) {
+                lines.push(`Náhradní rezervaci je potřeba vytvořit nejpozději do ${deadlineText}.`);
+            }
+            lines.push('Náhradní termín vybírejte přednostně ve stejném měsíci jako byl zrušený termín.');
+            lines.push('Do dalšího měsíce lze náhradu přesunout jen při zrušení v posledním týdnu měsíce.');
+        }
+
+        if (hasOutstandingPaid) {
+            lines.push(`Máte ${payload.outstanding_sessions} nevyužitý(é) uhrazený(é) trénink(y). Můžete je použít jako náhradu pro ${targetMonthLabel}.`);
+        }
+
+        reserveMakeupSuggestionText.textContent = lines.join(' ');
         reserveMakeupSuggestion.classList.remove('d-none');
         reserveUseMakeupInput.checked = false;
     }
@@ -970,7 +1013,12 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        const ok = confirm('Opravdu chcete zrušit tuto událost?');
+        const lateCancellation = isLateCancellationWindow(selectedEventForDetail);
+        const confirmMessage = lateCancellation
+            ? 'Opravdu chcete zrušit tuto událost? Pozor: je to méně než 12 hodin před začátkem, termín bude bez nároku na kompenzaci a nepůjde nahradit.'
+            : 'Opravdu chcete zrušit tuto událost?';
+
+        const ok = confirm(confirmMessage);
         if (!ok) {
             return;
         }

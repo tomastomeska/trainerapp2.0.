@@ -86,6 +86,12 @@ if ($eventStartTs !== false && $eventStartTs <= $nowTs) {
     exit;
 }
 
+$isLateCancellation = false;
+if ($eventStartTs !== false) {
+    $secondsToStart = $eventStartTs - $nowTs;
+    $isLateCancellation = ($secondsToStart > 0 && $secondsToStart < (12 * 60 * 60));
+}
+
 $hasBillingMonth = athleteDeleteHasColumn($pdo, 'coach_calendar_events', 'billing_month');
 $hasPayments = false;
 try {
@@ -99,19 +105,96 @@ $billingMonthSql = $hasBillingMonth && !empty($event['billing_month'])
     ? date('Y-m-01', strtotime((string)$event['billing_month']))
     : date('Y-m-01', strtotime((string)$event['starts_at']));
 
+$paymentStatus = 'none';
 $wasAlreadyPaid = false;
 if ($hasPayments) {
     $paidStmt = $pdo->prepare(
-        'SELECT id
+        'SELECT status
          FROM athlete_monthly_payments
          WHERE coach_id = ?
            AND athlete_id = ?
            AND billing_month = ?
-           AND status = "paid"
+           AND status IN ("pending", "paid")
          LIMIT 1'
     );
     $paidStmt->execute([(int)$event['coach_id'], $athleteId, $billingMonthSql]);
-    $wasAlreadyPaid = (bool)$paidStmt->fetch();
+    $paymentStatus = (string)($paidStmt->fetchColumn() ?: 'none');
+    $wasAlreadyPaid = ($paymentStatus === 'paid');
+}
+
+$requiresReplacement = (!$isLateCancellation && in_array($paymentStatus, ['pending', 'paid'], true));
+$hasCoachDeadline = athleteDeleteHasColumn($pdo, 'coaches', 'makeup_booking_deadline_days');
+$coachMakeupDeadlineDays = 14;
+if ($hasCoachDeadline) {
+    $deadlineStmt = $pdo->prepare('SELECT makeup_booking_deadline_days FROM coaches WHERE id = ? LIMIT 1');
+    $deadlineStmt->execute([(int)$event['coach_id']]);
+    $coachMakeupDeadlineDaysRaw = $deadlineStmt->fetchColumn();
+    if ($coachMakeupDeadlineDaysRaw !== false && $coachMakeupDeadlineDaysRaw !== null) {
+        $coachMakeupDeadlineDays = max(1, (int)$coachMakeupDeadlineDaysRaw);
+    }
+}
+
+$replacementDeadlineAtSql = null;
+if ($requiresReplacement && $coachMakeupDeadlineDays !== null) {
+    $replacementDeadlineAtSql = date('Y-m-d H:i:s', strtotime('+' . $coachMakeupDeadlineDays . ' days'));
+}
+
+$hasCancelBillingMonth = athleteDeleteHasColumn($pdo, 'coach_calendar_event_cancellations', 'billing_month');
+$hasCancelPaymentSnapshot = athleteDeleteHasColumn($pdo, 'coach_calendar_event_cancellations', 'payment_status_snapshot');
+$hasCancelReplacementRequired = athleteDeleteHasColumn($pdo, 'coach_calendar_event_cancellations', 'replacement_required');
+$hasCancelReplacementDeadline = athleteDeleteHasColumn($pdo, 'coach_calendar_event_cancellations', 'replacement_deadline_at');
+$hasCancelReplacementEvent = athleteDeleteHasColumn($pdo, 'coach_calendar_event_cancellations', 'replacement_event_id');
+
+$cancelColumns = [
+    'coach_id',
+    'athlete_id',
+    'second_athlete_id',
+    'canceled_by',
+    'canceled_by_athlete_id',
+    'cancellation_scope',
+    'approval_status',
+    'is_makeup_session',
+    'custom_title',
+    'location',
+    'starts_at',
+    'ends_at',
+    'canceled_at',
+];
+$cancelValuesSql = [
+    '?',
+    '?',
+    '?',
+    '"athlete"',
+    '?',
+    '?',
+    '?',
+    '?',
+    '?',
+    '?',
+    '?',
+    '?',
+    'NOW()',
+];
+
+if ($hasCancelBillingMonth) {
+    $cancelColumns[] = 'billing_month';
+    $cancelValuesSql[] = '?';
+}
+if ($hasCancelPaymentSnapshot) {
+    $cancelColumns[] = 'payment_status_snapshot';
+    $cancelValuesSql[] = '?';
+}
+if ($hasCancelReplacementRequired) {
+    $cancelColumns[] = 'replacement_required';
+    $cancelValuesSql[] = '?';
+}
+if ($hasCancelReplacementDeadline) {
+    $cancelColumns[] = 'replacement_deadline_at';
+    $cancelValuesSql[] = '?';
+}
+if ($hasCancelReplacementEvent) {
+    $cancelColumns[] = 'replacement_event_id';
+    $cancelValuesSql[] = 'NULL';
 }
 
 $primaryAthleteId = (int)($event['athlete_id'] ?? 0);
@@ -125,10 +208,8 @@ if (!$isPrimaryParticipant && !$isSecondaryParticipant) {
 }
 
 $cancelInsert = $pdo->prepare(
-    'INSERT INTO coach_calendar_event_cancellations
-        (coach_id, athlete_id, second_athlete_id, canceled_by, canceled_by_athlete_id, cancellation_scope,
-         approval_status, is_makeup_session, custom_title, location, starts_at, ends_at, canceled_at)
-     VALUES (?, ?, ?, "athlete", ?, ?, ?, ?, ?, ?, ?, ?, NOW())'
+    'INSERT INTO coach_calendar_event_cancellations (' . implode(', ', $cancelColumns) . ')
+     VALUES (' . implode(', ', $cancelValuesSql) . ')'
 );
 
 $selfStmt = $pdo->prepare('SELECT first_name, last_name FROM athletes WHERE id = ? LIMIT 1');
@@ -166,7 +247,7 @@ if ($primaryAthleteId > 0 && $secondAthleteId > 0) {
     }
 
     try {
-        $cancelInsert->execute([
+        $cancelParams = [
             (int)$event['coach_id'],
             $athleteId,
             null,
@@ -178,7 +259,20 @@ if ($primaryAthleteId > 0 && $secondAthleteId > 0) {
             ($event['location'] ?? null) !== '' ? (string)$event['location'] : null,
             (string)$event['starts_at'],
             (string)($event['ends_at'] ?? $event['starts_at']),
-        ]);
+        ];
+        if ($hasCancelBillingMonth) {
+            $cancelParams[] = $billingMonthSql;
+        }
+        if ($hasCancelPaymentSnapshot) {
+            $cancelParams[] = $paymentStatus;
+        }
+        if ($hasCancelReplacementRequired) {
+            $cancelParams[] = $requiresReplacement ? 1 : 0;
+        }
+        if ($hasCancelReplacementDeadline) {
+            $cancelParams[] = $replacementDeadlineAtSql;
+        }
+        $cancelInsert->execute($cancelParams);
     } catch (Throwable $e) {
         error_log('athlete cancellation log insert failed: ' . $e->getMessage());
     }
@@ -194,7 +288,7 @@ if ($primaryAthleteId > 0 && $secondAthleteId > 0) {
     }
 
     try {
-        $cancelInsert->execute([
+        $cancelParams = [
             (int)$event['coach_id'],
             !empty($event['athlete_id']) ? (int)$event['athlete_id'] : null,
             !empty($event['second_athlete_id']) ? (int)$event['second_athlete_id'] : null,
@@ -206,7 +300,20 @@ if ($primaryAthleteId > 0 && $secondAthleteId > 0) {
             ($event['location'] ?? null) !== '' ? (string)$event['location'] : null,
             (string)$event['starts_at'],
             (string)($event['ends_at'] ?? $event['starts_at']),
-        ]);
+        ];
+        if ($hasCancelBillingMonth) {
+            $cancelParams[] = $billingMonthSql;
+        }
+        if ($hasCancelPaymentSnapshot) {
+            $cancelParams[] = $paymentStatus;
+        }
+        if ($hasCancelReplacementRequired) {
+            $cancelParams[] = $requiresReplacement ? 1 : 0;
+        }
+        if ($hasCancelReplacementDeadline) {
+            $cancelParams[] = $replacementDeadlineAtSql;
+        }
+        $cancelInsert->execute($cancelParams);
     } catch (Throwable $e) {
         error_log('athlete cancellation log insert failed: ' . $e->getMessage());
     }
@@ -221,6 +328,14 @@ $body = $removedFromPairOnly
     : "Sportovec {$athleteName} zrušil termín " . date('d.m.Y H:i', strtotime((string)$event['starts_at'])) . ".";
 if ($wasAlreadyPaid) {
     $body .= ' Termín byl již uhrazen a systém jej automaticky započte jako zápočet do další fakturace.';
+} elseif ($paymentStatus === 'pending') {
+    $body .= ' Termín byl součástí vystavené výzvy k platbě. Částka výzvy zůstává beze změny a čeká se na náhradní termín.';
+}
+if ($isLateCancellation) {
+    $body .= ' Zrušení proběhlo méně než 12 hodin před začátkem, termín je bez nároku na kompenzaci a nelze jej nahradit.';
+}
+if ($requiresReplacement && $coachMakeupDeadlineDays !== null) {
+    $body .= ' Sportovec má povinnost vybrat náhradní termín do ' . $coachMakeupDeadlineDays . ' dnů.';
 }
 createCoachSystemMessage((int)$event['coach_id'], $subject, $body, true);
 
@@ -231,14 +346,31 @@ createAthleteNotification(
         ? "Tvoje účast na párovém termínu {$event['starts_at']} byla zrušena."
         : "Tvůj termín {$event['starts_at']} byl zrušen.")
     . ($wasAlreadyPaid ? ' Tento termín byl již uhrazen a bude započten do další fakturace jako zápočet.' : '')
+    . ($paymentStatus === 'pending' ? ' Tento termín byl součástí otevřené výzvy k platbě, částka výzvy se nesnižuje.' : '')
+    . ($isLateCancellation ? ' Zrušení proběhlo méně než 12 hodin před začátkem, termín je bez nároku na kompenzaci a nelze jej nahradit.' : '')
+    . (($requiresReplacement && $coachMakeupDeadlineDays !== null)
+        ? (' Náhradní termín je potřeba vybrat do ' . $coachMakeupDeadlineDays . ' dnů.')
+        : '')
 );
+
+$responseMessage = ($removedFromPairOnly
+        ? "Účast na párovém termínu byla zrušena. Trenér {$coachDisplayName} byl informován."
+        : "Termín byl zrušen. Trenér {$coachDisplayName} byl informován.")
+    . ($wasAlreadyPaid ? ' Jednalo se o již uhrazený termín, který bude započten v další fakturaci.' : '')
+    . ($paymentStatus === 'pending' ? ' Termín byl součástí výzvy k platbě a částka výzvy se nesnižuje.' : '')
+    . ($isLateCancellation ? ' Zrušení proběhlo méně než 12 hodin před začátkem, termín je bez nároku na kompenzaci a nelze jej nahradit.' : '')
+    . (($requiresReplacement && $coachMakeupDeadlineDays !== null)
+        ? (' Náhradní termín musíte vybrat do ' . $coachMakeupDeadlineDays . ' dnů.')
+        : '');
 
 echo json_encode([
     'success' => true,
-    'message' => ($removedFromPairOnly
-            ? "Účast na párovém termínu byla zrušena. Trenér {$coachDisplayName} byl informován."
-            : "Termín byl zrušen. Trenér {$coachDisplayName} byl informován.")
-        . ($wasAlreadyPaid ? ' Jednalo se o již uhrazený termín, který bude započten v další fakturaci.' : ''),
+    'message' => $responseMessage,
     'was_paid' => $wasAlreadyPaid,
+    'payment_status' => $paymentStatus,
+    'late_cancellation' => $isLateCancellation,
+    'replacement_required' => $requiresReplacement,
+    'replacement_deadline_days' => $coachMakeupDeadlineDays,
+    'replacement_deadline_at' => $replacementDeadlineAtSql,
     'removed_from_pair' => $removedFromPairOnly,
 ]);

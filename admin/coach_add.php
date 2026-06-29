@@ -8,6 +8,17 @@ requireAdminLogin();
 $pdo   = getDB();
 $error = null;
 
+$stmtMakeupDeadlineCol = $pdo->query("SHOW COLUMNS FROM coaches LIKE 'makeup_booking_deadline_days'");
+$hasMakeupDeadlineColumn = $stmtMakeupDeadlineCol !== false && (bool)$stmtMakeupDeadlineCol->fetch();
+if (!$hasMakeupDeadlineColumn) {
+    try {
+        $pdo->exec('ALTER TABLE coaches ADD COLUMN makeup_booking_deadline_days INT NOT NULL DEFAULT 14 AFTER bank_account');
+        $hasMakeupDeadlineColumn = true;
+    } catch (Throwable $e) {
+        $hasMakeupDeadlineColumn = false;
+    }
+}
+
 function coachUsernameFromNameEmail(string $name, string $email): string {
     $base = '';
     if ($email !== '' && str_contains($email, '@')) {
@@ -46,9 +57,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $password  = $_POST['password'] ?? '';
         $password2 = $_POST['password2'] ?? '';
         $isActive  = isset($_POST['is_active']) ? 1 : 0;
+        $makeupDeadlineDaysRaw = trim((string)($_POST['makeup_booking_deadline_days'] ?? ''));
+        $makeupDeadlineDays = 14;
         $sourceTicketId = intParam($_POST, 'source_ticket_id');
 
-        if ($username === '') {
+        if ($hasMakeupDeadlineColumn) {
+            if ($makeupDeadlineDaysRaw !== '') {
+                if (!ctype_digit($makeupDeadlineDaysRaw)) {
+                    $error = 'Lhuta pro nahradni termin musi byt cele cislo ve dnech.';
+                } else {
+                    $makeupDeadlineDays = (int)$makeupDeadlineDaysRaw;
+                    if ($makeupDeadlineDays < 1 || $makeupDeadlineDays > 365) {
+                        $error = 'Lhuta pro nahradni termin muze byt 1 az 365 dni.';
+                    }
+                }
+            }
+        }
+
+        if ($error !== null) {
+            // Validation error already set.
+        } elseif ($username === '') {
             $error = 'Zadejte uzivatelske jmeno.';
         } elseif (!preg_match('/^[a-z0-9_.\-]{3,50}$/i', $username)) {
             $error = 'Uzivatelske jmeno smi obsahovat jen pismena, cislice, tecku, pomlcku a podtrzitko (3-50 znaku).';
@@ -67,9 +95,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $error = 'Toto uzivatelske jmeno je jiz obsazeno.';
             } else {
                 $hash = password_hash($password, PASSWORD_DEFAULT);
-                $pdo->prepare(
-                    'INSERT INTO coaches (username, password, name, email, is_active, force_password_change) VALUES (?, ?, ?, ?, ?, 1)'
-                )->execute([$username, $hash, $name ?: null, $email ?: null, $isActive]);
+                if ($hasMakeupDeadlineColumn) {
+                    $pdo->prepare(
+                        'INSERT INTO coaches (username, password, name, email, is_active, force_password_change, makeup_booking_deadline_days) VALUES (?, ?, ?, ?, ?, 1, ?)'
+                    )->execute([$username, $hash, $name ?: null, $email ?: null, $isActive, $makeupDeadlineDays]);
+                } else {
+                    $pdo->prepare(
+                        'INSERT INTO coaches (username, password, name, email, is_active, force_password_change) VALUES (?, ?, ?, ?, ?, 1)'
+                    )->execute([$username, $hash, $name ?: null, $email ?: null, $isActive]);
+                }
                 $newCoachId = (int)$pdo->lastInsertId();
 
                 if ($sourceTicketId > 0) {
@@ -219,6 +253,16 @@ renderAdminHeader('Pridat trenera');
                     </label>
                 </div>
             </div>
+            <?php if ($hasMakeupDeadlineColumn): ?>
+            <div class="mb-4">
+                <label class="form-label fw-semibold">Lhuta pro vyber nahradniho terminu (dny)</label>
+                <input type="number" name="makeup_booking_deadline_days" class="form-control"
+                       min="1" max="365" step="1"
+                       value="<?= h($_POST['makeup_booking_deadline_days'] ?? '14') ?>"
+                       placeholder="napr. 14">
+                <div class="form-text">Vychozi hodnota je 14 dni. Sportovec musi do teto lhuty vytvorit nahradni rezervaci po zruseni terminu.</div>
+            </div>
+            <?php endif; ?>
             <div class="d-flex gap-2">
                 <button type="submit" class="btn fw-bold px-4"
                         style="background:#7c3aed;color:#fff;border:none">

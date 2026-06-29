@@ -143,6 +143,13 @@ $hasSecondAthlete = athletePaymentsColumnExists($pdo, 'coach_calendar_events', '
 $hasCoachBankAccount = athletePaymentsColumnExists($pdo, 'coaches', 'bank_account');
 $hasCarryoverUsed = athletePaymentsColumnExists($pdo, 'athlete_monthly_payments', 'carryover_used_sessions');
 $hasPairedTrainingRate = athletePaymentsColumnExists($pdo, 'athletes', 'paired_training_rate');
+$hasCancellationsTable = false;
+try {
+    $checkCancellationsTable = $pdo->query("SHOW TABLES LIKE 'coach_calendar_event_cancellations'");
+    $hasCancellationsTable = $checkCancellationsTable !== false && (bool)$checkCancellationsTable->fetchColumn();
+} catch (Throwable $e) {
+    $hasCancellationsTable = false;
+}
 
 $athleteStmt = $pdo->prepare(
     'SELECT a.id, a.first_name, a.last_name, a.training_rate'
@@ -253,6 +260,50 @@ foreach ($statsRows as $row) {
     ];
 }
 
+if ($hasCancellationsTable
+    && athletePaymentsColumnExists($pdo, 'coach_calendar_event_cancellations', 'billing_month')
+    && athletePaymentsColumnExists($pdo, 'coach_calendar_event_cancellations', 'cancellation_scope')
+    && athletePaymentsColumnExists($pdo, 'coach_calendar_event_cancellations', 'canceled_by')
+    && athletePaymentsColumnExists($pdo, 'coach_calendar_event_cancellations', 'canceled_at')
+    && athletePaymentsColumnExists($pdo, 'coach_calendar_event_cancellations', 'starts_at')
+) {
+    $lateCancelStmt = $pdo->prepare(
+        "SELECT billing_month,
+                SUM(CASE WHEN cancellation_scope = 'pair_exit' THEN 1 ELSE 0 END) AS late_paired,
+                SUM(CASE WHEN cancellation_scope = 'pair_exit' THEN 0 ELSE 1 END) AS late_single,
+                COUNT(*) AS late_total
+         FROM coach_calendar_event_cancellations
+         WHERE coach_id = ?
+           AND athlete_id = ?
+           AND canceled_by = 'athlete'
+           AND starts_at > canceled_at
+           AND TIMESTAMPDIFF(MINUTE, canceled_at, starts_at) < 720
+         GROUP BY billing_month"
+    );
+    $lateCancelStmt->execute([(int)$athlete['coach_id'], $athleteId]);
+
+    foreach ($lateCancelStmt->fetchAll() as $lateRow) {
+        $month = (string)$lateRow['billing_month'];
+        if ($month === '') {
+            continue;
+        }
+        if (!isset($rowsByMonth[$month])) {
+            $rowsByMonth[$month] = [
+                'billing_month' => $month,
+                'billed_sessions' => 0,
+                'paired_sessions' => 0,
+                'single_sessions' => 0,
+                'makeup_sessions' => 0,
+                'transferred_sessions' => 0,
+            ];
+        }
+
+        $rowsByMonth[$month]['paired_sessions'] += (int)($lateRow['late_paired'] ?? 0);
+        $rowsByMonth[$month]['single_sessions'] += (int)($lateRow['late_single'] ?? 0);
+        $rowsByMonth[$month]['billed_sessions'] += (int)($lateRow['late_total'] ?? 0);
+    }
+}
+
 foreach ($paymentsByMonth as $month => $payment) {
     if (!isset($rowsByMonth[$month])) {
         $rowsByMonth[$month] = [
@@ -299,13 +350,45 @@ $monthsAsc = array_keys($rowsByMonth);
 sort($monthsAsc);
 $outstanding = 0;
 $outstandingBeforeByMonth = [];
+
+$forfeitedByMonth = [];
+if ($hasCancellationsTable
+    && athletePaymentsColumnExists($pdo, 'coach_calendar_event_cancellations', 'billing_month')
+    && athletePaymentsColumnExists($pdo, 'coach_calendar_event_cancellations', 'payment_status_snapshot')
+    && athletePaymentsColumnExists($pdo, 'coach_calendar_event_cancellations', 'replacement_required')
+    && athletePaymentsColumnExists($pdo, 'coach_calendar_event_cancellations', 'replacement_event_id')
+    && athletePaymentsColumnExists($pdo, 'coach_calendar_event_cancellations', 'replacement_deadline_at')
+    && athletePaymentsColumnExists($pdo, 'coach_calendar_event_cancellations', 'canceled_at')
+    && athletePaymentsColumnExists($pdo, 'coach_calendar_event_cancellations', 'starts_at')
+) {
+    $forfeitedStmt = $pdo->prepare(
+        "SELECT billing_month,
+                COUNT(*) AS forfeited_count
+         FROM coach_calendar_event_cancellations
+         WHERE coach_id = ?
+           AND athlete_id = ?
+           AND payment_status_snapshot IN ('pending', 'paid')
+           AND (
+               (starts_at > canceled_at AND TIMESTAMPDIFF(MINUTE, canceled_at, starts_at) < 720)
+               OR
+               (replacement_required = 1 AND replacement_event_id IS NULL AND replacement_deadline_at IS NOT NULL AND replacement_deadline_at < NOW())
+           )
+         GROUP BY billing_month"
+    );
+    $forfeitedStmt->execute([(int)$athlete['coach_id'], $athleteId]);
+    foreach ($forfeitedStmt->fetchAll() as $forfeitedRow) {
+        $forfeitedByMonth[(string)$forfeitedRow['billing_month']] = (int)$forfeitedRow['forfeited_count'];
+    }
+}
+
 foreach ($monthsAsc as $monthKey) {
     $outstandingBeforeByMonth[$monthKey] = $outstanding;
     $paidMonthRow = $paymentsByMonth[$monthKey] ?? null;
     if ($paidMonthRow && (($paidMonthRow['status'] ?? '') === 'paid')) {
         $planned = max(0, (int)($paidMonthRow['planned_sessions'] ?? 0));
         $actual = max(0, (int)($rowsByMonth[$monthKey]['billed_sessions'] ?? 0));
-        $generated = max(0, $planned - $actual);
+        $forfeited = (int)($forfeitedByMonth[$monthKey] ?? 0);
+        $generated = max(0, $planned - $actual - $forfeited);
         $used = max(0, (int)($paidMonthRow['carryover_used_sessions'] ?? 0));
         $outstanding += $generated;
         $outstanding = max(0, $outstanding - $used);
@@ -361,6 +444,7 @@ foreach ($rowsByMonth as $month => $stats) {
         'paired_sessions' => $rawPairedSessions,
         'single_sessions' => $rawSingleSessions,
         'carryover_applied' => $carryoverApplied,
+        'forfeited_compensations' => (int)($forfeitedByMonth[$month] ?? 0),
         'note' => $note,
         'qr_url' => $qrUrl,
         'is_released' => $isReleased,
@@ -455,6 +539,9 @@ renderAthleteHeader('Platby');
                                     <?php endif; ?>
                                     <?php if ((int)$row['carryover_applied'] > 0): ?>
                                         <div class="small text-warning">Zápočet z dříve uhrazených: -<?= (int)$row['carryover_applied'] ?></div>
+                                    <?php endif; ?>
+                                    <?php if ((int)($row['forfeited_compensations'] ?? 0) > 0): ?>
+                                        <div class="small text-danger">Propadlá kompenzace: <?= (int)$row['forfeited_compensations'] ?> tréninků</div>
                                     <?php endif; ?>
                                 </td>
                                 <td>

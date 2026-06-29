@@ -583,6 +583,15 @@ function ensureSchemaUpgrades(PDO $pdo): void {
         $pdo->exec('ALTER TABLE coaches ADD COLUMN bank_account VARCHAR(64) NULL AFTER email');
     }
 
+    // Lhůta (ve dnech) pro výběr náhradního termínu po zrušení tréninku sportovcem
+    $stmtCoachMakeupDeadline = $pdo->query("SHOW COLUMNS FROM coaches LIKE 'makeup_booking_deadline_days'");
+    if (!$stmtCoachMakeupDeadline->fetch()) {
+        $pdo->exec('ALTER TABLE coaches ADD COLUMN makeup_booking_deadline_days INT NOT NULL DEFAULT 14 AFTER bank_account');
+    } else {
+        $pdo->exec('UPDATE coaches SET makeup_booking_deadline_days = 14 WHERE makeup_booking_deadline_days IS NULL OR makeup_booking_deadline_days <= 0');
+        $pdo->exec('ALTER TABLE coaches MODIFY COLUMN makeup_booking_deadline_days INT NOT NULL DEFAULT 14');
+    }
+
     // Tabulka superadminu
     $pdo->exec(" 
         CREATE TABLE IF NOT EXISTS `superadmins` (
@@ -849,6 +858,11 @@ function ensureSchemaUpgrades(PDO $pdo): void {
             `cancellation_scope`    ENUM('single','future','pair_exit') NOT NULL DEFAULT 'single',
             `approval_status`       ENUM('pending','approved') NOT NULL DEFAULT 'approved',
             `is_makeup_session`     TINYINT(1) NOT NULL DEFAULT 0,
+            `billing_month`         DATE NULL,
+            `payment_status_snapshot` ENUM('none','pending','paid') NOT NULL DEFAULT 'none',
+            `replacement_required`  TINYINT(1) NOT NULL DEFAULT 0,
+            `replacement_deadline_at` DATETIME NULL,
+            `replacement_event_id`  INT NULL,
             `custom_title`          VARCHAR(140) NULL,
             `location`              VARCHAR(255) NULL,
             `starts_at`             DATETIME NOT NULL,
@@ -858,12 +872,43 @@ function ensureSchemaUpgrades(PDO $pdo): void {
             KEY `idx_calendar_cancel_athlete_start` (`athlete_id`, `starts_at`),
             KEY `idx_calendar_cancel_second_athlete_start` (`second_athlete_id`, `starts_at`),
             KEY `idx_calendar_cancel_canceled_at` (`canceled_at`),
+            KEY `idx_calendar_cancel_replacement_required` (`coach_id`, `athlete_id`, `replacement_required`, `replacement_event_id`, `canceled_at`),
             FOREIGN KEY (`coach_id`) REFERENCES `coaches`(`id`) ON DELETE CASCADE,
             FOREIGN KEY (`athlete_id`) REFERENCES `athletes`(`id`) ON DELETE SET NULL,
             FOREIGN KEY (`second_athlete_id`) REFERENCES `athletes`(`id`) ON DELETE SET NULL,
             FOREIGN KEY (`canceled_by_athlete_id`) REFERENCES `athletes`(`id`) ON DELETE SET NULL
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ");
+
+    $stmtCancelBillingMonth = $pdo->query("SHOW COLUMNS FROM coach_calendar_event_cancellations LIKE 'billing_month'");
+    if (!$stmtCancelBillingMonth->fetch()) {
+        $pdo->exec('ALTER TABLE coach_calendar_event_cancellations ADD COLUMN billing_month DATE NULL AFTER is_makeup_session');
+    }
+
+    $stmtCancelPaymentStatus = $pdo->query("SHOW COLUMNS FROM coach_calendar_event_cancellations LIKE 'payment_status_snapshot'");
+    if (!$stmtCancelPaymentStatus->fetch()) {
+        $pdo->exec("ALTER TABLE coach_calendar_event_cancellations ADD COLUMN payment_status_snapshot ENUM('none','pending','paid') NOT NULL DEFAULT 'none' AFTER billing_month");
+    }
+
+    $stmtCancelReplacementRequired = $pdo->query("SHOW COLUMNS FROM coach_calendar_event_cancellations LIKE 'replacement_required'");
+    if (!$stmtCancelReplacementRequired->fetch()) {
+        $pdo->exec('ALTER TABLE coach_calendar_event_cancellations ADD COLUMN replacement_required TINYINT(1) NOT NULL DEFAULT 0 AFTER payment_status_snapshot');
+    }
+
+    $stmtCancelReplacementDeadline = $pdo->query("SHOW COLUMNS FROM coach_calendar_event_cancellations LIKE 'replacement_deadline_at'");
+    if (!$stmtCancelReplacementDeadline->fetch()) {
+        $pdo->exec('ALTER TABLE coach_calendar_event_cancellations ADD COLUMN replacement_deadline_at DATETIME NULL AFTER replacement_required');
+    }
+
+    $stmtCancelReplacementEvent = $pdo->query("SHOW COLUMNS FROM coach_calendar_event_cancellations LIKE 'replacement_event_id'");
+    if (!$stmtCancelReplacementEvent->fetch()) {
+        $pdo->exec('ALTER TABLE coach_calendar_event_cancellations ADD COLUMN replacement_event_id INT NULL AFTER replacement_deadline_at');
+    }
+
+    $stmtCancelReplacementIdx = $pdo->query("SHOW INDEX FROM coach_calendar_event_cancellations WHERE Key_name = 'idx_calendar_cancel_replacement_required'");
+    if (!$stmtCancelReplacementIdx->fetch()) {
+        $pdo->exec('CREATE INDEX idx_calendar_cancel_replacement_required ON coach_calendar_event_cancellations (coach_id, athlete_id, replacement_required, replacement_event_id, canceled_at)');
+    }
 
     // Log odeslaných souhrnných přehledů kalendáře (trenér/sportovec)
     $pdo->exec("

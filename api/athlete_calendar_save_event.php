@@ -72,6 +72,60 @@ function athleteReserveColumnExists(PDO $pdo, string $tableName, string $columnN
     return $stmt !== false && (bool)$stmt->fetch();
 }
 
+function athleteFindRequiredReplacementCancellation(PDO $pdo, int $coachId, int $athleteId): ?array
+{
+    if (!athleteReserveTableExists($pdo, 'coach_calendar_event_cancellations')) {
+        return null;
+    }
+    if (!athleteReserveColumnExists($pdo, 'coach_calendar_event_cancellations', 'replacement_required')) {
+        return null;
+    }
+    if (!athleteReserveColumnExists($pdo, 'coach_calendar_event_cancellations', 'replacement_event_id')) {
+        return null;
+    }
+
+    $hasBillingMonth = athleteReserveColumnExists($pdo, 'coach_calendar_event_cancellations', 'billing_month');
+    $hasReplacementDeadline = athleteReserveColumnExists($pdo, 'coach_calendar_event_cancellations', 'replacement_deadline_at');
+    $hasPaymentSnapshot = athleteReserveColumnExists($pdo, 'coach_calendar_event_cancellations', 'payment_status_snapshot');
+
+    $selectFields = ['id', 'canceled_at'];
+    $selectFields[] = $hasBillingMonth ? 'billing_month' : 'NULL AS billing_month';
+    $selectFields[] = $hasReplacementDeadline ? 'replacement_deadline_at' : 'NULL AS replacement_deadline_at';
+    $selectFields[] = $hasPaymentSnapshot ? 'payment_status_snapshot' : '"none" AS payment_status_snapshot';
+
+    $stmt = $pdo->prepare(
+        'SELECT ' . implode(', ', $selectFields) . '
+         FROM coach_calendar_event_cancellations
+         WHERE coach_id = ?
+           AND athlete_id = ?
+           AND canceled_by = "athlete"
+           AND replacement_required = 1
+           AND replacement_event_id IS NULL
+         ORDER BY canceled_at ASC, id ASC
+         LIMIT 1'
+    );
+    $stmt->execute([$coachId, $athleteId]);
+    $row = $stmt->fetch();
+
+    return $row ?: null;
+}
+
+function athleteIsLastWeekOfMonth(string $dateTimeValue, string $monthSql): bool
+{
+    $ts = strtotime($dateTimeValue);
+    $monthTs = strtotime($monthSql);
+    if ($ts === false || $monthTs === false) {
+        return false;
+    }
+
+    $monthEndTs = strtotime(date('Y-m-t 23:59:59', $monthTs));
+    if ($monthEndTs === false) {
+        return false;
+    }
+
+    return ($monthEndTs - $ts) < (7 * 24 * 60 * 60);
+}
+
 function athleteResolveAutoMakeupBillingMonth(PDO $pdo, int $coachId, int $athleteId, string $targetMonthSql): ?string
 {
     if (!athleteReserveTableExists($pdo, 'athlete_monthly_payments') || !athleteReserveTableExists($pdo, 'coach_calendar_events')) {
@@ -141,12 +195,44 @@ function athleteResolveAutoMakeupBillingMonth(PDO $pdo, int $coachId, int $athle
     );
         $paymentStmt->execute([$coachId, $athleteId, $carryoverCutoffSql]);
 
+    $forfeitedByMonth = [];
+    if (athleteReserveTableExists($pdo, 'coach_calendar_event_cancellations')
+        && athleteReserveColumnExists($pdo, 'coach_calendar_event_cancellations', 'billing_month')
+        && athleteReserveColumnExists($pdo, 'coach_calendar_event_cancellations', 'payment_status_snapshot')
+        && athleteReserveColumnExists($pdo, 'coach_calendar_event_cancellations', 'replacement_required')
+        && athleteReserveColumnExists($pdo, 'coach_calendar_event_cancellations', 'replacement_event_id')
+        && athleteReserveColumnExists($pdo, 'coach_calendar_event_cancellations', 'replacement_deadline_at')
+        && athleteReserveColumnExists($pdo, 'coach_calendar_event_cancellations', 'canceled_at')
+        && athleteReserveColumnExists($pdo, 'coach_calendar_event_cancellations', 'starts_at')
+    ) {
+        $forfeitedStmt = $pdo->prepare(
+            "SELECT billing_month,
+                    COUNT(*) AS forfeited_count
+             FROM coach_calendar_event_cancellations
+             WHERE coach_id = ?
+               AND athlete_id = ?
+               AND billing_month < ?
+               AND payment_status_snapshot IN ('pending', 'paid')
+               AND (
+                   (starts_at > canceled_at AND TIMESTAMPDIFF(MINUTE, canceled_at, starts_at) < 720)
+                   OR
+                   (replacement_required = 1 AND replacement_event_id IS NULL AND replacement_deadline_at IS NOT NULL AND replacement_deadline_at < NOW())
+               )
+             GROUP BY billing_month"
+        );
+        $forfeitedStmt->execute([$coachId, $athleteId, $carryoverCutoffSql]);
+        foreach ($forfeitedStmt->fetchAll() as $forfeitedRow) {
+            $forfeitedByMonth[(string)$forfeitedRow['billing_month']] = (int)$forfeitedRow['forfeited_count'];
+        }
+    }
+
     $balances = [];
     foreach ($paymentStmt->fetchAll() as $row) {
         $month = (string)$row['billing_month'];
         $planned = max(0, (int)($row['planned_sessions'] ?? 0));
         $actual = max(0, (int)($actualByMonth[$month] ?? 0));
-        $generated = max(0, $planned - $actual);
+        $forfeited = (int)($forfeitedByMonth[$month] ?? 0);
+        $generated = max(0, $planned - $actual - $forfeited);
         $used = max(0, (int)($row['carryover_used_sessions'] ?? 0));
 
         if ($generated > 0) {
@@ -207,6 +293,7 @@ function athleteResolveOpenBillingMonth(PDO $pdo, int $coachId, int $athleteId, 
 $athleteStmt = $pdo->prepare(
     'SELECT a.id, a.first_name, a.last_name, a.email, a.coach_id,
             c.name AS coach_name, c.username AS coach_username, c.email AS coach_email
+            ' . (athleteReserveColumnExists($pdo, 'coaches', 'makeup_booking_deadline_days') ? ', c.makeup_booking_deadline_days' : ', NULL AS makeup_booking_deadline_days') . '
      FROM athletes a
      JOIN coaches c ON c.id = a.coach_id
      WHERE a.id = ?
@@ -233,13 +320,53 @@ if ($location !== null) {
 $startSql = $start->format('Y-m-d H:i:s');
 $endSql = $end->format('Y-m-d H:i:s');
 $billingMonthSql = $start->format('Y-m-01');
+$replacementCancellationId = null;
 
 if ($isMakeupSession === 1) {
     $targetMonthSql = $start->format('Y-m-01');
-    $billingMonthSql = athleteResolveAutoMakeupBillingMonth($pdo, (int)$athlete['coach_id'], $athleteId, $targetMonthSql) ?: '';
-    if ($billingMonthSql === '') {
-        echo json_encode(['success' => false, 'error' => 'Momentálně nemáte dostupný žádný nevyužitý uhrazený trénink.']);
-        exit;
+    $requiredReplacement = athleteFindRequiredReplacementCancellation($pdo, (int)$athlete['coach_id'], $athleteId);
+    if ($requiredReplacement) {
+        $deadlineRaw = (string)($requiredReplacement['replacement_deadline_at'] ?? '');
+        if ($deadlineRaw !== '') {
+            $deadlineTs = strtotime($deadlineRaw);
+            if ($deadlineTs !== false && $deadlineTs < time()) {
+                echo json_encode([
+                    'success' => false,
+                    'error' => 'Lhuta pro vyber nahradniho terminu uz uplynula. Kontaktujte prosim trenera.',
+                ]);
+                exit;
+            }
+        }
+
+        $requiredBillingMonthSql = !empty($requiredReplacement['billing_month'])
+            ? date('Y-m-01', strtotime((string)$requiredReplacement['billing_month']))
+            : $targetMonthSql;
+        $billingMonthSql = $requiredBillingMonthSql;
+
+        if ($targetMonthSql !== $requiredBillingMonthSql) {
+            $requiredMonthTs = strtotime($requiredBillingMonthSql);
+            $allowedNextMonthSql = $requiredMonthTs !== false
+                ? date('Y-m-01', strtotime('+1 month', $requiredMonthTs))
+                : null;
+            $canceledAtRaw = (string)($requiredReplacement['canceled_at'] ?? '');
+            $isLastWeek = athleteIsLastWeekOfMonth($canceledAtRaw, $requiredBillingMonthSql);
+
+            if ($allowedNextMonthSql === null || $targetMonthSql !== $allowedNextMonthSql || !$isLastWeek) {
+                echo json_encode([
+                    'success' => false,
+                    'error' => 'Náhradní termín je potřeba primárně zadat do stejného měsíce jako zrušený termín. Do dalšího měsíce lze náhradu přesunout jen při zrušení v posledním týdnu měsíce.',
+                ]);
+                exit;
+            }
+        }
+
+        $replacementCancellationId = (int)$requiredReplacement['id'];
+    } else {
+        $billingMonthSql = athleteResolveAutoMakeupBillingMonth($pdo, (int)$athlete['coach_id'], $athleteId, $targetMonthSql) ?: '';
+        if ($billingMonthSql === '') {
+            echo json_encode(['success' => false, 'error' => 'Momentálně nemáte dostupný žádný nevyužitý uhrazený trénink.']);
+            exit;
+        }
     }
 } else {
     $billingMonthSql = athleteResolveOpenBillingMonth($pdo, (int)$athlete['coach_id'], $athleteId, $billingMonthSql);
@@ -290,6 +417,23 @@ $insert->execute([
     $startSql,
     $endSql,
 ]);
+
+$newEventId = (int)$pdo->lastInsertId();
+
+if ($replacementCancellationId !== null
+    && athleteReserveTableExists($pdo, 'coach_calendar_event_cancellations')
+    && athleteReserveColumnExists($pdo, 'coach_calendar_event_cancellations', 'replacement_event_id')
+) {
+    $bindReplacementStmt = $pdo->prepare(
+        'UPDATE coach_calendar_event_cancellations
+         SET replacement_event_id = ?
+         WHERE id = ?
+           AND coach_id = ?
+           AND athlete_id = ?
+           AND replacement_event_id IS NULL'
+    );
+    $bindReplacementStmt->execute([$newEventId, $replacementCancellationId, (int)$athlete['coach_id'], $athleteId]);
+}
 
 $athleteName = trim((string)$athlete['first_name'] . ' ' . (string)$athlete['last_name']);
 $timeLabel = $start->format('d.m.Y H:i');

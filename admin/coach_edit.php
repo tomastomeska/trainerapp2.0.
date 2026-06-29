@@ -9,6 +9,17 @@ $pdo      = getDB();
 $coachId  = intParam($_GET, 'id');
 $error    = null;
 
+$stmtMakeupDeadlineCol = $pdo->query("SHOW COLUMNS FROM coaches LIKE 'makeup_booking_deadline_days'");
+$hasMakeupDeadlineColumn = $stmtMakeupDeadlineCol !== false && (bool)$stmtMakeupDeadlineCol->fetch();
+if (!$hasMakeupDeadlineColumn) {
+    try {
+        $pdo->exec('ALTER TABLE coaches ADD COLUMN makeup_booking_deadline_days INT NOT NULL DEFAULT 14 AFTER bank_account');
+        $hasMakeupDeadlineColumn = true;
+    } catch (Throwable $e) {
+        $hasMakeupDeadlineColumn = false;
+    }
+}
+
 $stmt = $pdo->prepare('SELECT * FROM coaches WHERE id = ?');
 $stmt->execute([$coachId]);
 $coach = $stmt->fetch();
@@ -28,8 +39,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $password  = $_POST['password']  ?? '';
         $password2 = $_POST['password2'] ?? '';
         $isActive  = isset($_POST['is_active']) ? 1 : 0;
+        $makeupDeadlineDaysRaw = trim((string)($_POST['makeup_booking_deadline_days'] ?? ''));
+        $makeupDeadlineDays = 14;
 
-        if ($username === '') {
+        if ($hasMakeupDeadlineColumn) {
+            if ($makeupDeadlineDaysRaw !== '') {
+                if (!ctype_digit($makeupDeadlineDaysRaw)) {
+                    $error = 'Lhuta pro nahradni termin musi byt cele cislo ve dnech.';
+                } else {
+                    $makeupDeadlineDays = (int)$makeupDeadlineDaysRaw;
+                    if ($makeupDeadlineDays < 1 || $makeupDeadlineDays > 365) {
+                        $error = 'Lhuta pro nahradni termin muze byt 1 az 365 dni.';
+                    }
+                }
+            }
+        }
+
+        if ($error !== null) {
+            // Validation error already set.
+        } elseif ($username === '') {
             $error = 'Zadejte uživatelské jméno.';
         } elseif (!preg_match('/^[a-z0-9_.\-]{3,50}$/i', $username)) {
             $error = 'Uživatelské jméno smí obsahovat jen písmena, číslice, tečku, pomlčku a podtržítko (3–50 znaků).';
@@ -48,13 +76,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } else {
                 if ($password !== '') {
                     $hash = password_hash($password, PASSWORD_DEFAULT);
-                    $pdo->prepare(
-                        'UPDATE coaches SET username=?, name=?, email=?, is_active=?, password=? WHERE id=?'
-                    )->execute([$username, $name ?: null, $email ?: null, $isActive, $hash, $coachId]);
+                    if ($hasMakeupDeadlineColumn) {
+                        $pdo->prepare(
+                            'UPDATE coaches SET username=?, name=?, email=?, is_active=?, makeup_booking_deadline_days=?, password=? WHERE id=?'
+                        )->execute([$username, $name ?: null, $email ?: null, $isActive, $makeupDeadlineDays, $hash, $coachId]);
+                    } else {
+                        $pdo->prepare(
+                            'UPDATE coaches SET username=?, name=?, email=?, is_active=?, password=? WHERE id=?'
+                        )->execute([$username, $name ?: null, $email ?: null, $isActive, $hash, $coachId]);
+                    }
                 } else {
-                    $pdo->prepare(
-                        'UPDATE coaches SET username=?, name=?, email=?, is_active=? WHERE id=?'
-                    )->execute([$username, $name ?: null, $email ?: null, $isActive, $coachId]);
+                    if ($hasMakeupDeadlineColumn) {
+                        $pdo->prepare(
+                            'UPDATE coaches SET username=?, name=?, email=?, is_active=?, makeup_booking_deadline_days=? WHERE id=?'
+                        )->execute([$username, $name ?: null, $email ?: null, $isActive, $makeupDeadlineDays, $coachId]);
+                    } else {
+                        $pdo->prepare(
+                            'UPDATE coaches SET username=?, name=?, email=?, is_active=? WHERE id=?'
+                        )->execute([$username, $name ?: null, $email ?: null, $isActive, $coachId]);
+                    }
                 }
                 flash('success', 'Trenér byl aktualizován.');
                 redirect(BASE_URL . '/admin/coaches.php');
@@ -128,6 +168,16 @@ renderAdminHeader('Upravit trenéra');
                     </label>
                 </div>
             </div>
+            <?php if ($hasMakeupDeadlineColumn): ?>
+            <div class="mb-4">
+                <label class="form-label fw-semibold">Lhůta pro výběr náhradního termínu (dny)</label>
+                <input type="number" name="makeup_booking_deadline_days" class="form-control"
+                       min="1" max="365" step="1"
+                       value="<?= h((string)($d['makeup_booking_deadline_days'] ?? '14')) ?>"
+                       placeholder="např. 14">
+                <div class="form-text">Výchozí hodnota je 14 dní. Po zrušení termínu sportovcem musí být náhradní rezervace vytvořena do této lhůty.</div>
+            </div>
+            <?php endif; ?>
             <div class="d-flex gap-2">
                 <button type="submit" class="btn fw-bold px-4"
                         style="background:#7c3aed;color:#fff;border:none">

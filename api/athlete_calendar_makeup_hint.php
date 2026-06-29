@@ -59,6 +59,9 @@ if (!athleteMakeupHintTableExists($pdo, 'athlete_monthly_payments') || !athleteM
         'success' => true,
         'has_outstanding' => false,
         'outstanding_sessions' => 0,
+        'has_required_replacement' => false,
+        'required_replacement_count' => 0,
+        'required_replacement_deadline_at' => null,
         'target_month' => $targetMonthSql,
         'target_month_label' => date('m/Y', strtotime($targetMonthSql)),
     ]);
@@ -136,22 +139,87 @@ $paymentStmt = $pdo->prepare(
 );
 $paymentStmt->execute([$coachId, $athleteId, $carryoverCutoffSql]);
 
+$forfeitedByMonth = [];
+if (athleteMakeupHintTableExists($pdo, 'coach_calendar_event_cancellations')
+    && athleteMakeupHintColumnExists($pdo, 'coach_calendar_event_cancellations', 'billing_month')
+    && athleteMakeupHintColumnExists($pdo, 'coach_calendar_event_cancellations', 'payment_status_snapshot')
+    && athleteMakeupHintColumnExists($pdo, 'coach_calendar_event_cancellations', 'replacement_required')
+    && athleteMakeupHintColumnExists($pdo, 'coach_calendar_event_cancellations', 'replacement_event_id')
+    && athleteMakeupHintColumnExists($pdo, 'coach_calendar_event_cancellations', 'replacement_deadline_at')
+    && athleteMakeupHintColumnExists($pdo, 'coach_calendar_event_cancellations', 'canceled_at')
+    && athleteMakeupHintColumnExists($pdo, 'coach_calendar_event_cancellations', 'starts_at')
+) {
+    $forfeitedStmt = $pdo->prepare(
+        "SELECT billing_month,
+                COUNT(*) AS forfeited_count
+         FROM coach_calendar_event_cancellations
+         WHERE coach_id = ?
+           AND athlete_id = ?
+           AND billing_month < ?
+           AND payment_status_snapshot IN ('pending', 'paid')
+           AND (
+               (starts_at > canceled_at AND TIMESTAMPDIFF(MINUTE, canceled_at, starts_at) < 720)
+               OR
+               (replacement_required = 1 AND replacement_event_id IS NULL AND replacement_deadline_at IS NOT NULL AND replacement_deadline_at < NOW())
+           )
+         GROUP BY billing_month"
+    );
+    $forfeitedStmt->execute([$coachId, $athleteId, $carryoverCutoffSql]);
+    foreach ($forfeitedStmt->fetchAll() as $forfeitedRow) {
+        $forfeitedByMonth[(string)$forfeitedRow['billing_month']] = (int)$forfeitedRow['forfeited_count'];
+    }
+}
+
 $outstanding = 0;
 foreach ($paymentStmt->fetchAll() as $row) {
     $month = (string)$row['billing_month'];
     $planned = max(0, (int)($row['planned_sessions'] ?? 0));
     $actual = max(0, (int)($actualByMonth[$month] ?? 0));
-    $generated = max(0, $planned - $actual);
+    $forfeited = (int)($forfeitedByMonth[$month] ?? 0);
+    $generated = max(0, $planned - $actual - $forfeited);
     $used = max(0, (int)($row['carryover_used_sessions'] ?? 0));
 
     $outstanding += $generated;
     $outstanding = max(0, $outstanding - $used);
 }
 
+$requiredReplacementCount = 0;
+$requiredReplacementDeadlineAt = null;
+
+if (athleteMakeupHintTableExists($pdo, 'coach_calendar_event_cancellations')
+    && athleteMakeupHintColumnExists($pdo, 'coach_calendar_event_cancellations', 'replacement_required')
+    && athleteMakeupHintColumnExists($pdo, 'coach_calendar_event_cancellations', 'replacement_event_id')
+) {
+    $hasReplacementDeadline = athleteMakeupHintColumnExists($pdo, 'coach_calendar_event_cancellations', 'replacement_deadline_at');
+
+    $replacementStmt = $pdo->prepare(
+        'SELECT id, ' . ($hasReplacementDeadline ? 'replacement_deadline_at' : 'NULL AS replacement_deadline_at') . '
+         FROM coach_calendar_event_cancellations
+         WHERE coach_id = ?
+           AND athlete_id = ?
+           AND canceled_by = "athlete"
+           AND replacement_required = 1
+           AND replacement_event_id IS NULL
+         ORDER BY canceled_at ASC, id ASC'
+    );
+    $replacementStmt->execute([$coachId, $athleteId]);
+    $replacementRows = $replacementStmt->fetchAll();
+    $requiredReplacementCount = count($replacementRows);
+    if (!empty($replacementRows)) {
+        $requiredReplacementDeadlineAt = (string)($replacementRows[0]['replacement_deadline_at'] ?? '');
+        if ($requiredReplacementDeadlineAt === '') {
+            $requiredReplacementDeadlineAt = null;
+        }
+    }
+}
+
 echo json_encode([
     'success' => true,
     'has_outstanding' => $outstanding > 0,
     'outstanding_sessions' => $outstanding,
+    'has_required_replacement' => $requiredReplacementCount > 0,
+    'required_replacement_count' => $requiredReplacementCount,
+    'required_replacement_deadline_at' => $requiredReplacementDeadlineAt,
     'target_month' => $targetMonthSql,
     'target_month_label' => date('m/Y', strtotime($targetMonthSql)),
 ]);
