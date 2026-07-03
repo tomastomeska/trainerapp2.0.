@@ -644,10 +644,22 @@ function upsertAthleteMonthlyPayment(PDO $pdo, int $coachId, int $athleteId, str
     $sql = "INSERT INTO athlete_monthly_payments (coach_id, athlete_id, billing_month, session_rate, planned_sessions, carryover_used_sessions, billed_amount, status, paid_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, " . ($safeStatus === 'paid' ? 'NOW()' : 'NULL') . ")
             ON DUPLICATE KEY UPDATE
-                session_rate = VALUES(session_rate),
-                planned_sessions = VALUES(planned_sessions),
-                carryover_used_sessions = VALUES(carryover_used_sessions),
-                billed_amount = VALUES(billed_amount),
+                session_rate = CASE
+                    WHEN athlete_monthly_payments.status IN ('pending', 'paid') THEN athlete_monthly_payments.session_rate
+                    ELSE VALUES(session_rate)
+                END,
+                planned_sessions = CASE
+                    WHEN athlete_monthly_payments.status IN ('pending', 'paid') THEN athlete_monthly_payments.planned_sessions
+                    ELSE VALUES(planned_sessions)
+                END,
+                carryover_used_sessions = CASE
+                    WHEN athlete_monthly_payments.status IN ('pending', 'paid') THEN athlete_monthly_payments.carryover_used_sessions
+                    ELSE VALUES(carryover_used_sessions)
+                END,
+                billed_amount = CASE
+                    WHEN athlete_monthly_payments.status IN ('pending', 'paid') THEN athlete_monthly_payments.billed_amount
+                    ELSE VALUES(billed_amount)
+                END,
                 status = VALUES(status),
                 paid_at = " . ($safeStatus === 'paid' ? 'NOW()' : 'NULL');
 

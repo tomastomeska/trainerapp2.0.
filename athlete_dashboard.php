@@ -60,6 +60,77 @@ if (!function_exists('athleteDashboardPaymentColumnExists')) {
     }
 }
 
+if (!function_exists('athleteDashboardMonthKey')) {
+    function athleteDashboardMonthKey(string $raw): string {
+        $normalized = trim($raw);
+        if ($normalized === '') {
+            return '';
+        }
+
+        $ts = strtotime($normalized);
+        if ($ts === false) {
+            return $normalized;
+        }
+
+        return date('Y-m-01', $ts);
+    }
+}
+
+if (!function_exists('athleteDashboardStatusRank')) {
+    function athleteDashboardStatusRank(string $status): int {
+        if ($status === 'paid') {
+            return 2;
+        }
+        if ($status === 'pending') {
+            return 1;
+        }
+        return 0;
+    }
+}
+
+if (!function_exists('athleteDashboardShouldReplaceMonthPayment')) {
+    function athleteDashboardShouldReplaceMonthPayment(?array $current, array $candidate): bool {
+        if ($current === null) {
+            return true;
+        }
+
+        $currentRank = athleteDashboardStatusRank((string)($current['status'] ?? ''));
+        $candidateRank = athleteDashboardStatusRank((string)($candidate['status'] ?? ''));
+        if ($candidateRank !== $currentRank) {
+            return $candidateRank > $currentRank;
+        }
+
+        $currentTs = strtotime((string)($current['updated_at'] ?? $current['created_at'] ?? $current['billing_month'] ?? '')) ?: 0;
+        $candidateTs = strtotime((string)($candidate['updated_at'] ?? $candidate['created_at'] ?? $candidate['billing_month'] ?? '')) ?: 0;
+        if ($candidateTs !== $currentTs) {
+            return $candidateTs > $currentTs;
+        }
+
+        return ((int)($candidate['id'] ?? 0)) > ((int)($current['id'] ?? 0));
+    }
+}
+
+if (!function_exists('athleteDashboardBackfillPendingSnapshot')) {
+    function athleteDashboardBackfillPendingSnapshot(PDO $pdo, int $coachId, int $athleteId, string $billingMonthSql, ?float $sessionRate, int $plannedSessions, int $carryoverUsed, float $billedAmount): void {
+        $stmt = $pdo->prepare(
+            'INSERT INTO athlete_monthly_payments (coach_id, athlete_id, billing_month, session_rate, planned_sessions, carryover_used_sessions, billed_amount, status, paid_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, "pending", NULL)
+             ON DUPLICATE KEY UPDATE
+                status = CASE WHEN status = "paid" THEN "paid" ELSE "pending" END,
+                paid_at = CASE WHEN status = "paid" THEN paid_at ELSE NULL END'
+        );
+        $stmt->execute([
+            $coachId,
+            $athleteId,
+            $billingMonthSql,
+            $sessionRate !== null ? number_format($sessionRate, 2, '.', '') : null,
+            max(0, $plannedSessions),
+            max(0, $carryoverUsed),
+            number_format($billedAmount, 2, '.', ''),
+        ]);
+    }
+}
+
 requireAthleteLogin();
 
 $athleteId = (int)getCurrentAthleteId();
@@ -288,13 +359,14 @@ if ($hasCancellationTable
         $paymentRows = [];
         try {
             $paymentStmt = $pdo->prepare(
-                'SELECT billing_month, session_rate, planned_sessions, '
-                . ($hasCarryoverUsed ? 'carryover_used_sessions' : '0 AS carryover_used_sessions') . ', billed_amount, status, paid_at
+                                'SELECT id, billing_month, session_rate, planned_sessions, '
+                                . ($hasCarryoverUsed ? 'carryover_used_sessions' : '0 AS carryover_used_sessions') . ', billed_amount, status, paid_at, created_at, updated_at
                  FROM athlete_monthly_payments
                  WHERE athlete_id = ?
+                   AND coach_id = ?
                  ORDER BY billing_month DESC'
             );
-            $paymentStmt->execute([$athleteId]);
+            $paymentStmt->execute([$athleteId, (int)$athlete['coach_id']]);
             $paymentRows = $paymentStmt->fetchAll();
         } catch (Throwable $e) {
             $paymentRows = [];
@@ -302,12 +374,22 @@ if ($hasCancellationTable
 
         $paymentsByMonth = [];
         foreach ($paymentRows as $row) {
-            $paymentsByMonth[(string)$row['billing_month']] = $row;
+            $monthKey = athleteDashboardMonthKey((string)($row['billing_month'] ?? ''));
+            if ($monthKey === '') {
+                continue;
+            }
+            $currentMonthPayment = $paymentsByMonth[$monthKey] ?? null;
+            if (athleteDashboardShouldReplaceMonthPayment($currentMonthPayment, $row)) {
+                $paymentsByMonth[$monthKey] = $row;
+            }
         }
 
         $rowsByMonth = [];
         foreach ($statsRows as $row) {
-            $month = (string)$row['billing_month'];
+            $month = athleteDashboardMonthKey((string)($row['billing_month'] ?? ''));
+            if ($month === '') {
+                continue;
+            }
             $rowsByMonth[$month] = [
                 'billing_month' => $month,
                 'billed_sessions' => (int)$row['billed_sessions'],
@@ -341,7 +423,7 @@ if ($hasCancellationTable
             $lateCancelStmt->execute([(int)$athlete['coach_id'], $athleteId]);
 
             foreach ($lateCancelStmt->fetchAll() as $lateRow) {
-                $month = (string)$lateRow['billing_month'];
+                $month = athleteDashboardMonthKey((string)($lateRow['billing_month'] ?? ''));
                 if ($month === '') {
                     continue;
                 }
@@ -362,6 +444,50 @@ if ($hasCancellationTable
             }
         }
 
+        if ($hasCancellationTable
+            && athleteDashboardPaymentColumnExists($pdo, 'coach_calendar_event_cancellations', 'billing_month')
+            && athleteDashboardPaymentColumnExists($pdo, 'coach_calendar_event_cancellations', 'payment_status_snapshot')
+            && athleteDashboardPaymentColumnExists($pdo, 'coach_calendar_event_cancellations', 'replacement_required')
+            && athleteDashboardPaymentColumnExists($pdo, 'coach_calendar_event_cancellations', 'replacement_event_id')
+            && athleteDashboardPaymentColumnExists($pdo, 'coach_calendar_event_cancellations', 'cancellation_scope')
+        ) {
+            $lockedWithoutReplacementStmt = $pdo->prepare(
+                "SELECT billing_month,
+                        SUM(CASE WHEN cancellation_scope = 'pair_exit' THEN 1 ELSE 0 END) AS locked_paired,
+                        SUM(CASE WHEN cancellation_scope = 'pair_exit' THEN 0 ELSE 1 END) AS locked_single,
+                        COUNT(*) AS locked_total
+                 FROM coach_calendar_event_cancellations
+                 WHERE coach_id = ?
+                   AND athlete_id = ?
+                   AND payment_status_snapshot IN ('pending', 'paid')
+                   AND replacement_required = 1
+                   AND replacement_event_id IS NULL
+                 GROUP BY billing_month"
+            );
+            $lockedWithoutReplacementStmt->execute([(int)$athlete['coach_id'], $athleteId]);
+
+            foreach ($lockedWithoutReplacementStmt->fetchAll() as $lockedRow) {
+                $month = athleteDashboardMonthKey((string)($lockedRow['billing_month'] ?? ''));
+                if ($month === '') {
+                    continue;
+                }
+                if (!isset($rowsByMonth[$month])) {
+                    $rowsByMonth[$month] = [
+                        'billing_month' => $month,
+                        'billed_sessions' => 0,
+                        'paired_sessions' => 0,
+                        'single_sessions' => 0,
+                        'makeup_sessions' => 0,
+                        'transferred_sessions' => 0,
+                    ];
+                }
+
+                $rowsByMonth[$month]['paired_sessions'] += (int)($lockedRow['locked_paired'] ?? 0);
+                $rowsByMonth[$month]['single_sessions'] += (int)($lockedRow['locked_single'] ?? 0);
+                $rowsByMonth[$month]['billed_sessions'] += (int)($lockedRow['locked_total'] ?? 0);
+            }
+        }
+
         foreach ($paymentsByMonth as $month => $payment) {
             if (!isset($rowsByMonth[$month])) {
                 $rowsByMonth[$month] = [
@@ -375,16 +501,7 @@ if ($hasCancellationTable
             }
         }
 
-        $releasesByMonth = [];
-        try {
-            $releaseStmt = $pdo->prepare('SELECT billing_month, status FROM coach_billing_months WHERE coach_id = ?');
-            $releaseStmt->execute([(int)$athlete['coach_id']]);
-            foreach ($releaseStmt->fetchAll() as $releaseRow) {
-                $releasesByMonth[(string)$releaseRow['billing_month']] = (string)($releaseRow['status'] ?? 'draft');
-            }
-        } catch (Throwable $e) {
-            $releasesByMonth = [];
-        }
+        $releasedAthleteByMonth = [];
 
         try {
             $releaseAthleteStmt = $pdo->prepare(
@@ -395,7 +512,10 @@ if ($hasCancellationTable
             $releaseAthleteStmt->execute([(int)$athlete['coach_id'], $athleteId]);
             foreach ($releaseAthleteStmt->fetchAll() as $releaseAthleteRow) {
                 if ((string)($releaseAthleteRow['status'] ?? 'draft') === 'released') {
-                    $releasesByMonth[(string)$releaseAthleteRow['billing_month']] = 'released';
+                    $month = athleteDashboardMonthKey((string)($releaseAthleteRow['billing_month'] ?? ''));
+                    if ($month !== '') {
+                        $releasedAthleteByMonth[$month] = true;
+                    }
                 }
             }
         } catch (Throwable $e) {
@@ -434,7 +554,11 @@ if ($hasCancellationTable
             );
             $forfeitedStmt->execute([(int)$athlete['coach_id'], $athleteId]);
             foreach ($forfeitedStmt->fetchAll() as $forfeitedRow) {
-                $forfeitedByMonth[(string)$forfeitedRow['billing_month']] = (int)$forfeitedRow['forfeited_count'];
+                $month = athleteDashboardMonthKey((string)($forfeitedRow['billing_month'] ?? ''));
+                if ($month === '') {
+                    continue;
+                }
+                $forfeitedByMonth[$month] = (int)$forfeitedRow['forfeited_count'];
             }
         }
 
@@ -469,6 +593,13 @@ if ($hasCancellationTable
             $remainingCarryover = max(0, $carryoverApplied - $rawSingleSessions);
             $billablePaired = max(0, $rawPairedSessions - $remainingCarryover);
             $billableSessions = $billableSingle + $billablePaired;
+            $isSnapshotLocked = in_array($paymentStatus, ['pending', 'paid'], true);
+            $displayBillableSessions = $isSnapshotLocked
+                ? max(0, (int)($payment['planned_sessions'] ?? $billableSessions))
+                : $billableSessions;
+            $displayCarryoverApplied = $isSnapshotLocked
+                ? max(0, (int)($payment['carryover_used_sessions'] ?? $carryoverApplied))
+                : $carryoverApplied;
             $amount = ($rate !== null && $pairedRate !== null)
                 ? (($billableSingle * $rate) + ($billablePaired * $pairedRate))
                 : null;
@@ -476,8 +607,41 @@ if ($hasCancellationTable
                 ? (float)$payment['billed_amount']
                 : $amount;
             $note = paymentAsciiText($coachLastName . ' ' . date('m/Y', strtotime($month)));
-            $isReleased = (($releasesByMonth[$month] ?? 'draft') === 'released') || $paymentStatus === 'pending' || $paymentStatus === 'paid';
+            $isAthleteReleased = !empty($releasedAthleteByMonth[$month]);
+            $isReleased = $isAthleteReleased || $paymentStatus === 'pending' || $paymentStatus === 'paid';
             $isPaid = $paymentStatus === 'paid';
+            $isPending = ($paymentStatus === 'pending');
+            $isPendingVisible = ($isPending && $isAthleteReleased);
+
+            // Legacy data fix: if a month is released but missing snapshot row, create one now and freeze future changes.
+            if ($payment === null && $isAthleteReleased && $rate !== null && $displayAmount !== null) {
+                try {
+                    athleteDashboardBackfillPendingSnapshot(
+                        $pdo,
+                        (int)$athlete['coach_id'],
+                        $athleteId,
+                        $month,
+                        $rate,
+                        $displayBillableSessions,
+                        $displayCarryoverApplied,
+                        (float)$displayAmount
+                    );
+                    $payment = [
+                        'billing_month' => $month,
+                        'session_rate' => $rate,
+                        'planned_sessions' => $displayBillableSessions,
+                        'carryover_used_sessions' => $displayCarryoverApplied,
+                        'billed_amount' => $displayAmount,
+                        'status' => 'pending',
+                        'paid_at' => null,
+                    ];
+                    $paymentStatus = 'pending';
+                    $isSnapshotLocked = true;
+                    $isPaid = false;
+                } catch (Throwable $e) {
+                    // Ignore backfill failures, dashboard still shows computed values.
+                }
+            }
 
             $paymentRowsForView[] = [
                 'billing_month' => $month,
@@ -486,17 +650,18 @@ if ($hasCancellationTable
                 'payment' => $payment,
                 'amount' => $amount,
                 'display_amount' => $displayAmount,
-                'billable_sessions' => $billableSessions,
+                'billable_sessions' => $displayBillableSessions,
                 'billable_single_sessions' => $billableSingle,
                 'billable_paired_sessions' => $billablePaired,
                 'paired_sessions' => $rawPairedSessions,
                 'single_sessions' => $rawSingleSessions,
-                'carryover_applied' => $carryoverApplied,
+                'carryover_applied' => $displayCarryoverApplied,
                 'forfeited_compensations' => (int)($forfeitedByMonth[$month] ?? 0),
                 'note' => $note,
-                'is_released' => $isReleased,
-                'is_pending' => $paymentStatus === 'pending',
+                'is_released' => $isAthleteReleased,
+                'is_pending' => $isPendingVisible,
                 'is_paid' => $isPaid,
+                'is_snapshot_locked' => $isSnapshotLocked,
             ];
         }
 
@@ -802,6 +967,9 @@ renderAthleteHeader('Profil sportovce');
                                 <?php if ((int)$row['carryover_applied'] > 0): ?>
                                     <div class="small text-warning">Zápočet z dříve uhrazených: -<?= (int)$row['carryover_applied'] ?></div>
                                 <?php endif; ?>
+                                <?php if (!empty($row['is_snapshot_locked'])): ?>
+                                    <div class="small text-muted">Počet ve výzvě je uzamčený.</div>
+                                <?php endif; ?>
                                 <?php if ((int)($row['forfeited_compensations'] ?? 0) > 0): ?>
                                     <div class="small text-danger">Propadlá kompenzace: <?= (int)$row['forfeited_compensations'] ?> tréninků</div>
                                 <?php endif; ?>
@@ -822,9 +990,12 @@ renderAthleteHeader('Profil sportovce');
                                     <?php if (!empty($row['payment']['paid_at'])): ?>
                                         <div class="small text-muted mt-1"><?= formatDateTime((string)$row['payment']['paid_at']) ?></div>
                                     <?php endif; ?>
-                                <?php else: ?>
+                                <?php elseif ($row['is_pending']): ?>
                                     <span class="badge bg-warning text-dark">Čeká na úhradu</span>
                                     <div class="small text-muted mt-1">Poznámka: <?= h($row['note']) ?></div>
+                                <?php else: ?>
+                                    <span class="badge bg-secondary">Čeká na vystavení výzvy</span>
+                                    <div class="small text-muted mt-1">Trenér ještě neuzavřel měsíc.</div>
                                 <?php endif; ?>
                             </td>
                         </tr>
