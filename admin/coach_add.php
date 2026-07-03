@@ -39,6 +39,18 @@ function coachUsernameFromNameEmail(string $name, string $email): string {
     return substr($base, 0, 50);
 }
 
+function coachEmailAlreadyUsed(PDO $pdo, string $email): bool {
+    $stmtCoach = $pdo->prepare('SELECT id FROM coaches WHERE LOWER(email) = LOWER(?) LIMIT 1');
+    $stmtCoach->execute([$email]);
+    if ($stmtCoach->fetch()) {
+        return true;
+    }
+
+    $stmtAthlete = $pdo->prepare('SELECT id FROM athletes WHERE LOWER(email) = LOWER(?) LIMIT 1');
+    $stmtAthlete->execute([$email]);
+    return (bool)$stmtAthlete->fetch();
+}
+
 $sourceTicketId = intParam($_GET, 'from_ticket_id');
 $prefillName = trim((string)($_GET['name'] ?? ''));
 $prefillEmail = trim((string)($_GET['email'] ?? ''));
@@ -86,6 +98,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Hesla se neshoduji.';
         } elseif ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
             $error = 'Neplatna e-mailova adresa.';
+        } elseif ($email !== '' && coachEmailAlreadyUsed($pdo, $email)) {
+            $error = 'Tento e-mail je již v systému registrovaný.';
         } else {
             // Unikatnost uzivatelskeho jmena
             $stmt = $pdo->prepare('SELECT id FROM coaches WHERE username = ?');

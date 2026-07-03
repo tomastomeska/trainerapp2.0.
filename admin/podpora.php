@@ -87,6 +87,51 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'updat
     redirect(BASE_URL . '/admin/podpora.php?id=' . $ticketId);
 }
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'reject_coach_access') {
+    if (!verifyCsrf($_POST['csrf_token'] ?? '')) {
+        flash('danger', 'Neplatný bezpečnostní token.');
+        redirect(BASE_URL . '/admin/podpora.php');
+    }
+
+    $ticketId = intParam($_POST, 'ticket_id');
+    if ($ticketId <= 0) {
+        flash('danger', 'Neplatná data formuláře.');
+        redirect(BASE_URL . '/admin/podpora.php');
+    }
+
+    $ticketStmt = $pdo->prepare(
+        'SELECT id, reporter_type, coach_id, athlete_id, reporter_name, subject, admin_note, reporter_email
+         FROM support_tickets
+         WHERE id = ?
+         LIMIT 1'
+    );
+    $ticketStmt->execute([$ticketId]);
+    $ticket = $ticketStmt->fetch();
+
+    if (!$ticket) {
+        flash('danger', 'Ticket nebyl nalezen.');
+        redirect(BASE_URL . '/admin/podpora.php');
+    }
+
+    if (!isCoachAccessRequest($ticket)) {
+        flash('danger', 'Tato akce je dostupná pouze pro žádost o přístup trenéra.');
+        redirect(BASE_URL . '/admin/podpora.php?id=' . $ticketId);
+    }
+
+    $existingNote = trim((string)($ticket['admin_note'] ?? ''));
+    $admin = getCurrentAdmin();
+    $adminName = (string)($admin['name'] ?? $admin['username'] ?? 'Administrátor');
+    $entryHeader = '[' . date('d.m.Y H:i') . ' | Zamítnuto | ' . $adminName . ']';
+    $entryBody = $entryHeader . "\n" . 'Žádost o přístup trenéra byla zamítnuta. Účet nebyl vytvořen.';
+    $newCombinedNote = $existingNote === '' ? $entryBody : ($existingNote . "\n\n" . $entryBody);
+
+    $stmt = $pdo->prepare('UPDATE support_tickets SET status = ?, admin_note = ?, updated_at = NOW() WHERE id = ?');
+    $stmt->execute(['resolved', $newCombinedNote, $ticketId]);
+
+    flash('success', 'Žádost o přístup trenéra byla zamítnuta a ticket byl uzavřen.');
+    redirect(BASE_URL . '/admin/podpora.php?id=' . $ticketId);
+}
+
 $filter = (string)($_GET['status'] ?? 'new');
 $allowedFilter = ['all', 'new', 'open', 'resolved'];
 if (!in_array($filter, $allowedFilter, true)) {
@@ -176,17 +221,17 @@ function supportStatusLabel(string $status): string {
 function isCoachAccessRequest(array $ticket): bool {
     $subject = mb_strtolower((string)($ticket['subject'] ?? ''), 'UTF-8');
     $issueType = mb_strtolower((string)($ticket['issue_type'] ?? ''), 'UTF-8');
-    $reporterType = (string)($ticket['reporter_type'] ?? '');
 
-    return $reporterType === 'coach'
-        && (
-            str_contains($subject, 'žádost o přístup trenéra')
-            || str_contains($subject, 'zadost o pristup trenera')
-        )
-        && (
-            str_contains($issueType, 'žádost o přístup')
-            || str_contains($issueType, 'zadost o pristup')
-        );
+    $subjectMatches =
+        str_contains($subject, 'žádost o přístup trenéra')
+        || str_contains($subject, 'zadost o pristup trenera');
+
+    $issueMatches =
+        str_contains($issueType, 'žádost o přístup')
+        || str_contains($issueType, 'zadost o pristup');
+
+    // Reporter type can vary (coach/guest/empty) depending on request entry point.
+    return $subjectMatches && $issueMatches;
 }
 
 renderAdminHeader('Podpora');
@@ -246,6 +291,14 @@ renderAdminHeader('Podpora');
                             <div class="text-end">
                                 <span class="badge bg-<?= supportStatusBadge((string)$t['status']) ?>"><?= supportStatusLabel((string)$t['status']) ?></span>
                                 <div><small class="<?= (int)$t['id'] === (int)$selectedId ? '' : 'text-muted' ?>"><?= formatDateTime((string)$t['created_at']) ?></small></div>
+                                <?php if (isCoachAccessRequest($t) && (string)$t['status'] !== 'resolved'): ?>
+                                <div class="mt-2">
+                                    <a href="<?= BASE_URL ?>/admin/coach_add.php?from_ticket_id=<?= (int)$t['id'] ?>&name=<?= rawurlencode((string)$t['reporter_name']) ?>&email=<?= rawurlencode((string)$t['reporter_email']) ?>"
+                                       class="btn btn-sm btn-outline-primary">
+                                        <i class="fas fa-user-plus me-1"></i>Schválit a vytvořit trenéra
+                                    </a>
+                                </div>
+                                <?php endif; ?>
                             </div>
                         </div>
                     </a>
@@ -313,12 +366,27 @@ renderAdminHeader('Podpora');
                 <?php endif; ?>
 
                 <?php if (isCoachAccessRequest($selectedTicket) && (string)$selectedTicket['status'] !== 'resolved'): ?>
-                <div class="mb-3">
-                    <a href="<?= BASE_URL ?>/admin/coach_add.php?from_ticket_id=<?= (int)$selectedTicket['id'] ?>&name=<?= rawurlencode((string)$selectedTicket['reporter_name']) ?>&email=<?= rawurlencode((string)$selectedTicket['reporter_email']) ?>"
-                       class="btn btn-sm btn-primary">
-                        <i class="fas fa-user-plus me-1"></i>Schválit a vytvořit trenéra
-                    </a>
-                    <div class="small text-muted mt-1">Po vytvoření trenéra se tento ticket automaticky označí jako Vyřešený.</div>
+                <div class="mb-3 border rounded p-3 bg-warning-subtle">
+                    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+                        <div>
+                            <div class="fw-semibold">Žádost o přístup trenéra</div>
+                            <div class="small text-muted">Tento tiket můžete rovnou schválit a z údajů vytvořit trenéra.</div>
+                        </div>
+                        <div class="d-flex flex-wrap gap-2">
+                            <a href="<?= BASE_URL ?>/admin/coach_add.php?from_ticket_id=<?= (int)$selectedTicket['id'] ?>&name=<?= rawurlencode((string)$selectedTicket['reporter_name']) ?>&email=<?= rawurlencode((string)$selectedTicket['reporter_email']) ?>"
+                               class="btn btn-sm btn-primary">
+                                <i class="fas fa-user-plus me-1"></i>Schválit a vytvořit trenéra
+                            </a>
+                            <form method="post" class="d-inline">
+                                <input type="hidden" name="csrf_token" value="<?= csrfToken() ?>">
+                                <input type="hidden" name="action" value="reject_coach_access">
+                                <input type="hidden" name="ticket_id" value="<?= (int)$selectedTicket['id'] ?>">
+                                <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Opravdu chcete tuto žádost zamítnout?');">
+                                    <i class="fas fa-ban me-1"></i>Zamítnout registraci
+                                </button>
+                            </form>
+                        </div>
+                    </div>
                 </div>
                 <?php endif; ?>
 

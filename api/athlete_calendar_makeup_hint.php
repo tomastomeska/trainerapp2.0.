@@ -65,6 +65,21 @@ function athleteMakeupHintMonthKey(string $value): string
     return $timestamp !== false ? date('Y-m-01', $timestamp) : $normalized;
 }
 
+function athleteMakeupHintShouldReplaceMonthPayment(?array $current, array $candidate): bool
+{
+    if ($current === null) {
+        return true;
+    }
+
+    $currentTs = strtotime((string)($current['updated_at'] ?? $current['created_at'] ?? $current['billing_month'] ?? '')) ?: 0;
+    $candidateTs = strtotime((string)($candidate['updated_at'] ?? $candidate['created_at'] ?? $candidate['billing_month'] ?? '')) ?: 0;
+    if ($candidateTs !== $currentTs) {
+        return $candidateTs > $currentTs;
+    }
+
+    return ((int)($candidate['id'] ?? 0)) > ((int)($current['id'] ?? 0));
+}
+
 if (!athleteMakeupHintTableExists($pdo, 'athlete_monthly_payments') || !athleteMakeupHintTableExists($pdo, 'coach_calendar_events')) {
     echo json_encode([
         'success' => true,
@@ -82,6 +97,8 @@ if (!athleteMakeupHintTableExists($pdo, 'athlete_monthly_payments') || !athleteM
 $hasBillingMonth = athleteMakeupHintColumnExists($pdo, 'coach_calendar_events', 'billing_month');
 $hasSecondAthlete = athleteMakeupHintColumnExists($pdo, 'coach_calendar_events', 'second_athlete_id');
 $hasCarryoverUsed = athleteMakeupHintColumnExists($pdo, 'athlete_monthly_payments', 'carryover_used_sessions');
+$hasIsMakeupSession = athleteMakeupHintColumnExists($pdo, 'coach_calendar_events', 'is_makeup_session');
+$hasRequestedByAthlete = athleteMakeupHintColumnExists($pdo, 'coach_calendar_events', 'requested_by_athlete_id');
 
 $athleteStmt = $pdo->prepare('SELECT id, coach_id FROM athletes WHERE id = ? LIMIT 1');
 $athleteStmt->execute([$athleteId]);
@@ -140,7 +157,7 @@ foreach ($actualByMonthStmt->fetchAll() as $row) {
 }
 
 $paymentStmt = $pdo->prepare(
-    'SELECT billing_month, planned_sessions, ' . ($hasCarryoverUsed ? 'carryover_used_sessions' : '0 AS carryover_used_sessions') . '
+    'SELECT id, billing_month, planned_sessions, ' . ($hasCarryoverUsed ? 'carryover_used_sessions' : '0 AS carryover_used_sessions') . ', created_at, updated_at
      FROM athlete_monthly_payments
      WHERE coach_id = ?
        AND athlete_id = ?
@@ -149,6 +166,18 @@ $paymentStmt = $pdo->prepare(
      ORDER BY billing_month ASC'
 );
 $paymentStmt->execute([$coachId, $athleteId, $carryoverCutoffSql]);
+
+$paymentsByMonth = [];
+foreach ($paymentStmt->fetchAll() as $paymentRow) {
+    $monthKey = athleteMakeupHintMonthKey((string)($paymentRow['billing_month'] ?? ''));
+    if ($monthKey === '') {
+        continue;
+    }
+    $currentPayment = $paymentsByMonth[$monthKey] ?? null;
+    if (athleteMakeupHintShouldReplaceMonthPayment($currentPayment, $paymentRow)) {
+        $paymentsByMonth[$monthKey] = $paymentRow;
+    }
+}
 
 $forfeitedByMonth = [];
 if (athleteMakeupHintTableExists($pdo, 'coach_calendar_event_cancellations')
@@ -171,7 +200,12 @@ if (athleteMakeupHintTableExists($pdo, 'coach_calendar_event_cancellations')
            AND (
                (starts_at > canceled_at AND TIMESTAMPDIFF(MINUTE, canceled_at, starts_at) < 720)
                OR
-               (replacement_required = 1 AND replacement_event_id IS NULL AND replacement_deadline_at IS NOT NULL AND replacement_deadline_at < NOW())
+               (
+                   replacement_required = 1
+                   AND (replacement_event_id IS NULL OR NOT EXISTS (SELECT 1 FROM coach_calendar_events ce WHERE ce.id = replacement_event_id))
+                   AND replacement_deadline_at IS NOT NULL
+                   AND replacement_deadline_at < NOW()
+               )
            )
          GROUP BY billing_month"
     );
@@ -182,8 +216,10 @@ if (athleteMakeupHintTableExists($pdo, 'coach_calendar_event_cancellations')
 }
 
 $outstanding = 0;
-foreach ($paymentStmt->fetchAll() as $row) {
-    $month = athleteMakeupHintMonthKey((string)$row['billing_month']);
+$monthsAsc = array_keys($paymentsByMonth);
+sort($monthsAsc);
+foreach ($monthsAsc as $month) {
+    $row = $paymentsByMonth[$month];
     $planned = max(0, (int)($row['planned_sessions'] ?? 0));
     $actual = max(0, (int)($actualByMonth[$month] ?? 0));
     $forfeited = (int)($forfeitedByMonth[$month] ?? 0);
@@ -194,6 +230,41 @@ foreach ($paymentStmt->fetchAll() as $row) {
     $outstanding = max(0, $outstanding - $used);
 }
 
+$pendingReservedTotal = 0;
+if ($hasIsMakeupSession) {
+    $pendingMonthExpr = $hasBillingMonth
+        ? "DATE_FORMAT(COALESCE(e.billing_month, e.starts_at), '%Y-%m-01')"
+        : "DATE_FORMAT(e.starts_at, '%Y-%m-01')";
+    $pendingParticipantFilter = $hasSecondAthlete
+        ? '(e.athlete_id = ? OR e.second_athlete_id = ?)'
+        : 'e.athlete_id = ?';
+    $pendingRequesterFilter = $hasRequestedByAthlete ? ' AND e.requested_by_athlete_id = ?' : '';
+
+    $pendingCountSql =
+        "SELECT COUNT(*)
+         FROM coach_calendar_events e
+         WHERE e.coach_id = ?
+           AND e.approval_status = 'pending'
+           AND e.is_makeup_session = 1
+           AND {$pendingParticipantFilter}
+           {$pendingRequesterFilter}
+           AND {$pendingMonthExpr} < ?";
+
+    $pendingCountStmt = $pdo->prepare($pendingCountSql);
+    $pendingCountParams = [(int)$coachId, $athleteId];
+    if ($hasSecondAthlete) {
+        $pendingCountParams[] = $athleteId;
+    }
+    if ($hasRequestedByAthlete) {
+        $pendingCountParams[] = $athleteId;
+    }
+    $pendingCountParams[] = $carryoverCutoffSql;
+    $pendingCountStmt->execute($pendingCountParams);
+    $pendingReservedTotal = max(0, (int)$pendingCountStmt->fetchColumn());
+}
+
+$outstanding = max(0, $outstanding - $pendingReservedTotal);
+
 $requiredReplacementCount = 0;
 $requiredReplacementDeadlineAt = null;
 
@@ -202,6 +273,24 @@ if (athleteMakeupHintTableExists($pdo, 'coach_calendar_event_cancellations')
     && athleteMakeupHintColumnExists($pdo, 'coach_calendar_event_cancellations', 'replacement_event_id')
 ) {
     $hasReplacementDeadline = athleteMakeupHintColumnExists($pdo, 'coach_calendar_event_cancellations', 'replacement_deadline_at');
+    $hasPaymentSnapshot = athleteMakeupHintColumnExists($pdo, 'coach_calendar_event_cancellations', 'payment_status_snapshot');
+    $hasCanceledAt = athleteMakeupHintColumnExists($pdo, 'coach_calendar_event_cancellations', 'canceled_at');
+    $hasStartsAt = athleteMakeupHintColumnExists($pdo, 'coach_calendar_event_cancellations', 'starts_at');
+
+    $replacementWhere = 'replacement_required = 1';
+    if ($hasPaymentSnapshot && $hasCanceledAt && $hasStartsAt) {
+        $replacementWhere = '(
+            replacement_required = 1
+            OR (
+                payment_status_snapshot IN ("pending", "paid")
+                AND (
+                    canceled_at IS NULL
+                    OR starts_at IS NULL
+                    OR TIMESTAMPDIFF(MINUTE, canceled_at, starts_at) >= 720
+                )
+            )
+        )';
+    }
 
     $replacementStmt = $pdo->prepare(
         'SELECT id, ' . ($hasReplacementDeadline ? 'replacement_deadline_at' : 'NULL AS replacement_deadline_at') . '
@@ -209,8 +298,8 @@ if (athleteMakeupHintTableExists($pdo, 'coach_calendar_event_cancellations')
          WHERE coach_id = ?
            AND athlete_id = ?
            AND canceled_by = "athlete"
-           AND replacement_required = 1
-           AND replacement_event_id IS NULL
+           AND ' . $replacementWhere . '
+                     AND (replacement_event_id IS NULL OR NOT EXISTS (SELECT 1 FROM coach_calendar_events ce WHERE ce.id = replacement_event_id))
          ORDER BY canceled_at ASC, id ASC'
     );
     $replacementStmt->execute([$coachId, $athleteId]);

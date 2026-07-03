@@ -41,6 +41,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $password  = $_POST['password'] ?? '';
         $password2 = $_POST['password2'] ?? '';
         $isActive  = isset($_POST['is_active']) ? 1 : 0;
+
+    function coachEmailAlreadyUsed(PDO $pdo, string $email): bool {
+        $stmtCoach = $pdo->prepare('SELECT id FROM coaches WHERE LOWER(email) = LOWER(?) LIMIT 1');
+        $stmtCoach->execute([$email]);
+        if ($stmtCoach->fetch()) {
+            return true;
+        }
+
+        $stmtAthlete = $pdo->prepare('SELECT id FROM athletes WHERE LOWER(email) = LOWER(?) LIMIT 1');
+        $stmtAthlete->execute([$email]);
+        return (bool)$stmtAthlete->fetch();
+    }
         $sourceTicketId = intParam($_POST, 'source_ticket_id');
 
         if ($username === '') {
@@ -53,6 +65,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Hesla se neshoduji.';
         } elseif ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
             $error = 'Neplatna e-mailova adresa.';
+        } elseif ($email !== '' && coachEmailAlreadyUsed($pdo, $email)) {
+            $error = 'Tento e-mail je již v systému registrovaný.';
         } else {
             // Unikatnost uzivatelskeho jmena
             $stmt = $pdo->prepare('SELECT id FROM coaches WHERE username = ?');

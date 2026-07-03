@@ -267,6 +267,7 @@ if ($coachLastName === '') {
 $hasBillingMonth = athleteDashboardPaymentColumnExists($pdo, 'coach_calendar_events', 'billing_month');
 $hasIsMakeup = athleteDashboardPaymentColumnExists($pdo, 'coach_calendar_events', 'is_makeup_session');
 $hasSecondAthlete = athleteDashboardPaymentColumnExists($pdo, 'coach_calendar_events', 'second_athlete_id');
+$hasRequestedByAthlete = athleteDashboardPaymentColumnExists($pdo, 'coach_calendar_events', 'requested_by_athlete_id');
 $hasCoachBankAccount = athleteDashboardPaymentColumnExists($pdo, 'coaches', 'bank_account');
 $hasCarryoverUsed = athleteDashboardPaymentColumnExists($pdo, 'athlete_monthly_payments', 'carryover_used_sessions');
 $hasPairedTrainingRate = athleteDashboardPaymentColumnExists($pdo, 'athletes', 'paired_training_rate');
@@ -284,14 +285,31 @@ if ($hasCancellationTable
     && athleteDashboardPaymentColumnExists($pdo, 'coach_calendar_event_cancellations', 'replacement_event_id')
 ) {
     $hasReplacementDeadline = athleteDashboardPaymentColumnExists($pdo, 'coach_calendar_event_cancellations', 'replacement_deadline_at');
+    $hasPaymentSnapshot = athleteDashboardPaymentColumnExists($pdo, 'coach_calendar_event_cancellations', 'payment_status_snapshot');
+    $hasCanceledAt = athleteDashboardPaymentColumnExists($pdo, 'coach_calendar_event_cancellations', 'canceled_at');
+    $hasStartsAt = athleteDashboardPaymentColumnExists($pdo, 'coach_calendar_event_cancellations', 'starts_at');
+    $replacementWhere = 'replacement_required = 1';
+    if ($hasPaymentSnapshot && $hasCanceledAt && $hasStartsAt) {
+        $replacementWhere = '(
+            replacement_required = 1
+            OR (
+                payment_status_snapshot IN ("pending", "paid")
+                AND (
+                    canceled_at IS NULL
+                    OR starts_at IS NULL
+                    OR TIMESTAMPDIFF(MINUTE, canceled_at, starts_at) >= 720
+                )
+            )
+        )';
+    }
     $replacementStmt = $pdo->prepare(
         'SELECT id, ' . ($hasReplacementDeadline ? 'replacement_deadline_at' : 'NULL AS replacement_deadline_at') . '
          FROM coach_calendar_event_cancellations
          WHERE coach_id = ?
            AND athlete_id = ?
            AND canceled_by = "athlete"
-           AND replacement_required = 1
-           AND replacement_event_id IS NULL
+           AND ' . $replacementWhere . '
+                     AND (replacement_event_id IS NULL OR NOT EXISTS (SELECT 1 FROM coach_calendar_events ce WHERE ce.id = replacement_event_id))
          ORDER BY canceled_at ASC, id ASC'
     );
     $replacementStmt->execute([(int)$athlete['coach_id'], $athleteId]);
@@ -307,6 +325,87 @@ if ($hasCancellationTable
                 : false,
         ];
     }
+}
+
+$pendingMonthPreview = null;
+try {
+    $currentMonthSql = date('Y-m-01');
+    // Pending preview is calendar-facing, so group by the month of requested slot start.
+    $pendingMonthExpr = "DATE_FORMAT(e.starts_at, '%Y-%m-01')";
+    $isMakeupExpr = $hasIsMakeup ? 'e.is_makeup_session' : '0';
+    $isPairedExpr = $hasSecondAthlete ? 'CASE WHEN e.second_athlete_id IS NOT NULL THEN 1 ELSE 0 END' : '0';
+
+    if ($hasRequestedByAthlete) {
+        $pendingFilter = 'e.requested_by_athlete_id = ?';
+        $pendingParams = [$athleteId, (int)$athlete['coach_id']];
+    } elseif ($hasSecondAthlete) {
+        $pendingFilter = '(e.athlete_id = ? OR e.second_athlete_id = ?)';
+        $pendingParams = [$athleteId, $athleteId, (int)$athlete['coach_id']];
+    } else {
+        $pendingFilter = 'e.athlete_id = ?';
+        $pendingParams = [$athleteId, (int)$athlete['coach_id']];
+    }
+
+    $pendingStmt = $pdo->prepare(
+        "SELECT
+                {$pendingMonthExpr} AS pending_month,
+                COUNT(*) AS total_pending,
+                SUM(CASE WHEN {$isMakeupExpr} = 1 THEN 1 ELSE 0 END) AS makeup_pending,
+                SUM(CASE WHEN {$isMakeupExpr} = 0 AND {$isPairedExpr} = 1 THEN 1 ELSE 0 END) AS paired_pending,
+                SUM(CASE WHEN {$isMakeupExpr} = 0 AND {$isPairedExpr} = 0 THEN 1 ELSE 0 END) AS single_pending
+         FROM coach_calendar_events e
+         WHERE {$pendingFilter}
+           AND e.coach_id = ?
+           AND e.approval_status = 'pending'
+         GROUP BY {$pendingMonthExpr}
+         ORDER BY {$pendingMonthExpr} ASC"
+    );
+    $pendingStmt->execute($pendingParams);
+    $pendingRows = $pendingStmt->fetchAll();
+
+    $pendingRow = null;
+    $lastPastRow = null;
+    foreach ($pendingRows as $candidateRow) {
+        $month = (string)($candidateRow['pending_month'] ?? '');
+        if ($month === '') {
+            continue;
+        }
+        if ($month >= $currentMonthSql) {
+            $pendingRow = $candidateRow;
+            break;
+        }
+        $lastPastRow = $candidateRow;
+    }
+    if ($pendingRow === null) {
+        $pendingRow = $lastPastRow;
+    }
+
+    $pendingTotal = (int)($pendingRow['total_pending'] ?? 0);
+    if ($pendingTotal > 0) {
+        $pendingMonthSql = (string)($pendingRow['pending_month'] ?? $currentMonthSql);
+        $pendingMakeup = (int)($pendingRow['makeup_pending'] ?? 0);
+        $pendingSingle = (int)($pendingRow['single_pending'] ?? 0);
+        $pendingPaired = (int)($pendingRow['paired_pending'] ?? 0);
+
+        $rate = isset($athlete['training_rate']) && $athlete['training_rate'] !== null ? (float)$athlete['training_rate'] : null;
+        $pairedRate = ($hasPairedTrainingRate && array_key_exists('paired_training_rate', $athlete) && $athlete['paired_training_rate'] !== null)
+            ? (float)$athlete['paired_training_rate']
+            : $rate;
+        $estimatedAmount = ($rate !== null && $pairedRate !== null)
+            ? (($pendingSingle * $rate) + ($pendingPaired * $pairedRate))
+            : null;
+
+        $pendingMonthPreview = [
+            'month_label' => date('m/Y', strtotime($pendingMonthSql)),
+            'total' => $pendingTotal,
+            'makeup' => $pendingMakeup,
+            'single' => $pendingSingle,
+            'paired' => $pendingPaired,
+            'estimated_amount' => $estimatedAmount,
+        ];
+    }
+} catch (Throwable $e) {
+    $pendingMonthPreview = null;
 }
 
         $billingSelect = "DATE_FORMAT(starts_at, '%Y-%m-01')";
@@ -461,7 +560,7 @@ if ($hasCancellationTable
                    AND athlete_id = ?
                    AND payment_status_snapshot IN ('pending', 'paid')
                    AND replacement_required = 1
-                   AND replacement_event_id IS NULL
+                                     AND (replacement_event_id IS NULL OR NOT EXISTS (SELECT 1 FROM coach_calendar_events ce WHERE ce.id = replacement_event_id))
                  GROUP BY billing_month"
             );
             $lockedWithoutReplacementStmt->execute([(int)$athlete['coach_id'], $athleteId]);
@@ -548,7 +647,12 @@ if ($hasCancellationTable
                    AND (
                        (starts_at > canceled_at AND TIMESTAMPDIFF(MINUTE, canceled_at, starts_at) < 720)
                        OR
-                       (replacement_required = 1 AND replacement_event_id IS NULL AND replacement_deadline_at IS NOT NULL AND replacement_deadline_at < NOW())
+                       (
+                           replacement_required = 1
+                           AND (replacement_event_id IS NULL OR NOT EXISTS (SELECT 1 FROM coach_calendar_events ce WHERE ce.id = replacement_event_id))
+                           AND replacement_deadline_at IS NOT NULL
+                           AND replacement_deadline_at < NOW()
+                       )
                    )
                  GROUP BY billing_month"
             );
@@ -915,8 +1019,32 @@ renderAthleteHeader('Profil sportovce');
         </a>
     </div>
     <div class="card-body">
+        <?php if ($pendingMonthPreview): ?>
+            <div class="alert alert-info mb-3">
+                <div class="fw-semibold mb-1"><i class="fas fa-hourglass-half me-1"></i>Rozpracované požadavky pro <?= h((string)$pendingMonthPreview['month_label']) ?></div>
+                <div>
+                    Máte <?= (int)$pendingMonthPreview['total'] ?> neschválený(é) požadavek(y).
+                    <?php if ((int)$pendingMonthPreview['makeup'] > 0): ?>
+                        Náhradní: <?= (int)$pendingMonthPreview['makeup'] ?>x (0 Kč).
+                    <?php endif; ?>
+                    <?php if ((int)$pendingMonthPreview['single'] > 0): ?>
+                        Individuální: <?= (int)$pendingMonthPreview['single'] ?>x.
+                    <?php endif; ?>
+                    <?php if ((int)$pendingMonthPreview['paired'] > 0): ?>
+                        Párové: <?= (int)$pendingMonthPreview['paired'] ?>x.
+                    <?php endif; ?>
+                </div>
+                <?php if ($pendingMonthPreview['estimated_amount'] !== null): ?>
+                    <div class="small mt-1">Orientační částka po schválení: <strong><?= number_format((float)$pendingMonthPreview['estimated_amount'], 0, ',', ' ') ?> Kč</strong>.</div>
+                <?php else: ?>
+                    <div class="small mt-1">Orientační částku teď nelze spočítat (chybí sazba).</div>
+                <?php endif; ?>
+                <div class="small mt-1 text-muted">Jde o předběžný přehled. Finální stav se promítne po schválení trenérem.</div>
+            </div>
+        <?php endif; ?>
+
         <?php if ($activeReplacementNotice): ?>
-            <div class="alert <?= $activeReplacementNotice['is_overdue'] ? 'alert-danger' : 'alert-warning' ?> mb-3">
+            <div id="dashboardReplacementNotice" class="alert <?= $activeReplacementNotice['is_overdue'] ? 'alert-danger' : 'alert-warning' ?> mb-3">
                 <div class="fw-semibold mb-1"><i class="fas fa-triangle-exclamation me-1"></i>Náhradní termín po zrušení</div>
                 <div>
                     <?= $activeReplacementNotice['count'] > 1
@@ -927,6 +1055,24 @@ renderAthleteHeader('Profil sportovce');
                     <?php endif; ?>
                     <?= $activeReplacementNotice['is_overdue'] ? ' Lhůta už uplynula, kontaktujte trenéra.' : '' ?>
                 </div>
+                <div class="small mt-2">
+                    Náhradní trénink můžete naplánovat v <a href="<?= BASE_URL ?>/athlete_calendar.php">kalendáři</a>. Přednostně vybírejte stejný měsíc; do dalšího měsíce lze náhradu přesunout jen při zrušení v posledním týdnu měsíce.
+                </div>
+            </div>
+        <?php elseif (($outstanding ?? 0) > 0): ?>
+            <div id="dashboardReplacementNotice" class="alert alert-warning mb-3">
+                <div class="fw-semibold mb-1"><i class="fas fa-circle-exclamation me-1"></i>Nevyužitý uhrazený trénink</div>
+                <div>
+                    Máte <?= (int)$outstanding ?> nevyužitý(é) uhrazený(é) trénink(y), které můžete použít jako náhradu.
+                </div>
+                <div class="small mt-2">
+                    Náhradní trénink můžete naplánovat v <a href="<?= BASE_URL ?>/athlete_calendar.php">kalendáři</a>.
+                </div>
+            </div>
+        <?php else: ?>
+            <div id="dashboardReplacementNotice" class="alert alert-warning mb-3 d-none">
+                <div class="fw-semibold mb-1"><i class="fas fa-triangle-exclamation me-1"></i>Náhradní termín po zrušení</div>
+                <div id="dashboardReplacementNoticeText"></div>
                 <div class="small mt-2">
                     Náhradní trénink můžete naplánovat v <a href="<?= BASE_URL ?>/athlete_calendar.php">kalendáři</a>. Přednostně vybírejte stejný měsíc; do dalšího měsíce lze náhradu přesunout jen při zrušení v posledním týdnu měsíce.
                 </div>
@@ -1158,6 +1304,78 @@ renderAthleteHeader('Profil sportovce');
 
     amountInput.addEventListener('input', updateQr);
     amountInput.addEventListener('change', updateQr);
+})();
+</script>
+
+<script>
+(function () {
+    const noticeEl = document.getElementById('dashboardReplacementNotice');
+    if (!noticeEl) {
+        return;
+    }
+
+    // If server-side notice is already rendered, keep it and do not override.
+    if (!noticeEl.classList.contains('d-none')) {
+        return;
+    }
+
+    const noticeTextEl = document.getElementById('dashboardReplacementNoticeText');
+    if (!noticeTextEl) {
+        return;
+    }
+
+    const now = new Date();
+    const localDate = now.toISOString().slice(0, 10);
+    const localHour = String(now.getHours()).padStart(2, '0');
+    const localMinute = String(now.getMinutes()).padStart(2, '0');
+    const startsAt = `${localDate}T${localHour}:${localMinute}`;
+
+    fetch('<?= BASE_URL ?>/api/athlete_calendar_makeup_hint.php', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            csrf_token: <?= json_encode(csrfToken(), JSON_UNESCAPED_UNICODE) ?>,
+            starts_at: startsAt,
+        }),
+    })
+    .then((response) => response.json())
+    .then((payload) => {
+        if (!payload || payload.success !== true) {
+            return;
+        }
+
+        const count = Number(payload.required_replacement_count || 0);
+        const outstanding = Number(payload.outstanding_sessions || 0);
+        const hasRequired = Boolean(payload.has_required_replacement) && count > 0;
+        const hasOutstanding = Boolean(payload.has_outstanding) && outstanding > 0;
+
+        if (!hasRequired && !hasOutstanding) {
+            return;
+        }
+
+        let text = '';
+        if (hasRequired) {
+            text = count > 1
+                ? `Máte ${count} zrušené termíny, které je potřeba nahradit.`
+                : 'Máte zrušený termín, který je potřeba nahradit.';
+        } else {
+            text = `Máte ${outstanding} nevyužitý(é) uhrazený(é) trénink(y), které můžete použít jako náhradu.`;
+        }
+
+        if (hasRequired && payload.required_replacement_deadline_at) {
+            const deadline = new Date(String(payload.required_replacement_deadline_at).replace(' ', 'T'));
+            if (!Number.isNaN(deadline.getTime())) {
+                text += ` Nejzazší termín rezervace je ${deadline.toLocaleString('cs-CZ')}.`;
+            }
+        }
+
+        noticeTextEl.textContent = text;
+        noticeEl.classList.remove('d-none');
+    })
+    .catch(() => {
+        // Silent fallback; dashboard remains unchanged if API call fails.
+    });
 })();
 </script>
 

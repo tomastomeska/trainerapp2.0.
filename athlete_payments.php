@@ -247,6 +247,55 @@ $coachBankAccount = $hasCoachBankAccount
     ? athletePaymentsAccountForSpd(athletePaymentsNormalizeBankAccount($athlete['bank_account'] ?? null))
     : null;
 
+$activeReplacementNotice = null;
+if ($hasCancellationsTable
+    && athletePaymentsColumnExists($pdo, 'coach_calendar_event_cancellations', 'replacement_required')
+    && athletePaymentsColumnExists($pdo, 'coach_calendar_event_cancellations', 'replacement_event_id')
+) {
+    $hasReplacementDeadline = athletePaymentsColumnExists($pdo, 'coach_calendar_event_cancellations', 'replacement_deadline_at');
+    $hasPaymentSnapshot = athletePaymentsColumnExists($pdo, 'coach_calendar_event_cancellations', 'payment_status_snapshot');
+    $hasCanceledAt = athletePaymentsColumnExists($pdo, 'coach_calendar_event_cancellations', 'canceled_at');
+    $hasStartsAt = athletePaymentsColumnExists($pdo, 'coach_calendar_event_cancellations', 'starts_at');
+    $replacementWhere = 'replacement_required = 1';
+    if ($hasPaymentSnapshot && $hasCanceledAt && $hasStartsAt) {
+        $replacementWhere = '(
+            replacement_required = 1
+            OR (
+                payment_status_snapshot IN ("pending", "paid")
+                AND (
+                    canceled_at IS NULL
+                    OR starts_at IS NULL
+                    OR TIMESTAMPDIFF(MINUTE, canceled_at, starts_at) >= 720
+                )
+            )
+        )';
+    }
+
+    $replacementStmt = $pdo->prepare(
+        'SELECT id, ' . ($hasReplacementDeadline ? 'replacement_deadline_at' : 'NULL AS replacement_deadline_at') . '
+         FROM coach_calendar_event_cancellations
+         WHERE coach_id = ?
+           AND athlete_id = ?
+           AND canceled_by = "athlete"
+           AND ' . $replacementWhere . '
+                     AND (replacement_event_id IS NULL OR NOT EXISTS (SELECT 1 FROM coach_calendar_events ce WHERE ce.id = replacement_event_id))
+         ORDER BY canceled_at ASC, id ASC'
+    );
+    $replacementStmt->execute([(int)$athlete['coach_id'], $athleteId]);
+    $replacementRows = $replacementStmt->fetchAll();
+
+    if (!empty($replacementRows)) {
+        $firstDeadlineRaw = (string)($replacementRows[0]['replacement_deadline_at'] ?? '');
+        $activeReplacementNotice = [
+            'count' => count($replacementRows),
+            'deadline_at' => $firstDeadlineRaw !== '' ? $firstDeadlineRaw : null,
+            'is_overdue' => ($firstDeadlineRaw !== '' && strtotime($firstDeadlineRaw) !== false)
+                ? (strtotime($firstDeadlineRaw) < time())
+                : false,
+        ];
+    }
+}
+
 $billingSelect = "DATE_FORMAT(starts_at, '%Y-%m-01')";
 $billingFilter = '1=1';
 $transferredExpr = $hasBillingMonth
@@ -399,7 +448,7 @@ if ($hasCancellationsTable
            AND athlete_id = ?
            AND payment_status_snapshot IN ('pending', 'paid')
            AND replacement_required = 1
-           AND replacement_event_id IS NULL
+                     AND (replacement_event_id IS NULL OR NOT EXISTS (SELECT 1 FROM coach_calendar_events ce WHERE ce.id = replacement_event_id))
          GROUP BY billing_month"
     );
     $lockedWithoutReplacementStmt->execute([(int)$athlete['coach_id'], $athleteId]);
@@ -487,7 +536,12 @@ if ($hasCancellationsTable
            AND (
                (starts_at > canceled_at AND TIMESTAMPDIFF(MINUTE, canceled_at, starts_at) < 720)
                OR
-               (replacement_required = 1 AND replacement_event_id IS NULL AND replacement_deadline_at IS NOT NULL AND replacement_deadline_at < NOW())
+               (
+                   replacement_required = 1
+                   AND (replacement_event_id IS NULL OR NOT EXISTS (SELECT 1 FROM coach_calendar_events ce WHERE ce.id = replacement_event_id))
+                   AND replacement_deadline_at IS NOT NULL
+                   AND replacement_deadline_at < NOW()
+               )
            )
          GROUP BY billing_month"
     );
@@ -658,6 +712,24 @@ renderAthleteHeader('Platby');
         </div>
     </div>
 </div>
+
+<?php if ($activeReplacementNotice): ?>
+<div class="alert <?= $activeReplacementNotice['is_overdue'] ? 'alert-danger' : 'alert-warning' ?>">
+    <div class="fw-semibold mb-1"><i class="fas fa-triangle-exclamation me-1"></i>Náhradní termín po zrušení</div>
+    <div>
+        <?= $activeReplacementNotice['count'] > 1
+            ? ('Máte ' . (int)$activeReplacementNotice['count'] . ' zrušené termíny, které je potřeba nahradit.')
+            : 'Máte zrušený termín, který je potřeba nahradit.' ?>
+        <?php if (!empty($activeReplacementNotice['deadline_at'])): ?>
+            Nejzazší termín rezervace je <strong><?= h(date('d.m.Y H:i', strtotime((string)$activeReplacementNotice['deadline_at']))) ?></strong>.
+        <?php endif; ?>
+        <?= $activeReplacementNotice['is_overdue'] ? ' Lhůta už uplynula, kontaktujte trenéra.' : '' ?>
+    </div>
+    <div class="small mt-2">
+        Náhradní trénink můžete naplánovat v kalendáři. Přednostně vybírejte stejný měsíc; do dalšího měsíce lze náhradu přesunout jen při zrušení v posledním týdnu měsíce.
+    </div>
+</div>
+<?php endif; ?>
 
 <?php if ($coachBankAccount === null): ?>
 <div class="alert alert-info">Trenér zatím nemá nastavené platné číslo účtu, proto zde QR platba nemusí být k dispozici.</div>

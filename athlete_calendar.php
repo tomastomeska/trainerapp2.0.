@@ -744,6 +744,14 @@ document.addEventListener('DOMContentLoaded', () => {
         reserveUseMakeupInput.checked = false;
     }
 
+    function invalidateReserveMakeupSuggestionCache(monthKey = null) {
+        if (!monthKey) {
+            reserveMakeupSuggestionCache.clear();
+            return;
+        }
+        reserveMakeupSuggestionCache.delete(monthKey);
+    }
+
     function renderReserveMakeupSuggestion(payload, startDate) {
         if (!payload || !payload.success) {
             clearReserveMakeupSuggestion();
@@ -782,7 +790,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         reserveMakeupSuggestionText.textContent = lines.join(' ');
         reserveMakeupSuggestion.classList.remove('d-none');
-        reserveUseMakeupInput.checked = false;
+        reserveUseMakeupInput.checked = true;
     }
 
     async function refreshReserveMakeupSuggestion(startDate) {
@@ -843,6 +851,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (payload.message) {
             alert(payload.message);
         }
+        invalidateReserveMakeupSuggestionCache();
         await loadWeekData();
     }
 
@@ -1041,6 +1050,7 @@ document.addEventListener('DOMContentLoaded', () => {
             title_type: document.querySelector('input[name="reserveTitleType"]:checked')?.value || 'training',
             location: reserveLocationInput.value.trim(),
             is_makeup_session: reserveUseMakeupInput.checked ? 1 : 0,
+            allow_auto_makeup: !reserveMakeupSuggestion.classList.contains('d-none') ? 1 : 0,
         };
 
         const response = await fetch('<?= BASE_URL ?>/api/athlete_calendar_save_event.php', {
@@ -1056,6 +1066,7 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        invalidateReserveMakeupSuggestionCache();
         reserveModal.hide();
         await loadWeekData();
     });
