@@ -173,6 +173,20 @@ $venues = $pdo->query(
      ORDER BY tv.is_active DESC, tv.name ASC'
 )->fetchAll();
 
+$privateCoachVenues = $pdo->query(
+    'SELECT ctv.*, c.name AS coach_name, c.username AS coach_username,
+          (
+             SELECT COUNT(*)
+             FROM training_sessions ts
+             JOIN athletes a ON a.id = ts.athlete_id
+             WHERE a.coach_id = ctv.coach_id
+               AND ts.location COLLATE utf8mb4_unicode_ci = ctv.name COLLATE utf8mb4_unicode_ci
+          ) AS usage_count
+    FROM coach_training_venues ctv
+    JOIN coaches c ON c.id = ctv.coach_id
+    ORDER BY ctv.is_active DESC, ctv.name ASC'
+)->fetchAll();
+
 renderAdminHeader('Sportoviště');
 ?>
 
@@ -394,6 +408,56 @@ renderAdminHeader('Sportoviště');
             <div class="d-flex justify-content-between align-items-center mt-3">
                 <small id="venues-visible-count" class="text-muted"></small>
                 <button type="button" id="venues-load-more" class="btn btn-outline-secondary btn-sm">Načíst další</button>
+            </div>
+            <?php endif; ?>
+        </div>
+    </div>
+
+    <div class="card border-0 shadow-sm mt-4">
+        <div class="card-header bg-white fw-semibold d-flex align-items-center justify-content-between flex-wrap gap-2">
+            <span>Soukromá místa trenérů</span>
+            <span class="badge text-bg-secondary"><?= count($privateCoachVenues) ?> míst</span>
+        </div>
+        <div class="card-body">
+            <div class="small text-muted mb-3">
+                Tato místa se zobrazují pouze konkrétnímu trenérovi, který je zadal.
+            </div>
+            <?php if (empty($privateCoachVenues)): ?>
+            <div class="text-center py-4 text-muted">Zatím nejsou evidovaná žádná soukromá místa trenérů.</div>
+            <?php else: ?>
+            <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>Místo</th>
+                            <th>Trenér</th>
+                            <th>Použito</th>
+                            <th>Stav</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($privateCoachVenues as $privateVenue): ?>
+                        <?php
+                        $privateCoachName = (string)($privateVenue['coach_name'] ?: $privateVenue['coach_username']);
+                        ?>
+                        <tr>
+                            <td class="fw-semibold"><?= h((string)$privateVenue['name']) ?></td>
+                            <td>
+                                <?= h($privateCoachName) ?>
+                                <?php if (!empty($privateVenue['coach_username'])): ?>
+                                <span class="text-muted">(<?= h((string)$privateVenue['coach_username']) ?>)</span>
+                                <?php endif; ?>
+                            </td>
+                            <td><span class="badge text-bg-dark"><?= (int)$privateVenue['usage_count'] ?>x</span></td>
+                            <td>
+                                <span class="badge <?= (int)$privateVenue['is_active'] === 1 ? 'text-bg-success' : 'text-bg-secondary' ?>">
+                                    <?= (int)$privateVenue['is_active'] === 1 ? 'Aktivní' : 'Neaktivní' ?>
+                                </span>
+                            </td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
             </div>
             <?php endif; ?>
         </div>

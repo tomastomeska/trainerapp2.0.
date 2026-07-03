@@ -16,7 +16,7 @@ $athletesStmt = $pdo->prepare(
 $athletesStmt->execute([$coachId]);
 $athletes = $athletesStmt->fetchAll();
 
-$venues = array_values(array_filter(getTrainingVenues(), fn($row) => !empty($row['name'])));
+$venues = array_values(array_filter(getTrainingVenuesForCoach($coachId), fn($row) => !empty($row['name'])));
 
 $athletesJson = json_encode($athletes);
 $venuesJson = json_encode($venues, JSON_UNESCAPED_UNICODE);

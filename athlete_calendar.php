@@ -6,7 +6,7 @@ require_once __DIR__ . '/includes/athlete_header.php';
 requireAthleteLogin();
 
 $athlete = getCurrentAthlete();
-$venues = array_values(array_filter(getTrainingVenues(), fn($row) => !empty($row['name'])));
+$venues = array_values(array_filter(getTrainingVenuesForCoach((int)$athlete['coach_id']), fn($row) => !empty($row['name'])));
 renderAthleteHeader('Muj kalendar');
 ?>
 

@@ -17,7 +17,7 @@ $athleteStmt = $pdo->prepare(
 $athleteStmt->execute([$coachId]);
 $athletes = $athleteStmt->fetchAll();
 
-$venues = array_values(array_filter(getTrainingVenues(), fn($row) => !empty($row['name'])));
+$venues = array_values(array_filter(getTrainingVenuesForCoach($coachId), fn($row) => !empty($row['name'])));
 
 renderHeader('Kalendář');
 ?>
