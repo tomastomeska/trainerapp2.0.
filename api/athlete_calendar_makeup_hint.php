@@ -54,6 +54,17 @@ function athleteMakeupHintColumnExists(PDO $pdo, string $tableName, string $colu
     return $stmt !== false && (bool)$stmt->fetch();
 }
 
+function athleteMakeupHintMonthKey(string $value): string
+{
+    $normalized = trim($value);
+    if ($normalized === '') {
+        return '';
+    }
+
+    $timestamp = strtotime($normalized);
+    return $timestamp !== false ? date('Y-m-01', $timestamp) : $normalized;
+}
+
 if (!athleteMakeupHintTableExists($pdo, 'athlete_monthly_payments') || !athleteMakeupHintTableExists($pdo, 'coach_calendar_events')) {
     echo json_encode([
         'success' => true,
@@ -125,7 +136,7 @@ $actualByMonthStmt->execute($params);
 
 $actualByMonth = [];
 foreach ($actualByMonthStmt->fetchAll() as $row) {
-    $actualByMonth[(string)$row['billing_month']] = (int)$row['billed_sessions'];
+    $actualByMonth[athleteMakeupHintMonthKey((string)$row['billing_month'])] = (int)$row['billed_sessions'];
 }
 
 $paymentStmt = $pdo->prepare(
@@ -134,7 +145,7 @@ $paymentStmt = $pdo->prepare(
      WHERE coach_id = ?
        AND athlete_id = ?
        AND status = "paid"
-    AND billing_month < ?
+       AND billing_month < ?
      ORDER BY billing_month ASC'
 );
 $paymentStmt->execute([$coachId, $athleteId, $carryoverCutoffSql]);
@@ -166,13 +177,13 @@ if (athleteMakeupHintTableExists($pdo, 'coach_calendar_event_cancellations')
     );
     $forfeitedStmt->execute([$coachId, $athleteId, $carryoverCutoffSql]);
     foreach ($forfeitedStmt->fetchAll() as $forfeitedRow) {
-        $forfeitedByMonth[(string)$forfeitedRow['billing_month']] = (int)$forfeitedRow['forfeited_count'];
+        $forfeitedByMonth[athleteMakeupHintMonthKey((string)$forfeitedRow['billing_month'])] = (int)$forfeitedRow['forfeited_count'];
     }
 }
 
 $outstanding = 0;
 foreach ($paymentStmt->fetchAll() as $row) {
-    $month = (string)$row['billing_month'];
+    $month = athleteMakeupHintMonthKey((string)$row['billing_month']);
     $planned = max(0, (int)($row['planned_sessions'] ?? 0));
     $actual = max(0, (int)($actualByMonth[$month] ?? 0));
     $forfeited = (int)($forfeitedByMonth[$month] ?? 0);

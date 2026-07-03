@@ -7,6 +7,29 @@ requireAdminLogin();
 
 $pdo   = getDB();
 $error = null;
+$sourceTicketId = intParam($_GET, 'from_ticket_id');
+$prefillName = trim((string)($_GET['name'] ?? ''));
+$prefillEmail = trim((string)($_GET['email'] ?? ''));
+$prefillUsername = trim((string)($_GET['username'] ?? ''));
+if ($prefillUsername === '') {
+    $base = '';
+    if ($prefillEmail !== '' && str_contains($prefillEmail, '@')) {
+        $base = explode('@', $prefillEmail, 2)[0];
+    }
+    if ($base === '') {
+        $base = $prefillName;
+    }
+    $base = strtolower($base);
+    $base = preg_replace('/[^a-z0-9_.\-]+/', '.', $base) ?? '';
+    $base = trim($base, '.-_');
+    if ($base === '') {
+        $base = 'trener';
+    }
+    if (strlen($base) < 3) {
+        $base .= '_coach';
+    }
+    $prefillUsername = substr($base, 0, 50);
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!verifyCsrf($_POST['csrf_token'] ?? '')) {
@@ -18,6 +41,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $password  = $_POST['password'] ?? '';
         $password2 = $_POST['password2'] ?? '';
         $isActive  = isset($_POST['is_active']) ? 1 : 0;
+        $sourceTicketId = intParam($_POST, 'source_ticket_id');
 
         if ($username === '') {
             $error = 'Zadejte uzivatelske jmeno.';
@@ -41,6 +65,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->prepare(
                     'INSERT INTO coaches (username, password, name, email, is_active, force_password_change) VALUES (?, ?, ?, ?, ?, 1)'
                 )->execute([$username, $hash, $name ?: null, $email ?: null, $isActive]);
+                $newCoachId = (int)$pdo->lastInsertId();
+
+                if ($sourceTicketId > 0) {
+                    $admin = getCurrentAdmin();
+                    $adminName = (string)($admin['name'] ?? $admin['username'] ?? 'Administrátor');
+                    $noteLine = '[' . date('d.m.Y H:i') . ' | Schváleno | ' . $adminName . "]\n"
+                        . 'Žádost schválena. Vytvořen trenér ID #' . $newCoachId . ' (username: ' . $username . ').';
+
+                    $ticketStmt = $pdo->prepare('SELECT admin_note FROM support_tickets WHERE id = ? LIMIT 1');
+                    $ticketStmt->execute([$sourceTicketId]);
+                    $ticket = $ticketStmt->fetch();
+                    if ($ticket) {
+                        $existing = trim((string)($ticket['admin_note'] ?? ''));
+                        $merged = $existing === '' ? $noteLine : ($existing . "\n\n" . $noteLine);
+                        $upd = $pdo->prepare('UPDATE support_tickets SET status = "resolved", admin_note = ?, updated_at = NOW() WHERE id = ?');
+                        $upd->execute([$merged, $sourceTicketId]);
+                    }
+                }
 
                 // Odeslani prihlasovacich udaju e-mailem (pokud je zadany e-mail)
                 $mailInfo = null;
@@ -91,11 +133,12 @@ renderAdminHeader('Pridat trenera');
     <div class="card-body p-4">
         <form method="post" novalidate>
             <?= csrfField() ?>
+            <input type="hidden" name="source_ticket_id" value="<?= (int)$sourceTicketId ?>">
             <div class="row g-3 mb-3">
                 <div class="col-sm-6">
                     <label class="form-label fw-semibold">Jmeno trenera</label>
                     <input type="text" name="name" class="form-control"
-                           value="<?= h($_POST['name'] ?? '') ?>"
+                           value="<?= h($_POST['name'] ?? ($prefillName ?? '')) ?>"
                            placeholder="Jan Novak">
                 </div>
                 <div class="col-sm-6">
@@ -103,7 +146,7 @@ renderAdminHeader('Pridat trenera');
                         Uzivatelske jmeno <span class="text-danger">*</span>
                     </label>
                     <input type="text" name="username" class="form-control"
-                           value="<?= h($_POST['username'] ?? '') ?>"
+                           value="<?= h($_POST['username'] ?? ($prefillUsername ?? '')) ?>"
                            required autofocus autocomplete="off">
                     <div class="form-text">3-50 znaku: pismena, cislice, . - _</div>
                 </div>
@@ -111,7 +154,7 @@ renderAdminHeader('Pridat trenera');
             <div class="mb-3">
                 <label class="form-label fw-semibold">E-mail</label>
                 <input type="email" name="email" class="form-control"
-                       value="<?= h($_POST['email'] ?? '') ?>"
+                       value="<?= h($_POST['email'] ?? ($prefillEmail ?? '')) ?>"
                        placeholder="trener@example.com">
             </div>
             <div class="row g-3 mb-3">
