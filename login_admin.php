@@ -223,28 +223,26 @@ $pending2fa = !empty($_SESSION['pending_superadmin_id']);
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Administrace – <?= APP_NAME ?></title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
     <link rel="stylesheet" href="<?= $adminBase ?>/assets/css/style.css">
-    <style>
-        body { background: #0f0f1a; min-height: 100vh; display: flex; align-items: center; }
-        .admin-card { border: 1px solid #312e81; background: #1e1e2e; }
-        .admin-logo { color: #a78bfa; }
-    </style>
 </head>
-<body>
-<div class="container" style="max-width:420px">
+<body class="admin-auth">
+<div class="container admin-auth-wrap">
     <div class="text-center mb-4">
-        <div class="display-4 admin-logo mb-2">
+        <div class="display-4 admin-auth-logo mb-2">
             <i class="fas fa-shield-halved"></i>
         </div>
-        <h2 class="text-white fw-bold"><?= APP_NAME ?></h2>
-        <p class="text-secondary">Administrátorský přístup</p>
+        <h2 class="fw-bold admin-auth-title"><?= APP_NAME ?></h2>
+        <p class="admin-auth-subtitle">Administrátorský přístup</p>
     </div>
-    <div class="card shadow-lg border-0 admin-card">
+    <div class="card shadow-lg border-0 admin-auth-card">
         <div class="card-body p-4">
-            <h5 class="card-title mb-4 text-center text-white">
-                <i class="fas fa-user-shield me-2" style="color:#a78bfa"></i>Přihlásit se
+            <h5 class="card-title mb-4 text-center admin-auth-heading">
+                <i class="fas fa-user-shield me-2"></i>Přihlásit se
             </h5>
 
             <?php if ($info): ?>
@@ -260,38 +258,36 @@ $pending2fa = !empty($_SESSION['pending_superadmin_id']);
                 <?php if ($pending2fa): ?>
                 <input type="hidden" name="action" value="verify_2fa">
                 <div class="mb-3">
-                    <label class="form-label text-secondary fw-semibold">Ověřovací kód (2FA)</label>
-                    <input type="text" name="two_factor_code" class="form-control bg-dark text-white border-secondary"
+                    <label class="form-label fw-semibold admin-auth-label">Ověřovací kód (2FA)</label>
+                    <input type="text" name="two_factor_code" class="form-control admin-auth-input"
                            inputmode="numeric" pattern="\d{6}" maxlength="6" required autofocus autocomplete="one-time-code"
                            placeholder="123456">
                 </div>
-                <button type="submit" class="btn w-100 fw-bold py-2"
-                        style="background:#7c3aed;color:#fff;border:none">
+                <button type="submit" class="btn w-100 fw-bold py-2 admin-auth-submit">
                     <i class="fas fa-shield-check me-2"></i>Ověřit a přihlásit se
                 </button>
                 <?php else: ?>
                 <input type="hidden" name="action" value="authenticate">
                 <div class="mb-3">
-                    <label class="form-label text-secondary fw-semibold">Uživatelské jméno</label>
-                    <input type="text" name="username" class="form-control bg-dark text-white border-secondary"
+                    <label class="form-label fw-semibold admin-auth-label">Uživatelské jméno</label>
+                    <input type="text" name="username" class="form-control admin-auth-input"
                            value="<?= h($_POST['username'] ?? '') ?>"
                            required autofocus autocomplete="username">
                 </div>
                 <div class="mb-4">
-                    <label class="form-label text-secondary fw-semibold">Heslo</label>
-                    <input type="password" name="password" class="form-control bg-dark text-white border-secondary"
+                    <label class="form-label fw-semibold admin-auth-label">Heslo</label>
+                    <input type="password" name="password" class="form-control admin-auth-input"
                            required autocomplete="current-password">
                 </div>
-                <button type="submit" class="btn w-100 fw-bold py-2"
-                        style="background:#7c3aed;color:#fff;border:none">
+                <button type="submit" class="btn w-100 fw-bold py-2 admin-auth-submit">
                     <i class="fas fa-sign-in-alt me-2"></i>Přihlásit se
                 </button>
                 <?php endif; ?>
             </form>
         </div>
     </div>
-    <p class="text-center mt-3 small text-secondary">
-        <a href="<?= $adminBase ?>/login.php" class="text-secondary">← Zpět na přihlášení trenérů</a>
+    <p class="text-center mt-3 small admin-auth-back">
+        <a href="<?= $adminBase ?>/login.php" class="admin-auth-back text-decoration-none">← Zpět na přihlášení trenérů</a>
     </p>
 </div>
 </body>

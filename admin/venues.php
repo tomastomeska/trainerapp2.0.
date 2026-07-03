@@ -182,30 +182,61 @@ renderAdminHeader('Sportoviště');
     margin: 0 auto;
 }
 
-.venue-edit-grid {
+.venue-row {
+    border: 1px solid #dfe7ef;
+    border-radius: 12px;
+    background: #f8fbfe;
+}
+
+.venue-row .venue-main {
     display: grid;
-    grid-template-columns: minmax(0, 1.25fr) minmax(0, 1.25fr) minmax(0, 1.35fr) 120px minmax(0, 1.35fr);
-    gap: 1rem;
-    align-items: end;
+    grid-template-columns: minmax(220px, 1.35fr) minmax(170px, 1fr) minmax(180px, auto) minmax(170px, .9fr) auto;
+    gap: .6rem;
+    align-items: center;
+    padding: .7rem .9rem;
 }
 
-.venue-actions {
-    min-width: 220px;
+.venue-row .venue-main > div {
+    min-width: 0;
 }
 
-@media (max-width: 1399.98px) {
-    .venue-edit-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
+.venue-row .venue-main .small,
+.venue-row .venue-main .fw-semibold {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
 
-    .venue-actions {
-        min-width: 0;
-    }
+.venues-head {
+    display: grid;
+    grid-template-columns: minmax(220px, 1.35fr) minmax(170px, 1fr) minmax(180px, auto) minmax(170px, .9fr) auto;
+    gap: .6rem;
+    align-items: center;
+    padding: 0 .9rem .35rem;
+    color: #6b7e92;
+    font-size: .75rem;
+    font-weight: 700;
+    letter-spacing: .04em;
+    text-transform: uppercase;
 }
 
 @media (max-width: 767.98px) {
-    .venue-edit-grid {
+    .venues-head {
+        display: none;
+    }
+
+    .venue-row .venue-main {
         grid-template-columns: 1fr;
+        padding: .65rem .75rem;
+    }
+}
+
+@media (max-width: 991.98px) {
+    .venue-row .venue-main {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    }
+
+    .venue-row .venue-main > div:last-child {
+        justify-self: end;
     }
 }
 </style>
@@ -262,6 +293,13 @@ renderAdminHeader('Sportoviště');
             <?php if (empty($venues)): ?>
             <div class="text-center py-5 text-muted">Zatím tu není žádné sportoviště.</div>
             <?php else: ?>
+            <div class="venues-head">
+                <div>Název a adresa</div>
+                <div>Poznámka</div>
+                <div>Stav / použití</div>
+                <div>Přidal</div>
+                <div class="text-end">Akce</div>
+            </div>
             <div id="venues-list" class="d-flex flex-column gap-3">
                 <?php foreach ($venues as $venue): ?>
                 <?php
@@ -271,71 +309,86 @@ renderAdminHeader('Sportoviště');
                 $venueCreator = !empty($venue['coach_name']) || !empty($venue['coach_username'])
                     ? (string)($venue['coach_name'] ?: $venue['coach_username'])
                     : 'Admin nebo import';
+                $detailId = 'venueDetail' . (int)$venue['id'];
                 ?>
-                <form method="post"
-                      class="venue-item border rounded-3 p-3 bg-light shadow-sm"
-                      data-name="<?= h(mb_strtolower($venueName, 'UTF-8')) ?>"
-                      data-address="<?= h(mb_strtolower($venueAddress, 'UTF-8')) ?>"
-                      data-note="<?= h(mb_strtolower($venueNote, 'UTF-8')) ?>"
-                      data-active="<?= (int)$venue['is_active'] === 1 ? '1' : '0' ?>">
-                    <?= csrfField() ?>
-                    <input type="hidden" name="venue_id" value="<?= (int)$venue['id'] ?>">
-
-                    <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
+                <div class="venue-item venue-row"
+                     data-name="<?= h(mb_strtolower($venueName, 'UTF-8')) ?>"
+                     data-address="<?= h(mb_strtolower($venueAddress, 'UTF-8')) ?>"
+                     data-note="<?= h(mb_strtolower($venueNote, 'UTF-8')) ?>"
+                     data-active="<?= (int)$venue['is_active'] === 1 ? '1' : '0' ?>">
+                    <div class="venue-main">
+                        <div>
+                            <div class="fw-semibold"><?= h($venueName) ?></div>
+                            <div class="small text-muted"><?= $venueAddress !== '' ? h($venueAddress) : 'Bez adresy' ?></div>
+                        </div>
+                        <div class="small text-muted">
+                            <?= $venueNote !== '' ? h($venueNote) : 'Bez poznámky' ?>
+                        </div>
                         <div class="d-flex flex-wrap gap-2 align-items-center">
                             <span class="badge text-bg-dark"><?= (int)$venue['usage_count'] ?>x použito</span>
                             <span class="badge <?= (int)$venue['is_active'] === 1 ? 'text-bg-success' : 'text-bg-secondary' ?>">
                                 <?= (int)$venue['is_active'] === 1 ? 'Aktivní' : 'Neaktivní' ?>
                             </span>
-                            <span class="small text-muted">Přidal: <?= h($venueCreator) ?></span>
+                        </div>
+                        <div class="small text-muted">Přidal: <?= h($venueCreator) ?></div>
+                        <div class="text-end">
+                            <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#<?= $detailId ?>" aria-expanded="false" aria-controls="<?= $detailId ?>">
+                                <i class="fas fa-pen-to-square me-1"></i>Rozkliknout
+                            </button>
                         </div>
                     </div>
 
-                    <div class="venue-edit-grid">
-                        <div>
-                            <label class="form-label small text-muted mb-1">Název</label>
-                            <input type="text" name="name" class="form-control" maxlength="255" required value="<?= h($venueName) ?>">
-                        </div>
-                        <div>
-                            <label class="form-label small text-muted mb-1">Adresa</label>
-                            <input type="text" name="address" class="form-control" maxlength="255" value="<?= h($venueAddress) ?>" placeholder="Adresa...">
-                        </div>
-                        <div>
-                            <label class="form-label small text-muted mb-1">Poznámka</label>
-                            <input type="text" name="note" class="form-control" maxlength="500" value="<?= h($venueNote) ?>" placeholder="Poznámka...">
-                        </div>
-                        <div class="text-start text-lg-center">
-                            <label class="form-label small text-muted mb-1 d-block">Aktivní</label>
-                            <div class="form-check d-inline-flex align-items-center justify-content-center m-0">
-                                <input class="form-check-input" type="checkbox" name="is_active" value="1" <?= (int)$venue['is_active'] === 1 ? 'checked' : '' ?>>
+                    <div id="<?= $detailId ?>" class="collapse border-top">
+                        <form method="post" class="p-3">
+                            <?= csrfField() ?>
+                            <input type="hidden" name="venue_id" value="<?= (int)$venue['id'] ?>">
+
+                            <div class="row g-2">
+                                <div class="col-md-4">
+                                    <label class="form-label small text-muted mb-1">Název</label>
+                                    <input type="text" name="name" class="form-control" maxlength="255" required value="<?= h($venueName) ?>">
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label small text-muted mb-1">Adresa</label>
+                                    <input type="text" name="address" class="form-control" maxlength="255" value="<?= h($venueAddress) ?>" placeholder="Adresa...">
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label small text-muted mb-1">Poznámka</label>
+                                    <input type="text" name="note" class="form-control" maxlength="500" value="<?= h($venueNote) ?>" placeholder="Poznámka...">
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label small text-muted mb-1">Náhrada při smazání</label>
+                                    <select name="replacement_venue_id" class="form-select form-select-sm" title="Náhrada při smazání použitého sportoviště">
+                                        <option value="">Vybrat náhradu</option>
+                                        <?php foreach ($venues as $replacementVenue): ?>
+                                        <?php if ((int)$replacementVenue['id'] === (int)$venue['id']) continue; ?>
+                                        <?php $replacementName = (string)$replacementVenue['name']; ?>
+                                        <option value="<?= (int)$replacementVenue['id'] ?>">
+                                            <?= h($replacementName) ?><?= !empty($replacementVenue['address']) ? ' - ' . h((string)$replacementVenue['address']) : '' ?>
+                                        </option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+                                <div class="col-md-2 d-flex align-items-end">
+                                    <div class="form-check mb-2">
+                                        <input class="form-check-input" type="checkbox" name="is_active" value="1" id="venueActive<?= (int)$venue['id'] ?>" <?= (int)$venue['is_active'] === 1 ? 'checked' : '' ?>>
+                                        <label class="form-check-label" for="venueActive<?= (int)$venue['id'] ?>">Aktivní</label>
+                                    </div>
+                                </div>
+                                <div class="col-md-6 d-flex justify-content-end gap-2 align-items-end">
+                                    <button type="submit" name="action" value="update" class="btn btn-outline-primary fw-semibold">
+                                        <i class="fas fa-save me-1"></i>Uložit
+                                    </button>
+                                    <button type="submit" name="action" value="delete" class="btn btn-outline-danger fw-semibold"
+                                            formnovalidate
+                                            onclick="return confirm('Opravdu chcete toto sportoviště smazat? Pokud je použité v trénincích, vyberte předtím náhradní sportoviště.')">
+                                        <i class="fas fa-trash me-1"></i>Smazat
+                                    </button>
+                                </div>
                             </div>
-                        </div>
-                        <div>
-                            <label class="form-label small text-muted mb-1">Náhrada při smazání</label>
-                            <select name="replacement_venue_id" class="form-select form-select-sm" title="Náhrada při smazání použitého sportoviště">
-                                <option value="">Vybrat náhradu</option>
-                                <?php foreach ($venues as $replacementVenue): ?>
-                                <?php if ((int)$replacementVenue['id'] === (int)$venue['id']) continue; ?>
-                                <?php $replacementName = (string)$replacementVenue['name']; ?>
-                                <option value="<?= (int)$replacementVenue['id'] ?>">
-                                    <?= h($replacementName) ?><?= !empty($replacementVenue['address']) ? ' - ' . h((string)$replacementVenue['address']) : '' ?>
-                                </option>
-                                <?php endforeach; ?>
-                            </select>
-                        </div>
+                        </form>
                     </div>
-
-                    <div class="venue-actions d-flex flex-wrap gap-2 justify-content-end mt-3 ms-auto">
-                        <button type="submit" name="action" value="update" class="btn btn-outline-primary fw-semibold">
-                            <i class="fas fa-save me-1"></i>Uložit
-                        </button>
-                        <button type="submit" name="action" value="delete" class="btn btn-outline-danger fw-semibold"
-                                formnovalidate
-                                onclick="return confirm('Opravdu chcete toto sportoviště smazat? Pokud je použité v trénincích, vyberte předtím náhradní sportoviště.')">
-                            <i class="fas fa-trash me-1"></i>Smazat
-                        </button>
-                    </div>
-                </form>
+                </div>
                 <?php endforeach; ?>
             </div>
             <div class="d-flex justify-content-between align-items-center mt-3">

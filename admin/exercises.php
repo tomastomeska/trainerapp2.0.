@@ -238,10 +238,14 @@ renderAdminHeader('Globální cviky');
 
 <!-- Formulář: přidat cvik -->
 <div class="card border-0 shadow-sm mb-4">
-    <div class="card-header fw-semibold" style="background:#312e81;color:#fff">
-        <i class="fas fa-plus me-1"></i>Přidat globální cvik
+    <div class="card-header fw-semibold d-flex justify-content-between align-items-center" style="background:#312e81;color:#fff">
+        <span><i class="fas fa-plus me-1"></i>Přidat globální cvik</span>
+        <button class="btn btn-sm btn-light" type="button" data-bs-toggle="collapse" data-bs-target="#createGlobalExerciseForm" aria-expanded="false" aria-controls="createGlobalExerciseForm">
+            <i class="fas fa-chevron-down me-1"></i>Rozkliknout formulář
+        </button>
     </div>
-    <div class="card-body">
+    <div id="createGlobalExerciseForm" class="collapse">
+    <div class="card-body border-top">
         <form method="post" enctype="multipart/form-data" class="row g-2 align-items-end">
             <?= csrfField() ?>
             <input type="hidden" name="action" value="add">
@@ -278,6 +282,7 @@ renderAdminHeader('Globální cviky');
                 </button>
             </div>
         </form>
+    </div>
     </div>
 </div>
 

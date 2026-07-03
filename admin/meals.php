@@ -325,10 +325,14 @@ renderAdminHeader('Globální jídla');
 </div>
 
 <div class="card border-0 shadow-sm mb-4">
-    <div class="card-header fw-semibold" style="background:#312e81;color:#fff">
-        <i class="fas fa-plus me-1"></i>Přidat globální jídlo (pro všechny trenéry)
+    <div class="card-header fw-semibold d-flex justify-content-between align-items-center" style="background:#312e81;color:#fff">
+        <span><i class="fas fa-plus me-1"></i>Přidat globální jídlo (pro všechny trenéry)</span>
+        <button class="btn btn-sm btn-light" type="button" data-bs-toggle="collapse" data-bs-target="#createMealForm" aria-expanded="false" aria-controls="createMealForm">
+            <i class="fas fa-chevron-down me-1"></i>Rozkliknout formulář
+        </button>
     </div>
-    <div class="card-body">
+    <div id="createMealForm" class="collapse">
+    <div class="card-body border-top">
         <form method="post" enctype="multipart/form-data" class="row g-3">
             <?= csrfField() ?>
             <input type="hidden" name="action" value="create">
@@ -390,6 +394,7 @@ renderAdminHeader('Globální jídla');
                 </button>
             </div>
         </form>
+    </div>
     </div>
 </div>
 

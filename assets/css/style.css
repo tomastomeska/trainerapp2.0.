@@ -635,6 +635,273 @@ canvas {
 }
 
 /* ================================================================
+   ADMIN PANEL - MODERN KOMPAKTNI VZHLED
+   ================================================================ */
+
+body.admin-layout {
+    --admin-bg: #eef3f7;
+    --admin-surface: #ffffff;
+    --admin-sidebar: #16202b;
+    --admin-sidebar-soft: #233245;
+    --admin-text: #13202f;
+    --admin-muted: #5f738a;
+    --admin-accent: #0f9d92;
+    --admin-accent-strong: #0a7f77;
+    --admin-border: #d8e1ea;
+    --admin-shadow: 0 8px 24px rgba(12, 23, 39, 0.08);
+    background:
+        radial-gradient(1200px 520px at -5% -10%, #dcecf8 0%, transparent 55%),
+        radial-gradient(900px 440px at 105% 0%, #d7efe9 0%, transparent 52%),
+        var(--admin-bg);
+    color: var(--admin-text);
+    font-family: 'Plus Jakarta Sans', 'Segoe UI', sans-serif;
+}
+
+body.admin-layout .container-fluid {
+    max-width: 100%;
+}
+
+body.admin-layout .admin-topbar {
+    background: linear-gradient(110deg, #16202b 0%, #1f2d3d 62%, #294260 100%);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(8px);
+}
+
+body.admin-layout .admin-brand {
+    font-family: 'Space Grotesk', 'Plus Jakarta Sans', sans-serif;
+    letter-spacing: 0.01em;
+}
+
+body.admin-layout .admin-brand-icon,
+body.admin-layout .admin-brand-primary {
+    color: #55d2c5;
+}
+
+body.admin-layout .admin-badge {
+    border: 1px solid rgba(85, 210, 197, 0.6);
+    background: linear-gradient(135deg, #0f9d92, #08776f);
+}
+
+body.admin-layout .admin-user-label {
+    color: #d6e2ee;
+}
+
+body.admin-layout .admin-sidebar-toggle {
+    color: #8ce8de;
+    border-color: #409f95;
+}
+
+body.admin-layout .admin-sidebar-wrapper {
+    width: 206px;
+}
+
+body.admin-layout #adminLayout {
+    min-height: calc(100vh - 58px);
+}
+
+body.admin-layout .admin-sidebar {
+    height: 100%;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0) 18%),
+        var(--admin-sidebar);
+    border-right: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+body.admin-layout .sidebar .nav-link {
+    color: #afc2d6;
+    border-radius: 10px;
+    margin-bottom: 0.15rem;
+    padding: 0.47rem 0.62rem;
+    font-size: 0.86rem;
+    font-weight: 600;
+}
+
+body.admin-layout .sidebar .nav-link:hover,
+body.admin-layout .sidebar .nav-link.active {
+    background: linear-gradient(100deg, #203247 0%, #294563 100%);
+    color: #f4fcff;
+    box-shadow: inset 0 0 0 1px rgba(96, 229, 213, 0.22);
+}
+
+body.admin-layout .sidebar .nav-link i {
+    width: 17px;
+    color: #6ddfd2;
+}
+
+body.admin-layout .admin-content {
+    min-width: 0;
+}
+
+body.admin-layout h1,
+body.admin-layout h2,
+body.admin-layout h3,
+body.admin-layout h4,
+body.admin-layout h5 {
+    letter-spacing: -0.02em;
+}
+
+body.admin-layout .card {
+    border: 1px solid var(--admin-border);
+    border-radius: 14px;
+    box-shadow: var(--admin-shadow);
+}
+
+body.admin-layout .card:hover {
+    box-shadow: 0 10px 26px rgba(12, 23, 39, 0.12) !important;
+}
+
+body.admin-layout .card-header {
+    padding: 0.66rem 0.9rem;
+    background: #f7fafc;
+    color: #1d344c;
+    border-bottom: 1px solid var(--admin-border);
+}
+
+body.admin-layout .card-body {
+    padding: 0.85rem;
+}
+
+body.admin-layout .table {
+    margin-bottom: 0;
+}
+
+body.admin-layout .table th {
+    background: #f3f7fb;
+    color: #5a6f84;
+    padding: 0.58rem 0.68rem;
+    font-size: 0.75rem;
+}
+
+body.admin-layout .table td {
+    padding: 0.56rem 0.68rem;
+    font-size: 0.89rem;
+}
+
+body.admin-layout .badge {
+    font-size: 0.72rem;
+    padding: 0.3rem 0.44rem;
+}
+
+body.admin-layout .btn {
+    border-radius: 9px;
+    padding: 0.38rem 0.7rem;
+    font-size: 0.84rem;
+    font-weight: 600;
+}
+
+body.admin-layout .btn-sm {
+    padding: 0.3rem 0.56rem;
+    font-size: 0.79rem;
+}
+
+body.admin-layout .form-control,
+body.admin-layout .form-select {
+    font-size: 0.9rem;
+    min-height: calc(1.5em + 0.56rem + 2px);
+    padding: 0.28rem 0.54rem;
+}
+
+body.admin-layout .admin-flash {
+    box-shadow: var(--admin-shadow);
+}
+
+body.admin-layout .table-dark,
+body.admin-layout [style*="background:#1e1e2e"] {
+    background: linear-gradient(115deg, #1b2a3c 0%, #20384f 100%) !important;
+    color: #ecf5ff !important;
+}
+
+body.admin-layout [style*="color:#a78bfa"] {
+    color: var(--admin-accent) !important;
+}
+
+body.admin-layout [style*="background:#7c3aed"] {
+    background: linear-gradient(120deg, #0f9d92 0%, #0b857c 100%) !important;
+    color: #ffffff !important;
+}
+
+body.admin-layout [style*="border-color:#a78bfa"] {
+    border-color: var(--admin-accent) !important;
+}
+
+body.admin-auth {
+    --admin-auth-text: #d9e9f7;
+    --admin-auth-muted: #96abc0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    font-family: 'Plus Jakarta Sans', 'Segoe UI', sans-serif;
+    background:
+        radial-gradient(900px 460px at -8% -12%, #2b5e76 0%, transparent 58%),
+        radial-gradient(780px 400px at 108% 2%, #1e495f 0%, transparent 56%),
+        linear-gradient(170deg, #0f1721 0%, #172434 56%, #1b2f42 100%);
+}
+
+body.admin-auth .admin-auth-wrap {
+    max-width: 420px;
+}
+
+body.admin-auth .admin-auth-logo {
+    color: #67e3d5;
+}
+
+body.admin-auth .admin-auth-title,
+body.admin-auth .admin-auth-subtitle {
+    color: var(--admin-auth-text);
+}
+
+body.admin-auth .admin-auth-subtitle,
+body.admin-auth .admin-auth-back {
+    color: var(--admin-auth-muted) !important;
+}
+
+body.admin-auth .admin-auth-card {
+    border: 1px solid rgba(103, 227, 213, 0.28);
+    background: rgba(17, 28, 40, 0.88);
+    backdrop-filter: blur(10px);
+    box-shadow: 0 18px 42px rgba(6, 14, 24, 0.42);
+}
+
+body.admin-auth .admin-auth-heading {
+    color: var(--admin-auth-text);
+}
+
+body.admin-auth .admin-auth-heading i {
+    color: #67e3d5;
+}
+
+body.admin-auth .admin-auth-label {
+    color: #c4d6e8;
+}
+
+body.admin-auth .admin-auth-input {
+    background: rgba(7, 13, 21, 0.8);
+    border-color: #3b556d;
+    color: #edf4fb;
+}
+
+body.admin-auth .admin-auth-input:focus {
+    border-color: #57cfc1;
+    box-shadow: 0 0 0 0.2rem rgba(87, 207, 193, 0.2);
+}
+
+body.admin-auth .admin-auth-input::placeholder {
+    color: #93a8bd;
+}
+
+body.admin-auth .admin-auth-submit {
+    border: none;
+    color: #fff;
+    background: linear-gradient(120deg, #0f9d92 0%, #0a7f77 100%);
+}
+
+body.admin-auth .admin-auth-submit:hover,
+body.admin-auth .admin-auth-submit:focus {
+    background: linear-gradient(120deg, #12a69a 0%, #0d8e85 100%);
+    color: #fff;
+}
+
+/* ================================================================
    MOBILE RESPONSIVE
    ================================================================ */
 
@@ -747,15 +1014,15 @@ canvas {
    ADMIN PANEL RESPONSIVE
    ================================================================ */
 
-/* Sidebar – skrý na mobilu */
+/* Sidebar – skryt na mobilu */
 @media (max-width: 767.98px) {
-    .sidebar-wrapper {
+    body.admin-layout .admin-sidebar-wrapper {
         position: fixed;
-        top: 60px;
+        top: 58px;
         left: 0;
-        width: 220px !important;
-        height: calc(100vh - 60px);
-        background: #1e1e2e;
+        width: 206px !important;
+        height: calc(100vh - 58px);
+        background: #16202b;
         z-index: 1000;
         transform: translateX(-100%);
         transition: transform 0.3s ease;
@@ -763,20 +1030,20 @@ canvas {
         box-shadow: 2px 0 8px rgba(0,0,0,0.3);
     }
 
-    .sidebar-wrapper.sidebar-open {
+    body.admin-layout .admin-sidebar-wrapper.sidebar-open {
         transform: translateX(0);
     }
 
-    .sidebar-wrapper + .col {
+    body.admin-layout .admin-sidebar-wrapper + .col {
         margin-left: 0 !important;
     }
 
-    #adminLayout {
+    body.admin-layout #adminLayout {
         flex-wrap: wrap;
     }
 
     /* Content area – plná šířka na mobilu */
-    #adminLayout > .col {
+    body.admin-layout #adminLayout > .col {
         flex: 0 0 100%;
         width: 100%;
     }
@@ -784,16 +1051,16 @@ canvas {
 
 /* Mobile – úpravy pro malé obrazovky */
 @media (max-width: 575.98px) {
-    .navbar-brand {
+    body.admin-layout .navbar-brand {
         font-size: 1.1rem;
     }
 
-    .navbar .btn-outline-danger {
+    body.admin-layout .navbar .btn-outline-danger {
         padding: 0.35rem 0.5rem;
         font-size: 0.8rem;
     }
 
-    #adminLayout .col {
+    body.admin-layout #adminLayout .col {
         padding: 0.75rem !important;
     }
 
@@ -811,19 +1078,19 @@ canvas {
     }
 
     /* Karty se statistikami – 1 na řádek */
-    .col-sm-6.col-xl-3 {
+    body.admin-layout .col-sm-6.col-xl-3 {
         flex: 0 0 100%;
         width: 100%;
     }
 
     /* Tlačítka v hlavičce */
-    .d-flex.justify-content-between.align-items-center {
+    body.admin-layout .d-flex.justify-content-between.align-items-center {
         flex-direction: column;
         align-items: stretch;
         gap: 0.75rem;
     }
 
-    .d-flex.justify-content-between.align-items-center .btn {
+    body.admin-layout .d-flex.justify-content-between.align-items-center .btn {
         width: 100%;
     }
 
@@ -833,24 +1100,35 @@ canvas {
     }
 
     /* Formuláře */
-    .row.g-3 {
+    body.admin-layout .row.g-3 {
         gap: 0.5rem !important;
     }
 
-    .col-md-6 {
+    body.admin-layout .col-md-6 {
         flex: 0 0 100%;
         width: 100%;
     }
 
     /* Badges – menší na mobilu */
-    .badge {
+    body.admin-layout .badge {
         font-size: 0.7rem;
         padding: 0.35rem 0.5rem !important;
     }
 
     /* Typography */
-    h4 { font-size: 1.1rem; }
-    .fs-1 { font-size: 1.75rem !important; }
+    body.admin-layout h4 { font-size: 1.1rem; }
+    body.admin-layout .fs-1 { font-size: 1.75rem !important; }
+
+    body.admin-auth {
+        align-items: flex-start;
+        padding-top: 1rem;
+    }
+
+    body.admin-auth .admin-auth-wrap {
+        max-width: 100%;
+        padding-left: 0.8rem;
+        padding-right: 0.8rem;
+    }
 }
 
 /* Jidelnicky (sportovec + trener) - karty pro mobil a tablet */
@@ -984,6 +1262,95 @@ canvas {
     .coach-mealplan-items-table td[data-label="Akce"] .d-flex {
         justify-content: flex-start !important;
         flex-wrap: wrap;
+    }
+}
+
+/* ================================================================
+   GLOBAL MOBILE READABILITY BASELINE
+   ================================================================ */
+
+img,
+video,
+canvas,
+svg {
+    max-width: 100%;
+    height: auto;
+}
+
+.table-responsive {
+    -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 991.98px) {
+    .container,
+    .container-fluid {
+        padding-left: 0.8rem;
+        padding-right: 0.8rem;
+    }
+
+    .card-body {
+        padding: 0.75rem;
+    }
+
+    .form-control,
+    .form-select,
+    .btn {
+        min-height: 40px;
+    }
+
+    .btn-sm {
+        min-height: 36px;
+    }
+
+    .table th,
+    .table td {
+        white-space: normal;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+    }
+
+    .d-flex.gap-2,
+    .d-flex.gap-3 {
+        flex-wrap: wrap;
+    }
+}
+
+@media (max-width: 767.98px) {
+    html,
+    body {
+        overflow-x: hidden;
+    }
+
+    body {
+        line-height: 1.45;
+    }
+
+    h1 { font-size: 1.35rem; }
+    h2 { font-size: 1.2rem; }
+    h3 { font-size: 1.05rem; }
+
+    .card {
+        border-radius: 10px;
+    }
+
+    .card-header,
+    .card-body,
+    .card-footer {
+        padding-left: 0.65rem;
+        padding-right: 0.65rem;
+    }
+
+    .modal-dialog {
+        margin: 0.45rem;
+    }
+
+    .table-responsive {
+        border-radius: 10px;
+    }
+
+    .badge {
+        max-width: 100%;
+        white-space: normal;
     }
 }
 
