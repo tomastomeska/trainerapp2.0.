@@ -281,8 +281,7 @@ renderAthleteHeader('Všeobecné podmínky pro sportovce');
         <p class="mb-2">
             Pro dotazy k těmto podmínkám nebo k provozu aplikace použijte následující kontakt:
         </p>
-        <p class="mb-1"><strong>E-mail:</strong> tomas.tomeska@seznam.cz</p>
-        <p class="mb-0"><strong>Telefon:</strong> +420778759958</p>
+        <p class="mb-0"><strong>E-mail:</strong> tomas.tomeska@seznam.cz</p>
     </div>
 </div>
 
