@@ -113,4 +113,100 @@ document.addEventListener('DOMContentLoaded', function () {
             link.classList.add('active');
         }
     });
+
+    // Na malych displejich skladat bezne tabulky do karet misto horizontalniho posuvu.
+    (function initMobileTableStack() {
+        const MOBILE_BREAKPOINT = 575.98;
+
+        function isExcludedTable(table) {
+            return table.matches('.mealplan-items-table, .coach-mealplan-items-table, .print-table, .no-mobile-stack');
+        }
+
+        function getHeaders(table) {
+            const headers = Array.from(table.querySelectorAll('thead th'));
+            if (!headers.length) {
+                return null;
+            }
+            return headers.map(function(th) {
+                return (th.textContent || '').replace(/\s+/g, ' ').trim();
+            });
+        }
+
+        function applyStack(table) {
+            const headers = getHeaders(table);
+            if (!headers || !headers.length) {
+                return;
+            }
+
+            table.classList.add('mobile-stack-table');
+            const wrap = table.closest('.table-responsive');
+            if (wrap) {
+                wrap.classList.add('mobile-stack-wrap');
+            }
+
+            table.querySelectorAll('tbody tr').forEach(function(row) {
+                const cells = Array.from(row.children).filter(function(cell) {
+                    return cell.tagName === 'TD' || cell.tagName === 'TH';
+                });
+
+                if (!cells.length) {
+                    return;
+                }
+
+                if (cells.length === 1 && parseInt(cells[0].getAttribute('colspan') || '1', 10) > 1) {
+                    cells[0].setAttribute('data-label', '');
+                    cells[0].setAttribute('data-auto-label', '1');
+                    return;
+                }
+
+                let headerIndex = 0;
+                cells.forEach(function(cell) {
+                    if (!cell.hasAttribute('data-label')) {
+                        const label = headers[headerIndex] || '';
+                        cell.setAttribute('data-label', label);
+                        cell.setAttribute('data-auto-label', '1');
+                    }
+                    const span = parseInt(cell.getAttribute('colspan') || '1', 10);
+                    headerIndex += Number.isFinite(span) && span > 0 ? span : 1;
+                });
+            });
+        }
+
+        function removeStack(table) {
+            table.classList.remove('mobile-stack-table');
+            const wrap = table.closest('.table-responsive');
+            if (wrap) {
+                wrap.classList.remove('mobile-stack-wrap');
+            }
+
+            table.querySelectorAll('[data-auto-label="1"]').forEach(function(cell) {
+                cell.removeAttribute('data-auto-label');
+                cell.removeAttribute('data-label');
+            });
+        }
+
+        function refreshTables() {
+            const isMobile = window.innerWidth <= MOBILE_BREAKPOINT;
+            document.querySelectorAll('.table-responsive > .table').forEach(function(table) {
+                if (isExcludedTable(table)) {
+                    return;
+                }
+                if (isMobile) {
+                    applyStack(table);
+                } else {
+                    removeStack(table);
+                }
+            });
+        }
+
+        let resizeTimer = null;
+        window.addEventListener('resize', function() {
+            if (resizeTimer) {
+                clearTimeout(resizeTimer);
+            }
+            resizeTimer = setTimeout(refreshTables, 120);
+        });
+
+        refreshTables();
+    })();
 });

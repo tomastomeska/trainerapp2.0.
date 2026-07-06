@@ -785,6 +785,97 @@ canvas {
     }
 }
 
+/* Globalni citelnost tabulek na mobilu */
+@media (max-width: 991.98px) {
+    .table-responsive {
+        -webkit-overflow-scrolling: touch;
+    }
+}
+
+@media (max-width: 575.98px) {
+    body {
+        font-size: 15px;
+    }
+
+    .table-responsive.mobile-stack-wrap {
+        overflow-x: visible;
+        border: 0;
+    }
+
+    .table-responsive.mobile-stack-wrap > .table.mobile-stack-table {
+        min-width: 0 !important;
+        margin-bottom: 0;
+        table-layout: auto;
+    }
+
+    .table.mobile-stack-table thead {
+        display: none;
+    }
+
+    .table.mobile-stack-table,
+    .table.mobile-stack-table tbody,
+    .table.mobile-stack-table tr,
+    .table.mobile-stack-table td,
+    .table.mobile-stack-table th {
+        display: block;
+        width: 100%;
+    }
+
+    .table.mobile-stack-table tr {
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        margin-bottom: 0.7rem;
+        padding: 0.45rem 0.65rem;
+        background: #fff;
+    }
+
+    .table.mobile-stack-table td,
+    .table.mobile-stack-table th {
+        border: 0;
+        border-bottom: 1px dashed #e2e8f0;
+        white-space: normal !important;
+        word-break: break-word;
+        overflow-wrap: anywhere;
+        text-align: left !important;
+        padding: 0.42rem 0 !important;
+    }
+
+    .table.mobile-stack-table td:last-child,
+    .table.mobile-stack-table th:last-child {
+        border-bottom: 0;
+    }
+
+    .table.mobile-stack-table td::before,
+    .table.mobile-stack-table th::before {
+        content: attr(data-label);
+        display: block;
+        font-size: 0.68rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #64748b;
+        margin-bottom: 0.08rem;
+    }
+
+    .table.mobile-stack-table td[data-label=""]::before,
+    .table.mobile-stack-table th[data-label=""]::before {
+        display: none;
+    }
+
+    .table {
+        font-size: 0.88rem;
+    }
+
+    .table th,
+    .table td {
+        padding: 0.5rem 0.55rem;
+    }
+
+    .btn {
+        font-size: 0.92rem;
+    }
+}
+
 /* Print styly */
 @media print {
     .navbar, .btn, footer, .modal, form[onsubmit],
