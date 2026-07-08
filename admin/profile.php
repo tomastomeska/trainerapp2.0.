@@ -116,6 +116,33 @@ renderHeader('Můj profil');
     <h2 class="mb-0"><i class="fas fa-user-circle me-2 text-warning"></i>Můj profil</h2>
 </div>
 
+<div class="dashboard-quick-tiles mb-3">
+    <a href="<?= BASE_URL ?>/admin/dashboard.php" class="quick-tile quick-tile-muted">
+        <span class="quick-tile__label"><i class="fas fa-house me-1"></i>Domů</span>
+        <span class="quick-tile__value"><i class="fas fa-chevron-right"></i></span>
+    </a>
+    <a href="<?= BASE_URL ?>/admin/zpravy.php" class="quick-tile quick-tile-danger">
+        <span class="quick-tile__label"><i class="fas fa-envelope me-1"></i>Zprávy</span>
+        <span class="quick-tile__value"><i class="fas fa-chevron-right"></i></span>
+    </a>
+    <a href="<?= BASE_URL ?>/admin/meals.php" class="quick-tile quick-tile-success">
+        <span class="quick-tile__label"><i class="fas fa-utensils me-1"></i>Jídelníčky</span>
+        <span class="quick-tile__value"><i class="fas fa-chevron-right"></i></span>
+    </a>
+    <a href="<?= BASE_URL ?>/admin/graphs.php" class="quick-tile quick-tile-info">
+        <span class="quick-tile__label"><i class="fas fa-chart-line me-1"></i>Grafy</span>
+        <span class="quick-tile__value"><i class="fas fa-chevron-right"></i></span>
+    </a>
+    <a href="<?= BASE_URL ?>/calendar.php" class="quick-tile quick-tile-warning">
+        <span class="quick-tile__label"><i class="fas fa-calendar-alt me-1"></i>Kalendář</span>
+        <span class="quick-tile__value"><i class="fas fa-chevron-right"></i></span>
+    </a>
+    <a href="<?= BASE_URL ?>/admin/change_password.php" class="quick-tile quick-tile-muted">
+        <span class="quick-tile__label"><i class="fas fa-key me-1"></i>Heslo</span>
+        <span class="quick-tile__value"><i class="fas fa-chevron-right"></i></span>
+    </a>
+</div>
+
 <?php if ($error): ?>
 <div class="alert alert-danger"><?= h($error) ?></div>
 <?php endif; ?>

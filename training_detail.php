@@ -896,6 +896,7 @@ function addSeries(exerciseId, sessionId) {
     let seriesOrder = seriesOrderInput ? parseInt(seriesOrderInput.textContent) + 1 : 1;
 
     const payload = {
+        csrf_token: '<?= csrfToken() ?>',
         session_id: sessionId,
         exercise_id: exerciseId,
         series_order: seriesOrder,
@@ -998,7 +999,10 @@ function deleteSeries(seriesId, exerciseId) {
     fetch('<?= BASE_URL ?>/api/delete_series.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ series_id: seriesId })
+        body: JSON.stringify({
+            csrf_token: '<?= csrfToken() ?>',
+            series_id: seriesId
+        })
     })
     .then(r => r.json())
     .then(data => {

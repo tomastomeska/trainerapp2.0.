@@ -78,14 +78,19 @@ $sent = $sentStmt->fetchAll();
 
 $unreadCount = count(array_filter($inbox, fn($m) => empty($m['read_at'])));
 
-renderAthleteHeader('Zprávy');
+renderAthleteHeader('Zprávy', false, true);
 ?>
 
 <div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
     <h2 class="mb-0"><i class="fas fa-envelope me-2 text-warning"></i>Zprávy</h2>
-    <button class="btn btn-warning fw-bold" data-bs-toggle="modal" data-bs-target="#composeModal">
-        <i class="fas fa-pen me-1"></i>Napsat trenérovi
-    </button>
+    <div class="d-flex flex-wrap gap-2">
+        <a href="<?= BASE_URL ?>/athlete_dashboard.php" class="btn btn-outline-secondary btn-sm">
+            <i class="fas fa-house me-1"></i>Domů
+        </a>
+        <button class="btn btn-warning fw-bold" data-bs-toggle="modal" data-bs-target="#composeModal">
+            <i class="fas fa-pen me-1"></i>Napsat trenérovi
+        </button>
+    </div>
 </div>
 
 <!-- Záložky -->

@@ -252,10 +252,14 @@ $weightFormValue = $editingWeightLog['weight_kg'] ?? '';
 $weightPreviewLimit = 5;
 $weightVisibleRows = array_slice($weightHistory, 0, $weightPreviewLimit);
 $weightCollapsedRows = array_slice($weightHistory, $weightPreviewLimit);
+$weightMobileRows = array_slice($weightHistory, 0, 4);
+$weightMobileCollapsedRows = array_slice($weightHistory, 4);
 $weightShouldExpandAll = $editingWeightLog !== null;
 $trainingPreviewLimit = 5;
 $trainingVisibleRows = array_slice($sessions, 0, $trainingPreviewLimit);
 $trainingCollapsedRows = array_slice($sessions, $trainingPreviewLimit);
+$trainingMobileRows = array_slice($sessions, 0, 4);
+$trainingMobileCollapsedRows = array_slice($sessions, 4);
 
 $coachDisplayName = trim((string)($athlete['coach_name'] ?: $athlete['coach_username']));
 $coachLastNameParts = preg_split('/\s+/u', $coachDisplayName) ?: [];
@@ -800,12 +804,132 @@ try {
                     $nearestPlannedTraining = null;
                 }
 
-renderAthleteHeader('Profil sportovce');
+renderAthleteHeader('Profil sportovce', false, true);
 ?>
+
+<style>
+@media (max-width: 767.98px) {
+    .athlete-desktop-only {
+        display: none !important;
+    }
+
+    .athlete-mobile-summary-card {
+        border: 1px solid #dde5ee;
+        border-radius: 14px;
+        background: #fff;
+        box-shadow: 0 2px 10px rgba(15, 23, 42, 0.06);
+        overflow: hidden;
+    }
+
+    .athlete-mobile-summary-card__head {
+        display: flex;
+        justify-content: space-between;
+        gap: 0.75rem;
+        align-items: flex-start;
+        padding: 0.8rem 0.85rem;
+        border-bottom: 1px solid #eef2f7;
+        background: #f8fafc;
+    }
+
+    .athlete-mobile-summary-card__title {
+        font-weight: 800;
+        font-size: 0.98rem;
+        line-height: 1.2;
+    }
+
+    .athlete-mobile-summary-card__body {
+        padding: 0.8rem 0.85rem;
+    }
+
+    .athlete-mobile-summary-meta {
+        display: grid;
+        gap: 0.5rem;
+    }
+
+    .athlete-mobile-summary-line {
+        display: grid;
+        gap: 0.08rem;
+    }
+
+    .athlete-mobile-summary-label {
+        font-size: 0.68rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #64748b;
+    }
+
+    .athlete-mobile-payment-card {
+        border: 1px solid #e6edf5;
+        border-radius: 12px;
+        padding: 0.65rem 0.7rem;
+        background: #fff;
+    }
+
+    .athlete-mobile-payment-card + .athlete-mobile-payment-card {
+        margin-top: 0.55rem;
+    }
+
+    .athlete-mobile-payment-top {
+        display: flex;
+        justify-content: space-between;
+        gap: 0.6rem;
+        align-items: flex-start;
+        margin-bottom: 0.35rem;
+    }
+
+    .athlete-mobile-payment-month {
+        font-weight: 800;
+    }
+
+    .athlete-mobile-payment-grid {
+        display: grid;
+        gap: 0.25rem;
+        font-size: 0.84rem;
+    }
+
+    .athlete-mobile-history-card {
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        background: #fff;
+        padding: 0.7rem;
+    }
+
+    .athlete-mobile-history-card + .athlete-mobile-history-card {
+        margin-top: 0.55rem;
+    }
+
+    .athlete-mobile-history-grid {
+        display: grid;
+        gap: 0.25rem;
+        font-size: 0.84rem;
+    }
+
+    .athlete-mobile-history-actions {
+        display: flex;
+        gap: 0.45rem;
+        flex-wrap: wrap;
+        margin-top: 0.55rem;
+    }
+
+    .athlete-mobile-accordion .accordion-button {
+        padding: 0.8rem 0.9rem;
+        font-weight: 700;
+    }
+
+    .athlete-mobile-accordion .accordion-body {
+        padding: 0.8rem 0.75rem;
+    }
+}
+</style>
 
 <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
     <h2 class="mb-0"><i class="fas fa-user me-2 text-warning"></i>Můj profil</h2>
-    <div class="d-flex gap-2 flex-wrap"></div>
+    <div class="d-flex gap-2 flex-wrap">
+        <a href="<?= BASE_URL ?>/logout.php" class="btn btn-outline-danger btn-sm">
+            <i class="fas fa-sign-out-alt me-1"></i>Odhlásit
+        </a>
+    </div>
 </div>
 
 <div class="dashboard-quick-tiles mb-3">
@@ -829,19 +953,265 @@ renderAthleteHeader('Profil sportovce');
         <span class="quick-tile__label"><i class="fas fa-key me-1"></i>Heslo</span>
         <span class="quick-tile__value"><i class="fas fa-chevron-right"></i></span>
     </a>
+    <a href="<?= BASE_URL ?>/athlete_gallery.php" class="quick-tile quick-tile-info">
+        <span class="quick-tile__label"><i class="fas fa-images me-1"></i>Galerie</span>
+        <span class="quick-tile__value"><i class="fas fa-chevron-right"></i></span>
+    </a>
+    <a href="<?= BASE_URL ?>/athlete_manual.php" class="quick-tile quick-tile-success">
+        <span class="quick-tile__label"><i class="fas fa-circle-question me-1"></i>Návod</span>
+        <span class="quick-tile__value"><i class="fas fa-chevron-right"></i></span>
+    </a>
+    <a href="<?= BASE_URL ?>/athlete_terms.php" class="quick-tile quick-tile-warning">
+        <span class="quick-tile__label"><i class="fas fa-file-contract me-1"></i>Podmínky</span>
+        <span class="quick-tile__value"><i class="fas fa-chevron-right"></i></span>
+    </a>
 </div>
 
-<div class="border rounded-3 bg-light px-3 py-2 mb-4 d-flex flex-wrap justify-content-between align-items-center gap-2">
-    <div class="text-muted small">
-        <i class="fas fa-heart me-1 text-secondary"></i>
-        Pokud chcete podpořit provoz aplikace, je tu i dobrovolná možnost příspěvku.
+<div class="d-md-none mb-4">
+    <div class="athlete-mobile-summary-card mb-3">
+        <div class="athlete-mobile-summary-card__head">
+            <div>
+                <div class="athlete-mobile-summary-card__title"><i class="fas fa-calendar-check me-2 text-primary"></i>Nejbližší trénink</div>
+            </div>
+            <a href="<?= BASE_URL ?>/athlete_calendar.php" class="btn btn-outline-primary btn-sm">
+                Kalendář
+            </a>
+        </div>
+        <div class="athlete-mobile-summary-card__body">
+            <?php if ($nearestPlannedTraining): ?>
+            <div class="athlete-mobile-summary-meta">
+                <div class="athlete-mobile-summary-line">
+                    <span class="athlete-mobile-summary-label">Datum a čas</span>
+                    <strong><?= formatDateTime((string)$nearestPlannedTraining['starts_at']) ?></strong>
+                </div>
+                <div class="athlete-mobile-summary-line">
+                    <span class="athlete-mobile-summary-label">Místo</span>
+                    <strong><?= !empty($nearestPlannedTraining['location']) ? h((string)$nearestPlannedTraining['location']) : 'neuvedeno' ?></strong>
+                </div>
+                <?php if (($nearestPlannedTraining['approval_status'] ?? 'approved') === 'pending'): ?>
+                <span class="badge bg-warning text-dark align-self-start">Ke schválení</span>
+                <?php endif; ?>
+            </div>
+            <?php else: ?>
+            <div class="text-muted">Nejbližší termín zatím není naplánovaný.</div>
+            <?php endif; ?>
+        </div>
     </div>
-    <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#supportContributionModal">
-        Zobrazit možnosti
-    </button>
+
+    <div class="athlete-mobile-summary-card mb-3">
+        <div class="athlete-mobile-summary-card__head">
+            <div>
+                <div class="athlete-mobile-summary-card__title"><i class="fas fa-wallet me-2 text-warning"></i>Platby</div>
+                <div class="small text-muted">Poslední přehled</div>
+            </div>
+            <a href="<?= BASE_URL ?>/athlete_payments.php" class="btn btn-warning btn-sm fw-semibold">
+                Všechny
+            </a>
+        </div>
+        <div class="athlete-mobile-summary-card__body">
+            <?php if (!empty($paymentRowsForView)): ?>
+                <?php foreach (array_slice($paymentRowsForView, 0, 3) as $row): ?>
+                <div class="athlete-mobile-payment-card">
+                    <div class="athlete-mobile-payment-top">
+                        <div class="athlete-mobile-payment-month"><?= h($row['month_label']) ?></div>
+                        <?php if ($row['is_paid']): ?>
+                            <span class="badge bg-success">Uhrazeno</span>
+                        <?php elseif ($row['is_pending']): ?>
+                            <span class="badge bg-warning text-dark">Čeká</span>
+                        <?php else: ?>
+                            <span class="badge bg-secondary">Nevystaveno</span>
+                        <?php endif; ?>
+                    </div>
+                    <div class="athlete-mobile-payment-grid">
+                        <div><span class="text-muted">Tréninky:</span> <strong><?= (int)$row['billable_sessions'] ?></strong></div>
+                        <div><span class="text-muted">Částka:</span> <strong><?= $row['display_amount'] !== null ? number_format((float)$row['display_amount'], 0, ',', ' ') . ' Kč' : 'nelze spočítat' ?></strong></div>
+                        <?php if (!empty($row['payment']['paid_at'])): ?>
+                        <div><span class="text-muted">Uhrazeno:</span> <?= formatDateTime((string)$row['payment']['paid_at']) ?></div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+                <?php endforeach; ?>
+            <?php else: ?>
+                <div class="text-muted">Aktuálně tu nemáte žádnou evidovanou platbu.</div>
+            <?php endif; ?>
+        </div>
+    </div>
+
+    <div class="accordion athlete-mobile-accordion" id="athleteMobileAccordion">
+        <div class="accordion-item">
+            <h2 class="accordion-header" id="headingWeightInputMobile">
+                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseWeightInputMobile" aria-expanded="false" aria-controls="collapseWeightInputMobile">
+                    Zapsat váhu
+                </button>
+            </h2>
+            <div id="collapseWeightInputMobile" class="accordion-collapse collapse" aria-labelledby="headingWeightInputMobile" data-bs-parent="#athleteMobileAccordion">
+                <div class="accordion-body">
+                    <form method="post">
+                        <?= csrfField() ?>
+                        <input type="hidden" name="action" value="<?= h($weightFormAction) ?>">
+                        <?php if ($editingWeightLog): ?>
+                        <input type="hidden" name="weight_log_id" value="<?= (int)$editingWeightLog['id'] ?>">
+                        <?php endif; ?>
+                        <div class="mb-2">
+                            <label class="form-label fw-semibold" for="measured_at_mobile">Datum vážení</label>
+                            <input type="date" id="measured_at_mobile" name="measured_at" class="form-control" value="<?= h((string)$weightFormDate) ?>" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold" for="weight_kg_mobile">Hmotnost (kg)</label>
+                            <input type="number" id="weight_kg_mobile" name="weight_kg" class="form-control" min="20" max="400" step="0.1" value="<?= h((string)$weightFormValue) ?>" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100 fw-semibold">
+                            <i class="fas fa-save me-1"></i><?= $editingWeightLog ? 'Uložit změny' : 'Uložit váhu' ?>
+                        </button>
+                    </form>
+                    <small class="text-muted d-block mt-2">Svou historii hmotnosti můžete průběžně doplňovat, upravovat i mazat.</small>
+                </div>
+            </div>
+        </div>
+
+        <div class="accordion-item">
+            <h2 class="accordion-header" id="headingWeightHistoryMobile">
+                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseWeightHistoryMobile" aria-expanded="false" aria-controls="collapseWeightHistoryMobile">
+                    Historie hmotnosti
+                </button>
+            </h2>
+            <div id="collapseWeightHistoryMobile" class="accordion-collapse collapse" aria-labelledby="headingWeightHistoryMobile" data-bs-parent="#athleteMobileAccordion">
+                <div class="accordion-body">
+                    <?php if (empty($weightHistory)): ?>
+                        <div class="text-muted text-center py-2">Zatím tu není žádný záznam hmotnosti.</div>
+                    <?php else: ?>
+                        <?php foreach ($weightMobileRows as $weightRow): ?>
+                            <?php
+                                $sourceLabel = 'Ruční záznam';
+                                if (($weightRow['source'] ?? '') === 'coach') {
+                                    $sourceLabel = 'Trenér';
+                                } elseif (($weightRow['source'] ?? '') === 'athlete_link') {
+                                    $sourceLabel = 'Sportovec';
+                                }
+                            ?>
+                            <div class="athlete-mobile-history-card <?= $editingWeightLog && (int)$editingWeightLog['id'] === (int)$weightRow['id'] ? 'border border-warning' : '' ?>">
+                                <div class="athlete-mobile-history-grid">
+                                    <div><span class="text-muted">Datum:</span> <strong><?= formatDate((string)$weightRow['measured_at']) ?></strong></div>
+                                    <div><span class="text-muted">Hmotnost:</span> <strong><?= number_format((float)$weightRow['weight_kg'], 1, ',', '') ?> kg</strong></div>
+                                    <div><span class="text-muted">Zdroj:</span> <span class="badge bg-secondary"><?= h($sourceLabel) ?></span></div>
+                                </div>
+                                <div class="athlete-mobile-history-actions">
+                                    <a href="<?= BASE_URL ?>/athlete_dashboard.php?edit_weight=<?= (int)$weightRow['id'] ?>#weight-history" class="btn btn-sm btn-outline-primary">
+                                        <i class="fas fa-pen me-1"></i>Upravit
+                                    </a>
+                                    <form method="post" class="d-inline" onsubmit="return confirm('Opravdu smazat tento záznam hmotnosti?');">
+                                        <?= csrfField() ?>
+                                        <input type="hidden" name="action" value="delete_weight">
+                                        <input type="hidden" name="weight_log_id" value="<?= (int)$weightRow['id'] ?>">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger">
+                                            <i class="fas fa-trash me-1"></i>Smazat
+                                        </button>
+                                    </form>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                        <?php if (!empty($weightMobileCollapsedRows)): ?>
+                        <div class="collapse mt-2" id="athleteWeightMobileMore">
+                            <?php foreach ($weightMobileCollapsedRows as $weightRow): ?>
+                                <?php
+                                    $sourceLabel = 'Ruční záznam';
+                                    if (($weightRow['source'] ?? '') === 'coach') {
+                                        $sourceLabel = 'Trenér';
+                                    } elseif (($weightRow['source'] ?? '') === 'athlete_link') {
+                                        $sourceLabel = 'Sportovec';
+                                    }
+                                ?>
+                                <div class="athlete-mobile-history-card">
+                                    <div class="athlete-mobile-history-grid">
+                                        <div><span class="text-muted">Datum:</span> <strong><?= formatDate((string)$weightRow['measured_at']) ?></strong></div>
+                                        <div><span class="text-muted">Hmotnost:</span> <strong><?= number_format((float)$weightRow['weight_kg'], 1, ',', '') ?> kg</strong></div>
+                                        <div><span class="text-muted">Zdroj:</span> <span class="badge bg-secondary"><?= h($sourceLabel) ?></span></div>
+                                    </div>
+                                    <div class="athlete-mobile-history-actions">
+                                        <a href="<?= BASE_URL ?>/athlete_dashboard.php?edit_weight=<?= (int)$weightRow['id'] ?>#weight-history" class="btn btn-sm btn-outline-primary">
+                                            <i class="fas fa-pen me-1"></i>Upravit
+                                        </a>
+                                        <form method="post" class="d-inline" onsubmit="return confirm('Opravdu smazat tento záznam hmotnosti?');">
+                                            <?= csrfField() ?>
+                                            <input type="hidden" name="action" value="delete_weight">
+                                            <input type="hidden" name="weight_log_id" value="<?= (int)$weightRow['id'] ?>">
+                                            <button type="submit" class="btn btn-sm btn-outline-danger">
+                                                <i class="fas fa-trash me-1"></i>Smazat
+                                            </button>
+                                        </form>
+                                    </div>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                        <div class="text-center mt-2">
+                            <button class="btn btn-outline-dark btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#athleteWeightMobileMore" aria-expanded="false" aria-controls="athleteWeightMobileMore">
+                                <i class="fas fa-chevron-down me-1"></i>Zobrazit všechny záznamy (<?= count($weightMobileCollapsedRows) ?>)
+                            </button>
+                        </div>
+                        <?php endif; ?>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </div>
+
+        <div class="accordion-item">
+            <h2 class="accordion-header" id="headingTrainingHistoryMobile">
+                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseTrainingHistoryMobile" aria-expanded="false" aria-controls="collapseTrainingHistoryMobile">
+                    Historie tréninků
+                </button>
+            </h2>
+            <div id="collapseTrainingHistoryMobile" class="accordion-collapse collapse" aria-labelledby="headingTrainingHistoryMobile" data-bs-parent="#athleteMobileAccordion">
+                <div class="accordion-body">
+                    <?php if (empty($sessions)): ?>
+                        <div class="text-muted text-center py-2">Zatím nemáte žádné tréninky.</div>
+                    <?php else: ?>
+                        <?php foreach ($trainingMobileRows as $s): ?>
+                        <div class="athlete-mobile-history-card">
+                            <div class="athlete-mobile-history-grid">
+                                <div><span class="text-muted">Datum:</span> <strong><?= formatDateTime((string)$s['started_at']) ?></strong></div>
+                                <div><span class="text-muted">Sada:</span> <strong><?= h((string)$s['set_name']) ?></strong></div>
+                                <div><span class="text-muted">Místo:</span> <?= !empty($s['location']) ? h((string)$s['location']) : '–' ?></div>
+                                <div><span class="text-muted">Stav:</span> <?php if (!empty($s['completed_at'])): ?><span class="badge bg-success">Dokončeno</span><?php else: ?><span class="badge bg-warning text-dark">Naplánováno / probíhá</span><?php endif; ?></div>
+                            </div>
+                            <div class="athlete-mobile-history-actions">
+                                <a href="<?= BASE_URL ?>/athlete_training_detail.php?id=<?= (int)$s['id'] ?>" class="btn btn-sm btn-outline-secondary">
+                                    <i class="fas fa-eye me-1"></i>Detail
+                                </a>
+                            </div>
+                        </div>
+                        <?php endforeach; ?>
+                        <?php if (!empty($trainingMobileCollapsedRows)): ?>
+                        <div class="collapse mt-2" id="athleteTrainingMobileMore">
+                            <?php foreach ($trainingMobileCollapsedRows as $s): ?>
+                            <div class="athlete-mobile-history-card">
+                                <div class="athlete-mobile-history-grid">
+                                    <div><span class="text-muted">Datum:</span> <strong><?= formatDateTime((string)$s['started_at']) ?></strong></div>
+                                    <div><span class="text-muted">Sada:</span> <strong><?= h((string)$s['set_name']) ?></strong></div>
+                                    <div><span class="text-muted">Místo:</span> <?= !empty($s['location']) ? h((string)$s['location']) : '–' ?></div>
+                                    <div><span class="text-muted">Stav:</span> <?php if (!empty($s['completed_at'])): ?><span class="badge bg-success">Dokončeno</span><?php else: ?><span class="badge bg-warning text-dark">Naplánováno / probíhá</span><?php endif; ?></div>
+                                </div>
+                                <div class="athlete-mobile-history-actions">
+                                    <a href="<?= BASE_URL ?>/athlete_training_detail.php?id=<?= (int)$s['id'] ?>" class="btn btn-sm btn-outline-secondary">
+                                        <i class="fas fa-eye me-1"></i>Detail
+                                    </a>
+                                </div>
+                            </div>
+                            <?php endforeach; ?>
+                        </div>
+                        <div class="text-center mt-2">
+                            <button class="btn btn-outline-dark btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#athleteTrainingMobileMore" aria-expanded="false" aria-controls="athleteTrainingMobileMore">
+                                <i class="fas fa-chevron-down me-1"></i>Zobrazit všechny tréninky (<?= count($trainingMobileCollapsedRows) ?>)
+                            </button>
+                        </div>
+                        <?php endif; ?>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 
-<div class="row g-4 mb-4">
+<div class="row g-4 mb-4 athlete-desktop-only">
     <div class="col-lg-4">
         <div class="card border-0 shadow-sm h-100">
             <div class="card-header bg-dark text-white"><i class="fas fa-id-card me-2"></i>Informace</div>
@@ -890,7 +1260,7 @@ renderAthleteHeader('Profil sportovce');
     </div>
 </div>
 
-<div class="card border-0 shadow-sm mb-4" id="weight-history">
+<div class="card border-0 shadow-sm mb-4 athlete-desktop-only" id="weight-history">
     <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center flex-wrap gap-2">
         <span><i class="fas fa-clock-rotate-left me-2"></i>Historie hmotnosti</span>
         <span class="badge bg-light text-dark"><?= count($weightHistory) ?> záznamů</span>
@@ -985,7 +1355,7 @@ renderAthleteHeader('Profil sportovce');
     </div>
 </div>
 
-<div class="card border-0 shadow-sm mb-4">
+<div class="card border-0 shadow-sm mb-4 athlete-desktop-only">
     <div class="card-header bg-dark text-white"><i class="fas fa-calendar-check me-2"></i>Plán tréninků</div>
     <div class="card-body">
         <div class="d-flex justify-content-between align-items-start flex-wrap gap-3">
@@ -1011,7 +1381,7 @@ renderAthleteHeader('Profil sportovce');
     </div>
 </div>
 
-<div class="card border-0 shadow-sm mb-4">
+<div class="card border-0 shadow-sm mb-4 athlete-desktop-only">
     <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center flex-wrap gap-2">
         <span><i class="fas fa-wallet me-2"></i>Platby</span>
         <a href="<?= BASE_URL ?>/athlete_payments.php" class="btn btn-warning btn-sm fw-semibold">
@@ -1155,7 +1525,7 @@ renderAthleteHeader('Profil sportovce');
     </div>
 </div>
 
-<div class="card border-0 shadow-sm">
+<div class="card border-0 shadow-sm athlete-desktop-only">
     <div class="card-header bg-dark text-white"><i class="fas fa-history me-2"></i>Historie tréninků</div>
     <div class="card-body p-0">
         <?php if (empty($sessions)): ?>

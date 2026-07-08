@@ -93,7 +93,7 @@ if ($selectedCategoryId <= 0 && !empty($categories)) {
     $selectedCategoryId = (int)$firstCategory['id'];
 }
 
-renderHeader('Infokanal');
+renderHeader('Infokanal', false, true);
 ?>
 
 <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-4">

@@ -3,7 +3,7 @@
 // Volá se: renderHeader('Název stránky');
 require_once __DIR__ . '/support_widget.php';
 
-function renderHeader(string $title = '', bool $withCharts = false): void {
+function renderHeader(string $title = '', bool $withCharts = false, bool $compactNav = false): void {
     $coach   = getCurrentCoach();
     $flash   = getFlash();
     $appName = APP_NAME;
@@ -48,6 +48,38 @@ function renderHeader(string $title = '', bool $withCharts = false): void {
                 max-width: 125px;
             }
         }
+
+        .coach-compact-topbar {
+            display: none !important;
+        }
+
+        .impersonation-banner {
+            background: #7c3aed;
+            color: #fff;
+            padding: 8px 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            position: sticky;
+            top: 56px;
+            z-index: 1029;
+            font-size: .9rem;
+        }
+
+        @media (max-width: 1427.98px) {
+            .coach-navbar.coach-navbar-compact-mobile {
+                display: none;
+            }
+
+            .coach-compact-topbar {
+                display: flex !important;
+            }
+
+            .impersonation-banner.impersonation-banner-compact {
+                top: 0;
+            }
+        }
     </style>
     <?php if ($withCharts): ?>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
@@ -90,7 +122,7 @@ if ($coach) {
 }
 ?>
 
-<nav class="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm sticky-top coach-navbar">
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm sticky-top coach-navbar<?= $compactNav ? ' coach-navbar-compact-mobile' : '' ?>">
     <div class="container-fluid px-4">
         <a class="navbar-brand fw-bold text-warning" href="<?= BASE_URL ?>/dashboard.php">
             <i class="fas fa-dumbbell me-2"></i><?= h($appName) ?>
@@ -182,7 +214,7 @@ if ($coach) {
 </nav>
 
 <?php if (!empty($_SESSION['impersonating_admin_id'])): ?>
-<div style="background:#7c3aed;color:#fff;padding:8px 20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;position:sticky;top:56px;z-index:1029;font-size:.9rem">
+<div class="impersonation-banner<?= $compactNav ? ' impersonation-banner-compact' : '' ?>">
     <span>
         <i class="fas fa-user-secret me-2"></i>
         Prohlížíte profil trenéra <strong><?= h($_SESSION['coach_name'] ?? '') ?></strong> jako administrátor.
@@ -200,6 +232,20 @@ if ($coach) {
 <div class="alert alert-<?= h($flash['type']) ?> alert-dismissible fade show" role="alert">
     <?= !empty($flash['html']) ? $flash['message'] : h($flash['message']) ?>
     <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+<?php endif; ?>
+
+<?php if ($compactNav && $coach): ?>
+<div class="d-flex coach-compact-topbar justify-content-between align-items-center gap-2 flex-wrap mb-3">
+    <div class="fw-bold fs-5"><?= h($title ?: 'Přehled') ?></div>
+    <div class="d-flex align-items-center gap-2">
+        <a href="<?= BASE_URL ?>/dashboard.php" class="btn btn-outline-secondary btn-sm fw-bold">
+            <i class="fas fa-house me-1"></i>Domů
+        </a>
+        <a href="<?= BASE_URL ?>/logout.php" class="btn btn-danger btn-sm fw-bold">
+            <i class="fas fa-sign-out-alt me-1"></i>Odhlásit
+        </a>
+    </div>
 </div>
 <?php endif; ?>
 

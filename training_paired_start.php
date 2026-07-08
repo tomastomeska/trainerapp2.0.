@@ -132,7 +132,7 @@ $stmtS = $pdo->prepare(
 $stmtS->execute([$coachId]);
 $sets = $stmtS->fetchAll();
 
-renderHeader('Párový trénink');
+renderHeader('Párový trénink', false, true);
 ?>
 
 <div class="d-flex align-items-center mb-4 gap-3 page-header">

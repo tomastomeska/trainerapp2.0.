@@ -66,12 +66,12 @@ if ($selectedExerciseId > 0) {
     $chartData = $dataStmt->fetchAll();
 }
 
-renderAthleteHeader('Grafy', true);
+renderAthleteHeader('Grafy', true, true);
 ?>
 
 <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
     <h2 class="mb-0"><i class="fas fa-chart-line me-2 text-warning"></i>Grafy výkonu a váhy</h2>
-    <a href="<?= BASE_URL ?>/athlete_dashboard.php" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left me-1"></i>Zpět na profil</a>
+    <a href="<?= BASE_URL ?>/athlete_dashboard.php" class="btn btn-outline-secondary btn-sm"><i class="fas fa-house me-1"></i>Domů</a>
 </div>
 
 <div class="card border-0 shadow-sm mb-4">

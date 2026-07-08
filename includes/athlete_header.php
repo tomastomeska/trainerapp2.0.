@@ -1,7 +1,7 @@
 <?php
 require_once __DIR__ . '/support_widget.php';
 
-function renderAthleteHeader(string $title = '', bool $withCharts = false): void {
+function renderAthleteHeader(string $title = '', bool $withCharts = false, bool $compactNav = false): void {
     $athlete = getCurrentAthlete();
     $flash = getFlash();
     $fullTitle = $title !== '' ? ($title . ' - ' . APP_NAME) : APP_NAME;
@@ -53,6 +53,7 @@ function renderAthleteHeader(string $title = '', bool $withCharts = false): void
     <?php endif; ?>
 </head>
 <body>
+<?php if (!$compactNav): ?>
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm sticky-top">
     <div class="container-fluid px-4">
         <a class="navbar-brand fw-bold text-warning" href="<?= BASE_URL ?>/athlete_dashboard.php">
@@ -95,6 +96,7 @@ function renderAthleteHeader(string $title = '', bool $withCharts = false): void
         </div>
     </div>
 </nav>
+<?php endif; ?>
 
 <div class="container-fluid px-3 px-md-4 py-3 py-md-4">
 <?php if ($flash): ?>

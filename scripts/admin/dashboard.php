@@ -13,6 +13,12 @@ $totalCoaches  = (int)$pdo->query('SELECT COUNT(*) FROM coaches')->fetchColumn()
 $activeCoaches = (int)$pdo->query('SELECT COUNT(*) FROM coaches WHERE is_active = 1')->fetchColumn();
 $totalAthletes = (int)$pdo->query('SELECT COUNT(*) FROM athletes')->fetchColumn();
 $totalSessions = (int)$pdo->query('SELECT COUNT(*) FROM training_sessions WHERE completed_at IS NOT NULL')->fetchColumn();
+$totalGlobalExercises = (int)$pdo->query('SELECT COUNT(*) FROM exercises WHERE is_global = 1')->fetchColumn();
+$totalGlobalMeals = (int)$pdo->query('SELECT COUNT(*) FROM global_meals')->fetchColumn();
+$totalAdminVenues = (int)$pdo->query('SELECT COUNT(*) FROM training_venues WHERE created_by_coach_id IS NULL')->fetchColumn();
+$totalCoachExercises = (int)$pdo->query('SELECT COUNT(*) FROM exercises WHERE coach_id IS NOT NULL')->fetchColumn();
+$totalCoachMeals = (int)$pdo->query('SELECT COUNT(*) FROM coach_meals WHERE coach_id IS NOT NULL AND global_meal_id IS NULL')->fetchColumn();
+$totalCoachSets = (int)$pdo->query('SELECT COUNT(*) FROM workout_sets WHERE coach_id IS NOT NULL')->fetchColumn();
 
 // Posledních 5 přidaných trenérů
 $recentCoaches = $pdo->query(
@@ -40,30 +46,75 @@ renderAdminHeader('Přehled');
 </div>
 
 <!-- Statistiky -->
-<div class="row g-3 mb-4">
-    <div class="col-sm-6 col-xl-3">
-        <div class="card border-0 shadow-sm text-center p-3">
-            <div class="fs-1 fw-bold" style="color:#7c3aed"><?= $totalCoaches ?></div>
-            <div class="text-muted small">Trenérů celkem</div>
-        </div>
+<style>
+    .admin-stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: .75rem;
+    }
+
+    .admin-stat-card {
+        border-radius: 12px;
+        min-height: 108px;
+        padding: .9rem;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        text-align: center;
+    }
+
+    .admin-stat-card__value {
+        font-size: 2.15rem;
+        font-weight: 800;
+        line-height: 1.05;
+    }
+
+    .admin-stat-card__label {
+        margin-top: .35rem;
+    }
+</style>
+
+<div class="admin-stats-grid mb-4">
+    <div class="card border-0 shadow-sm admin-stat-card">
+        <div class="admin-stat-card__value" style="color:#7c3aed"><?= $totalCoaches ?></div>
+        <div class="text-muted small admin-stat-card__label">Trenérů celkem</div>
     </div>
-    <div class="col-sm-6 col-xl-3">
-        <div class="card border-0 shadow-sm text-center p-3">
-            <div class="fs-1 fw-bold text-success"><?= $activeCoaches ?></div>
-            <div class="text-muted small">Aktivních trenérů</div>
-        </div>
+    <div class="card border-0 shadow-sm admin-stat-card">
+        <div class="admin-stat-card__value text-success"><?= $activeCoaches ?></div>
+        <div class="text-muted small admin-stat-card__label">Aktivních trenérů</div>
     </div>
-    <div class="col-sm-6 col-xl-3">
-        <div class="card border-0 shadow-sm text-center p-3">
-            <div class="fs-1 fw-bold text-warning"><?= $totalAthletes ?></div>
-            <div class="text-muted small">Sportovců celkem</div>
-        </div>
+    <div class="card border-0 shadow-sm admin-stat-card">
+        <div class="admin-stat-card__value text-warning"><?= $totalAthletes ?></div>
+        <div class="text-muted small admin-stat-card__label">Sportovců celkem</div>
     </div>
-    <div class="col-sm-6 col-xl-3">
-        <div class="card border-0 shadow-sm text-center p-3">
-            <div class="fs-1 fw-bold text-info"><?= $totalSessions ?></div>
-            <div class="text-muted small">Tréninků celkem</div>
-        </div>
+    <div class="card border-0 shadow-sm admin-stat-card">
+        <div class="admin-stat-card__value text-info"><?= $totalSessions ?></div>
+        <div class="text-muted small admin-stat-card__label">Tréninků celkem</div>
+    </div>
+    <div class="card border-0 shadow-sm admin-stat-card">
+        <div class="admin-stat-card__value" style="color:#6d28d9"><?= $totalGlobalExercises ?></div>
+        <div class="text-muted small admin-stat-card__label">Globálních cviků</div>
+    </div>
+    <div class="card border-0 shadow-sm admin-stat-card">
+        <div class="admin-stat-card__value" style="color:#0f766e"><?= $totalGlobalMeals ?></div>
+        <div class="text-muted small admin-stat-card__label">Globálních jídel</div>
+    </div>
+    <div class="card border-0 shadow-sm admin-stat-card">
+        <div class="admin-stat-card__value" style="color:#b45309"><?= $totalAdminVenues ?></div>
+        <div class="text-muted small admin-stat-card__label">Sportovišť od administrátora</div>
+    </div>
+    <div class="card border-0 shadow-sm admin-stat-card">
+        <div class="admin-stat-card__value" style="color:#1d4ed8"><?= $totalCoachExercises ?></div>
+        <div class="text-muted small admin-stat-card__label">Cviků přidaných trenéry</div>
+    </div>
+    <div class="card border-0 shadow-sm admin-stat-card">
+        <div class="admin-stat-card__value" style="color:#be185d"><?= $totalCoachMeals ?></div>
+        <div class="text-muted small admin-stat-card__label">Jídel přidaných trenéry</div>
+    </div>
+    <div class="card border-0 shadow-sm admin-stat-card">
+        <div class="admin-stat-card__value" style="color:#0f4c81"><?= $totalCoachSets ?></div>
+        <div class="text-muted small admin-stat-card__label">Sad vytvořených trenéry</div>
     </div>
 </div>
 

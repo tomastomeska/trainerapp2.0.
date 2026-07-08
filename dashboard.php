@@ -238,6 +238,7 @@ $todayPendingCount = count($todayPlannedEvents);
 
 $unreadInboxCount = 0;
 $pendingCalendarRequestCount = 0;
+$unreadInfoCount = 0;
 try {
     $unreadInboxStmt = $pdo->prepare(
         "SELECT COUNT(*)
@@ -258,9 +259,14 @@ try {
     );
     $pendingCalendarStmt->execute([$coachId]);
     $pendingCalendarRequestCount = (int)$pendingCalendarStmt->fetchColumn();
+
+    $infoUnreadStmt = $pdo->prepare("\n        SELECT COUNT(*)\n        FROM info_articles ia\n        JOIN info_categories ic ON ic.id = ia.category_id\n        LEFT JOIN info_article_reads_coach ir ON ir.article_id = ia.id AND ir.coach_id = ?\n        WHERE ia.is_active = 1\n          AND ia.published_at <= NOW()\n          AND ia.target_audience IN ('all', 'coach')\n          AND ic.is_active = 1\n          AND ic.audience IN ('all', 'coach')\n          AND ir.article_id IS NULL\n    ");
+    $infoUnreadStmt->execute([$coachId]);
+    $unreadInfoCount = (int)$infoUnreadStmt->fetchColumn();
 } catch (Throwable $e) {
     $unreadInboxCount = 0;
     $pendingCalendarRequestCount = 0;
+    $unreadInfoCount = 0;
 }
 
 $minutesToNextTodayEvent = null;
@@ -303,8 +309,220 @@ if ($firstTomorrowEvent) {
     $firstTomorrowTime = (new DateTimeImmutable($firstTomorrowEvent['starts_at']))->format('H:i');
 }
 
-renderHeader('Dashboard');
+renderHeader('Dashboard', false, true);
 ?>
+
+<style>
+    .coach-dashboard-toolbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-end;
+        gap: .75rem;
+        flex-wrap: wrap;
+    }
+
+    .coach-dashboard-toolbar__sort {
+        flex: 1 1 280px;
+        min-width: 280px;
+    }
+
+    .coach-dashboard-toolbar__sort form {
+        display: flex;
+        align-items: center;
+        gap: .5rem;
+        flex-wrap: wrap;
+    }
+
+    .coach-dashboard-toolbar__actions {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: .5rem;
+        flex-wrap: wrap;
+    }
+
+    .coach-today-plan-card .card-body {
+        padding: 1rem;
+    }
+
+    .coach-today-plan-grid {
+        display: grid;
+        gap: .65rem;
+    }
+
+    .coach-today-plan-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: .75rem;
+        flex-wrap: wrap;
+    }
+
+    .coach-today-plan-kicker {
+        font-size: .72rem;
+        font-weight: 800;
+        letter-spacing: .05em;
+        text-transform: uppercase;
+        color: #6b7280;
+    }
+
+    .coach-today-plan-count {
+        font-weight: 900;
+        font-size: 1.35rem;
+        line-height: 1.05;
+    }
+
+    .coach-today-plan-event {
+        border-radius: 14px;
+        padding: .8rem .9rem;
+        border: 1px solid rgba(15, 23, 42, .08);
+        line-height: 1.35;
+        box-shadow: 0 1px 8px rgba(15, 23, 42, .04);
+    }
+
+    .coach-today-plan-event strong {
+        font-weight: 800;
+    }
+
+    .coach-today-plan-event--ongoing {
+        background: linear-gradient(135deg, #dcfce7 0%, #ecfdf5 100%);
+        color: #14532d;
+    }
+
+    .coach-today-plan-event--next {
+        background: linear-gradient(135deg, #fef3c7 0%, #fff7ed 100%);
+        color: #7c2d12;
+    }
+
+    .coach-today-plan-event--tomorrow {
+        background: linear-gradient(135deg, #dbeafe 0%, #eff6ff 100%);
+        color: #1e3a8a;
+    }
+
+    .coach-dashboard-shortcuts-mobile {
+        display: none;
+    }
+
+    .coach-dashboard-alert-tiles {
+        display: grid;
+    }
+
+    .coach-dashboard-shortcuts-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: .6rem;
+    }
+
+    .coach-dashboard-shortcut {
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        background: #fff;
+        color: #111827;
+        text-decoration: none;
+        padding: .72rem .78rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: .5rem;
+        font-weight: 700;
+        font-size: .92rem;
+        box-shadow: 0 3px 10px rgba(15, 23, 42, .04);
+    }
+
+    .coach-dashboard-shortcut .badge {
+        font-size: .72rem;
+    }
+
+    @media (max-width: 991.98px) {
+        .coach-dashboard-toolbar__sort,
+        .coach-dashboard-toolbar__actions {
+            width: 100%;
+        }
+
+        .coach-dashboard-toolbar__sort {
+            min-width: 0;
+        }
+
+        .coach-dashboard-toolbar__actions {
+            justify-content: center;
+        }
+
+        .coach-dashboard-toolbar__sort form {
+            width: 100%;
+            justify-content: space-between;
+        }
+
+        .coach-dashboard-toolbar__sort .form-select {
+            flex: 1 1 220px;
+        }
+    }
+
+    @media (max-width: 1427.98px) {
+        .coach-dashboard-shortcuts-mobile {
+            display: block;
+        }
+
+        .coach-dashboard-alert-tiles {
+            display: none;
+        }
+    }
+
+    @media (max-width: 575.98px) {
+
+        .coach-today-plan-card .card-body {
+            padding: .85rem;
+        }
+
+        .coach-today-plan-count {
+            font-size: 1.15rem;
+        }
+
+        .coach-today-plan-event {
+            padding: .7rem .75rem;
+            border-radius: 12px;
+        }
+
+        .coach-dashboard-toolbar__actions {
+            width: 100%;
+        }
+
+        .coach-dashboard-toolbar__actions .btn {
+            flex: 1 1 calc(50% - .25rem);
+            min-width: 0;
+        }
+
+        .coach-dashboard-toolbar__actions .btn-paired-highlight {
+            order: 1;
+        }
+
+        .coach-dashboard-toolbar__actions .btn-warning {
+            order: 2;
+        }
+
+        #active-trainings .card-body {
+            padding: .85rem;
+        }
+
+        #active-trainings .border.rounded-3.p-2 {
+            padding: .8rem !important;
+            border-radius: 12px !important;
+            background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+        }
+
+        #active-trainings .fw-bold.small {
+            font-size: .96rem;
+        }
+
+        #active-trainings .text-muted.small {
+            font-size: .78rem;
+        }
+
+        #active-trainings .btn {
+            width: 100%;
+            justify-content: center;
+        }
+    }
+</style>
 
 <?php if ($mustChangePassword): ?>
 <div class="alert alert-warning mb-3">
@@ -312,7 +530,38 @@ renderHeader('Dashboard');
 </div>
 <?php endif; ?>
 
-<div class="dashboard-quick-tiles mb-3">
+<div class="card border-0 shadow-sm mb-3 coach-dashboard-shortcuts-mobile">
+    <div class="card-body p-3">
+        <div class="small text-uppercase fw-bold text-muted mb-2">Rychlé menu</div>
+        <div class="coach-dashboard-shortcuts-grid">
+            <a href="<?= BASE_URL ?>/dashboard.php" class="coach-dashboard-shortcut">
+                <span><i class="fas fa-house me-1"></i>Sportovci</span>
+            </a>
+            <a href="<?= BASE_URL ?>/zpravy.php" class="coach-dashboard-shortcut">
+                <span><i class="fas fa-envelope me-1"></i>Zprávy</span>
+                <?php if ($unreadInboxCount > 0): ?><span class="badge bg-danger"><?= (int)$unreadInboxCount ?></span><?php endif; ?>
+            </a>
+            <a href="<?= BASE_URL ?>/calendar.php" class="coach-dashboard-shortcut">
+                <span><i class="fas fa-calendar-alt me-1"></i>Kalendář</span>
+                <?php if ($pendingCalendarRequestCount > 0): ?><span class="badge bg-warning text-dark"><?= (int)$pendingCalendarRequestCount ?></span><?php endif; ?>
+            </a>
+            <a href="<?= BASE_URL ?>/infokanal.php" class="coach-dashboard-shortcut">
+                <span><i class="fas fa-lightbulb me-1"></i>Infokanál</span>
+                <?php if ($unreadInfoCount > 0): ?><span class="badge bg-danger"><?= (int)$unreadInfoCount ?></span><?php endif; ?>
+            </a>
+            <a href="<?= BASE_URL ?>/exercises.php" class="coach-dashboard-shortcut"><span><i class="fas fa-list me-1"></i>Cviky</span></a>
+            <a href="<?= BASE_URL ?>/sady.php" class="coach-dashboard-shortcut"><span><i class="fas fa-layer-group me-1"></i>Sady</span></a>
+            <a href="<?= BASE_URL ?>/payments.php" class="coach-dashboard-shortcut"><span><i class="fas fa-wallet me-1"></i>Platby</span></a>
+            <a href="<?= BASE_URL ?>/meal_plans.php" class="coach-dashboard-shortcut"><span><i class="fas fa-utensils me-1"></i>Jídelníčky</span></a>
+            <a href="<?= BASE_URL ?>/gallery.php" class="coach-dashboard-shortcut"><span><i class="fas fa-images me-1"></i>Galerie</span></a>
+            <a href="<?= BASE_URL ?>/profile.php" class="coach-dashboard-shortcut"><span><i class="fas fa-user-tie me-1"></i>Můj profil</span></a>
+            <a href="<?= BASE_URL ?>/coach_manual.php" class="coach-dashboard-shortcut"><span><i class="fas fa-circle-question me-1"></i>Návod</span></a>
+            <a href="<?= BASE_URL ?>/coach_terms.php" class="coach-dashboard-shortcut"><span><i class="fas fa-file-contract me-1"></i>Podmínky</span></a>
+        </div>
+    </div>
+</div>
+
+<div class="dashboard-quick-tiles coach-dashboard-alert-tiles mb-3">
     <a href="<?= BASE_URL ?>/zpravy.php" class="quick-tile quick-tile-danger">
         <span class="quick-tile__label"><i class="fas fa-envelope me-1"></i>Zprávy</span>
         <span class="quick-tile__value"><?= (int)$unreadInboxCount ?></span>
@@ -323,28 +572,23 @@ renderHeader('Dashboard');
     </a>
 </div>
 
-<div class="border rounded-3 bg-light px-3 py-2 mb-3 d-flex flex-wrap justify-content-between align-items-center gap-2">
-    <div class="text-muted small">
-        <i class="fas fa-heart me-1 text-secondary"></i>
-        Pokud chcete podpořit provoz aplikace, je tu i dobrovolná možnost příspěvku.
-    </div>
-    <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#supportContributionModal">
-        Zobrazit možnosti
-    </button>
-</div>
-
-<div class="card border-0 shadow-sm mb-3">
+<div class="card border-0 shadow-sm mb-3 coach-today-plan-card">
     <div class="card-body py-3">
-        <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
-            <div>
-                <div class="text-muted small text-uppercase fw-semibold">Dnešní plán z kalendáře</div>
-                <div class="fw-bold fs-4"><?= (int)$todayPendingCount ?> neproběhlých tréninků</div>
+        <div class="coach-today-plan-grid">
+            <div class="coach-today-plan-header">
+                <div>
+                    <div class="coach-today-plan-kicker">Dnešní plán v kalendáři</div>
+                    <div class="coach-today-plan-count"><?= (int)$todayPendingCount ?> neproběhlých tréninků</div>
+                </div>
+                <a href="<?= BASE_URL ?>/calendar.php" class="btn btn-outline-secondary btn-sm align-self-start">
+                    <i class="fas fa-calendar-alt me-1"></i>Kalendář
+                </a>
             </div>
 
-            <div class="d-flex flex-wrap gap-2 align-items-stretch">
+            <div class="coach-today-plan-grid">
                 <?php if (!empty($ongoingTodayEvents)): ?>
                     <?php $current = $ongoingTodayEvents[0]; ?>
-                    <div class="border rounded-3 bg-success-subtle text-success-emphasis px-4 py-3 text-start fw-semibold" style="max-width: 420px; font-size: 1.08rem; line-height: 1.4;">
+                    <div class="coach-today-plan-event coach-today-plan-event--ongoing fw-semibold">
                         <i class="fas fa-circle-play me-1"></i>
                         Probíhá:
                         <strong><?= h($formatCalendarEventPerson($current)) ?></strong>
@@ -356,11 +600,11 @@ renderHeader('Dashboard');
                         <?php endif; ?>
                     </div>
                 <?php else: ?>
-                    <div class="border rounded-3 bg-light text-muted px-4 py-3 fw-semibold" style="font-size: 1.08rem; line-height: 1.4;">Aktuálně nic neprobíhá</div>
+                    <div class="coach-today-plan-event bg-light text-muted fw-semibold">Aktuálně nic neprobíhá</div>
                 <?php endif; ?>
 
                 <?php if ($nextTodayEvent !== null && $minutesToNextTodayEvent !== null): ?>
-                <div class="border rounded-3 bg-warning-subtle text-dark px-4 py-3 text-start fw-semibold" style="max-width: 460px; font-size: 1.08rem; line-height: 1.4;">
+                <div class="coach-today-plan-event coach-today-plan-event--next text-start fw-semibold">
                     <i class="fas fa-clock me-1"></i>
                     Za <?= (int)$minutesToNextTodayEvent ?> min:
                     <strong><?= h($formatCalendarEventPerson($nextTodayEvent)) ?></strong>
@@ -369,10 +613,10 @@ renderHeader('Dashboard');
                     <?php endif; ?>
                 </div>
                 <?php else: ?>
-                <div class="border rounded-3 bg-light text-muted px-4 py-3 fw-semibold" style="font-size: 1.08rem; line-height: 1.4;">Dnes už další trénink nezačíná</div>
+                <div class="coach-today-plan-event bg-light text-muted fw-semibold">Dnes už další trénink nezačíná</div>
                 <?php endif; ?>
 
-                <div class="border rounded-3 bg-info-subtle text-dark px-4 py-3 text-start fw-semibold" style="max-width: 500px; font-size: 1.08rem; line-height: 1.4;">
+                <div class="coach-today-plan-event coach-today-plan-event--tomorrow text-start fw-semibold">
                     <i class="fas fa-calendar-day me-1"></i>
                     Zítra naplánováno: <strong><?= (int)$tomorrowCount ?></strong>
                     <?php if ($firstTomorrowEvent): ?>
@@ -392,9 +636,9 @@ renderHeader('Dashboard');
     </div>
 </div>
 
-<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+<div class="coach-dashboard-toolbar mb-4">
     <h2 class="mb-0"><i class="fas fa-users me-2 text-warning"></i>Moji sportovci</h2>
-    <div class="d-flex gap-2 flex-wrap">
+    <div class="coach-dashboard-toolbar__sort">
         <form method="get" class="d-flex align-items-center gap-2">
             <label for="sortAthletes" class="small text-muted">Řazení</label>
             <select id="sortAthletes" name="sort" class="form-select form-select-sm" onchange="this.form.submit()">
@@ -405,6 +649,8 @@ renderHeader('Dashboard');
                 <?php endforeach; ?>
             </select>
         </form>
+    </div>
+    <div class="coach-dashboard-toolbar__actions">
         <?php if (count($athletes) >= 2): ?>
         <a href="<?= BASE_URL ?>/training_paired_start.php" class="btn btn-sm fw-bold btn-paired-highlight">
             <i class="fas fa-people-group me-1"></i>Párový trénink

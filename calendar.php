@@ -19,8 +19,23 @@ $athletes = $athleteStmt->fetchAll();
 
 $venues = array_values(array_filter(getTrainingVenuesForCoach($coachId), fn($row) => !empty($row['name'])));
 
-renderHeader('Kalendář');
+renderHeader('Kalendář', false, true);
 ?>
+
+<style>
+    .calendar-top-actions {
+        display: flex;
+        gap: .5rem;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+    }
+
+    @media (max-width: 767.98px) {
+        .calendar-top-actions {
+            justify-content: flex-start;
+        }
+    }
+</style>
 
 <style>
 .calendar-shell {
@@ -259,7 +274,10 @@ renderHeader('Kalendář');
 
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
     <h2 class="mb-0"><i class="fas fa-calendar-alt me-2 text-warning"></i>Kalendář trenéra</h2>
-    <div class="d-flex gap-2 flex-wrap">
+    <div class="calendar-top-actions">
+        <a href="<?= BASE_URL ?>/dashboard.php" class="btn btn-outline-secondary btn-sm">
+            <i class="fas fa-house me-1"></i>Domů
+        </a>
         <button class="btn btn-outline-secondary btn-sm" id="prevWeekBtn">
             <i class="fas fa-chevron-left me-1"></i>Předchozí týden
         </button>

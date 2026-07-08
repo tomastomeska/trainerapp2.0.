@@ -5,7 +5,7 @@ require_once __DIR__ . '/includes/header.php';
 
 requireLogin();
 
-renderHeader('Návod pro trenéry');
+renderHeader('Návod pro trenéry', false, true);
 ?>
 
 <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">

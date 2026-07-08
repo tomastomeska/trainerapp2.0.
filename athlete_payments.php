@@ -678,9 +678,14 @@ renderAthleteHeader('Platby');
         <h2 class="mb-1"><i class="fas fa-wallet me-2 text-warning"></i>Platby</h2>
         <div class="text-muted">Tady vidíte platební výzvy od trenéra, QR kód k úhradě a stav zaplacení jednotlivých měsíců.</div>
     </div>
-    <a href="<?= BASE_URL ?>/athlete_zpravy.php" class="btn btn-outline-secondary btn-sm">
-        <i class="fas fa-envelope me-1"></i>Zprávy od trenéra
-    </a>
+    <div class="d-flex flex-wrap gap-2">
+        <a href="<?= BASE_URL ?>/athlete_dashboard.php" class="btn btn-outline-secondary btn-sm">
+            <i class="fas fa-house me-1"></i>Domů
+        </a>
+        <a href="<?= BASE_URL ?>/athlete_zpravy.php" class="btn btn-outline-secondary btn-sm">
+            <i class="fas fa-envelope me-1"></i>Zprávy od trenéra
+        </a>
+    </div>
 </div>
 
 <div class="row g-3 mb-4">

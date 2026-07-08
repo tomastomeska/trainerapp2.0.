@@ -229,7 +229,7 @@ $sentAthletesCount = (int)$bulkCountStmt->fetchColumn();
 
 $unreadInbox = (int)($tabCounts['inbox']['unread'] ?? 0);
 
-renderHeader('Zprávy');
+renderHeader('Zprávy', false, true);
 ?>
 
 <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-4">

@@ -208,7 +208,7 @@ unset($exercise);
 $exerciseCategoryCounts = buildExerciseCategoryCounts($exercises, $exerciseCategoryOptions);
 $globalExerciseCategoryCounts = buildExerciseCategoryCounts($globalExercises, $exerciseCategoryOptions);
 
-renderHeader('Cviky');
+renderHeader('Cviky', false, true);
 ?>
 
 <div class="d-flex justify-content-between align-items-center mb-4">

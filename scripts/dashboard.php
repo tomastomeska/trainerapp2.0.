@@ -214,16 +214,6 @@ renderHeader('Dashboard');
     </div>
 </div>
 
-<div class="border rounded-3 bg-light px-3 py-2 mb-3 d-flex flex-wrap justify-content-between align-items-center gap-2">
-    <div class="text-muted small">
-        <i class="fas fa-heart me-1 text-secondary"></i>
-        Pokud chcete podpořit provoz aplikace, je tu i dobrovolná možnost příspěvku.
-    </div>
-    <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#supportContributionModal">
-        Zobrazit možnosti
-    </button>
-</div>
-
 <?php if (!empty($activeIndividualSessions) || !empty($activePairedSessions)): ?>
 <div class="card border-0 shadow-sm mb-3" id="active-trainings">
     <div class="card-header bg-dark text-white fw-bold py-2">

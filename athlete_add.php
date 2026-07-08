@@ -86,7 +86,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-renderHeader('Přidat sportovce');
+renderHeader('Přidat sportovce', false, true);
 ?>
 
 <div class="row justify-content-center">

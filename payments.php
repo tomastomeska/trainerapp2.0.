@@ -1161,7 +1161,7 @@ foreach ($athletes as $athlete) {
     }
 }
 
-renderHeader('Platby');
+renderHeader('Platby', false, true);
 ?>
 
 <?php if (!empty($schemaWarnings)): ?>

@@ -65,7 +65,7 @@ foreach ($exercises as $ex) {
     );
 }
 
-renderHeader('Sady');
+renderHeader('Sady', false, true);
 ?>
 
 <div class="d-flex justify-content-between align-items-center mb-4">

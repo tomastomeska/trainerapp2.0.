@@ -249,7 +249,7 @@ renderHeader('Zpráva: ' . $message['subject']);
 </div>
 <?php endif; ?>
 
-<?php if (!empty($message['from_athlete_id']) && !$isUnread): ?>
+<?php if (!empty($message['from_athlete_id'])): ?>
 <div class="mb-4 d-flex justify-content-end">
     <button class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#replyAthleteModal">
         <i class="fas fa-reply me-1"></i>Odpovědět sportovci

@@ -289,7 +289,7 @@ $stmtSets = $pdo->prepare(
 $stmtSets->execute([$coachId]);
 $workoutSets = $stmtSets->fetchAll();
 
-renderHeader(h($athlete['first_name'] . ' ' . $athlete['last_name']), true);
+renderHeader(h($athlete['first_name'] . ' ' . $athlete['last_name']), true, true);
 ?>
 
 <div class="d-flex align-items-center mb-4 gap-3 page-header">

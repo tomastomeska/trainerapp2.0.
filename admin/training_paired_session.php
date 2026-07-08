@@ -616,6 +616,7 @@ async function addPairedSeries(sessionId, exerciseId) {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
+                csrf_token: '<?= csrfToken() ?>',
                 session_id:      sessionId,
                 exercise_id:     exerciseId,
                 series_order:    rowCount + 1,
@@ -666,7 +667,10 @@ async function deletePairedSeries(seriesId, sessionId, exerciseId) {
         const resp = await fetch(BASE_URL + '/api/delete_series.php', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({series_id: seriesId})
+            body: JSON.stringify({
+                csrf_token: '<?= csrfToken() ?>',
+                series_id: seriesId
+            })
         });
         const data = await resp.json();
         if (data.success) {

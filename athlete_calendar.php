@@ -7,8 +7,20 @@ requireAthleteLogin();
 
 $athlete = getCurrentAthlete();
 $venues = array_values(array_filter(getTrainingVenuesForCoach((int)$athlete['coach_id']), fn($row) => !empty($row['name'])));
-renderAthleteHeader('Muj kalendar');
+renderAthleteHeader('Můj kalendář', false, true);
 ?>
+
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <h2 class="mb-0"><i class="fas fa-calendar-alt me-2 text-warning"></i>Můj kalendář</h2>
+    <div class="d-flex gap-2 flex-wrap">
+        <a href="<?= BASE_URL ?>/athlete_dashboard.php" class="btn btn-outline-secondary btn-sm">
+            <i class="fas fa-house me-1"></i>Domů
+        </a>
+        <a href="<?= BASE_URL ?>/logout.php" class="btn btn-outline-danger btn-sm">
+            <i class="fas fa-sign-out-alt me-1"></i>Odhlásit
+        </a>
+    </div>
+</div>
 
 <style>
 .calendar-shell {

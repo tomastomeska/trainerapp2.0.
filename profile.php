@@ -393,7 +393,7 @@ if ($activeAgreement !== null) {
     }
 }
 
-renderHeader('Můj profil');
+renderHeader('Můj profil', false, true);
 ?>
 
 <div class="d-flex align-items-center mb-4 gap-3">
