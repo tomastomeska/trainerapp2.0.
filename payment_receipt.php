@@ -141,6 +141,20 @@ function receiptBuildBillable(int $singleSessions, int $pairedSessions, int $car
     ];
 }
 
+function receiptResolveCarryoverUsage(int $outstandingBefore, int $transferredSessions, int $totalSessions): int
+{
+    $totalSessions = max(0, $totalSessions);
+    if ($totalSessions === 0) {
+        return 0;
+    }
+
+    $fromHistory = min(max(0, $outstandingBefore), $totalSessions);
+    $fromTransferred = min(max(0, $transferredSessions), $totalSessions);
+
+    // Sessions billed in another month must not be charged again in this month.
+    return max($fromHistory, $fromTransferred);
+}
+
 function receiptDecodeSnapshot(?string $raw): ?array
 {
     $raw = trim((string)$raw);
@@ -319,7 +333,12 @@ $pairedRate = ($hasPairedTrainingRate && array_key_exists('paired_training_rate'
     ? (float)$athlete['paired_training_rate']
     : $singleRate;
 
-$breakdown = receiptBuildBillable($singleSessions, $pairedSessions, $outstandingBefore, $singleRate, $pairedRate);
+$carryoverForMonth = receiptResolveCarryoverUsage(
+    $outstandingBefore,
+    $transferredSessions,
+    $singleSessions + $pairedSessions
+);
+$breakdown = receiptBuildBillable($singleSessions, $pairedSessions, $carryoverForMonth, $singleRate, $pairedRate);
 
 $paymentRow = null;
 if ($hasPaymentsTable) {
@@ -435,7 +454,8 @@ if ($coachMode) {
 }
 
 .receipt-paper .card {
-    border: 1px solid #dee2e6 !important;
+    border: 1px dashed #7f7f7f !important;
+    box-shadow: none !important;
 }
 
 .receipt-paper .card-header {
@@ -456,6 +476,83 @@ if ($coachMode) {
     padding: 0.35rem 0.4rem;
 }
 
+.receipt-paper .receipt-events-table {
+    width: 100%;
+}
+
+.receipt-paper .receipt-events-table th,
+.receipt-paper .receipt-events-table td {
+    white-space: normal;
+    overflow-wrap: break-word;
+}
+
+.receipt-paper .receipt-events-cards {
+    display: block;
+    padding: 0.6rem;
+}
+
+.receipt-paper .receipt-event-card {
+    border: 1px solid #e1e5ea;
+    border-radius: 10px;
+    padding: 0.65rem;
+    margin-bottom: 0.55rem;
+    background: #fff;
+}
+
+.receipt-paper .receipt-event-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+    border-bottom: 1px dashed #d9dfe6;
+    padding-bottom: 0.45rem;
+    margin-bottom: 0.45rem;
+}
+
+.receipt-paper .receipt-event-amount {
+    font-weight: 700;
+    color: #000;
+}
+
+.receipt-paper .receipt-event-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.35rem 0.65rem;
+}
+
+.receipt-paper .receipt-event-item {
+    min-width: 0;
+}
+
+.receipt-paper .receipt-event-label {
+    display: block;
+    font-size: 0.72rem;
+    color: #6c757d;
+    margin-bottom: 0.1rem;
+}
+
+.receipt-paper .receipt-event-value {
+    font-size: 0.84rem;
+    font-weight: 600;
+    overflow-wrap: break-word;
+}
+
+.receipt-paper .receipt-event-note {
+    margin-top: 0.4rem;
+    font-size: 0.78rem;
+    color: #495057;
+    overflow-wrap: break-word;
+}
+
+.receipt-paper .receipt-events-table-wrap {
+    display: none;
+}
+
+#supportWidgetRoot,
+.support-fab-stack {
+    display: none !important;
+}
+
 @media print {
     @page {
         size: 80mm auto;
@@ -469,6 +566,11 @@ if ($coachMode) {
     }
 
     .no-print {
+        display: none !important;
+    }
+
+    #supportWidgetRoot,
+    .support-fab-stack {
         display: none !important;
     }
 
@@ -504,6 +606,10 @@ if ($coachMode) {
     .receipt-paper .table,
     .receipt-paper .table th,
     .receipt-paper .table td,
+    .receipt-paper .receipt-event-label,
+    .receipt-paper .receipt-event-value,
+    .receipt-paper .receipt-event-note,
+    .receipt-paper .receipt-event-amount,
     .receipt-paper .small,
     .receipt-paper .badge,
     .receipt-paper .fw-semibold,
@@ -534,6 +640,34 @@ if ($coachMode) {
         border-color: #999 !important;
         padding: 1mm !important;
         vertical-align: top !important;
+    }
+
+    .receipt-paper .receipt-events-table-wrap {
+        display: none !important;
+    }
+
+    .receipt-paper .receipt-events-cards {
+        display: block !important;
+        padding: 1mm !important;
+    }
+
+    .receipt-paper .receipt-event-card {
+        border: 1px solid #777 !important;
+        border-radius: 0 !important;
+        margin-bottom: 1.2mm !important;
+        padding: 1.2mm !important;
+    }
+
+    .receipt-paper .receipt-event-head {
+        border-bottom: 1px dashed #888 !important;
+        padding-bottom: 0.8mm !important;
+        margin-bottom: 0.8mm !important;
+    }
+
+    .receipt-paper .receipt-event-grid {
+        display: grid !important;
+        grid-template-columns: 1fr 1fr !important;
+        gap: 0.6mm 1mm !important;
     }
 
     .receipt-paper .text-warning,
@@ -609,8 +743,8 @@ if ($coachMode) {
         <?php if (empty($eventRows)): ?>
             <div class="p-3 text-muted">V tomto období nejsou žádné schválené tréninky k fakturaci.</div>
         <?php else: ?>
-            <div class="table-responsive">
-                <table class="table table-sm align-middle mb-0">
+            <div class="receipt-events-table-wrap">
+                <table class="table table-sm align-middle mb-0 receipt-events-table">
                     <thead class="table-light">
                         <tr>
                             <th>Datum</th>
@@ -637,6 +771,42 @@ if ($coachMode) {
                         <?php endforeach; ?>
                     </tbody>
                 </table>
+            </div>
+            <div class="receipt-events-cards">
+                <?php foreach ($eventRows as $index => $event): ?>
+                    <?php
+                    $rowCharge = $rowCharges[$index]['amount'] ?? 0.0;
+                    $rowNote = $rowCharges[$index]['note'] ?? '';
+                    $defaultNote = ((string)($event['billing_month'] ?? '') !== $monthSql) ? 'Převod z předchozího období' : '';
+                    ?>
+                    <div class="receipt-event-card">
+                        <div class="receipt-event-head">
+                            <div class="fw-semibold"><?= h(formatDate((string)$event['starts_at'])) ?></div>
+                            <div class="receipt-event-amount"><?= number_format((float)$rowCharge, 0, ',', ' ') ?> Kč</div>
+                        </div>
+                        <div class="receipt-event-grid">
+                            <div class="receipt-event-item">
+                                <span class="receipt-event-label">Čas</span>
+                                <div class="receipt-event-value"><?= h(date('H:i', strtotime((string)$event['starts_at']))) ?> - <?= h(date('H:i', strtotime((string)$event['ends_at']))) ?></div>
+                            </div>
+                            <div class="receipt-event-item">
+                                <span class="receipt-event-label">Místo</span>
+                                <div class="receipt-event-value"><?= h((string)($event['location'] ?? '') !== '' ? (string)$event['location'] : '—') ?></div>
+                            </div>
+                            <div class="receipt-event-item">
+                                <span class="receipt-event-label">Typ</span>
+                                <div class="receipt-event-value"><?= ((int)$event['is_paired'] === 1) ? 'Párový' : 'Individuální' ?></div>
+                            </div>
+                            <div class="receipt-event-item">
+                                <span class="receipt-event-label">Náhradní</span>
+                                <div class="receipt-event-value"><?= ((int)($event['is_makeup_session'] ?? 0) === 1) ? 'Ano' : 'Ne' ?></div>
+                            </div>
+                        </div>
+                        <?php if ($rowNote !== '' || $defaultNote !== ''): ?>
+                            <div class="receipt-event-note"><?= h($rowNote !== '' ? $rowNote : $defaultNote) ?></div>
+                        <?php endif; ?>
+                    </div>
+                <?php endforeach; ?>
             </div>
         <?php endif; ?>
     </div>

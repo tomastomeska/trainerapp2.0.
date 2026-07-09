@@ -110,6 +110,21 @@ if (!function_exists('athleteDashboardShouldReplaceMonthPayment')) {
     }
 }
 
+if (!function_exists('athleteDashboardResolveCarryoverApplied')) {
+    function athleteDashboardResolveCarryoverApplied(array $stats, int $outstandingBefore): int {
+        $rawSessions = max(0, (int)($stats['billed_sessions'] ?? 0));
+        if ($rawSessions === 0) {
+            return 0;
+        }
+
+        $fromHistory = min(max(0, $outstandingBefore), $rawSessions);
+        $fromTransferred = min(max(0, (int)($stats['transferred_sessions'] ?? 0)), $rawSessions);
+
+        // Sessions billed in another month must not be charged again in the current month.
+        return max($fromHistory, $fromTransferred);
+    }
+}
+
 if (!function_exists('athleteDashboardBackfillPendingSnapshot')) {
     function athleteDashboardBackfillPendingSnapshot(PDO $pdo, int $coachId, int $athleteId, string $billingMonthSql, ?float $sessionRate, int $plannedSessions, int $carryoverUsed, float $billedAmount): void {
         $stmt = $pdo->prepare(
@@ -413,11 +428,12 @@ try {
 }
 
         $billingSelect = "DATE_FORMAT(starts_at, '%Y-%m-01')";
+        $sourceBillingSelect = $hasBillingMonth
+            ? "DATE_FORMAT(COALESCE(billing_month, starts_at), '%Y-%m-01')"
+            : "DATE_FORMAT(starts_at, '%Y-%m-01')";
         $billingFilter = '1=1';
-        $transferredExpr = $hasBillingMonth
-            ? "SUM(CASE WHEN DATE_FORMAT(starts_at, '%Y-%m-01') <> DATE_FORMAT(billing_month, '%Y-%m-01') THEN 1 ELSE 0 END)"
-            : '0';
-        $makeupExpr = $hasIsMakeup ? 'SUM(CASE WHEN is_makeup_session = 1 THEN 1 ELSE 0 END)' : '0';
+        $transferredExpr = 'SUM(CASE WHEN t.billing_month <> t.source_billing_month THEN 1 ELSE 0 END)';
+        $makeupExpr = $hasIsMakeup ? 'SUM(CASE WHEN t.is_makeup_session = 1 THEN 1 ELSE 0 END)' : '0';
 
         $statsSql = "
             SELECT t.billing_month,
@@ -428,6 +444,7 @@ try {
                    {$transferredExpr} AS transferred_sessions
             FROM (
                 SELECT {$billingSelect} AS billing_month,
+                       {$sourceBillingSelect} AS source_billing_month,
                        starts_at,
                        " . ($hasIsMakeup ? 'is_makeup_session' : '0') . " AS is_makeup_session,
                        " . ($hasSecondAthlete ? 'CASE WHEN second_athlete_id IS NOT NULL THEN 1 ELSE 0 END' : '0') . " AS is_paired
@@ -438,6 +455,7 @@ try {
         " . ($hasSecondAthlete ? "
                 UNION ALL
                 SELECT {$billingSelect} AS billing_month,
+                       {$sourceBillingSelect} AS source_billing_month,
                        starts_at,
                        " . ($hasIsMakeup ? 'is_makeup_session' : '0') . " AS is_makeup_session,
                        1 AS is_paired
@@ -696,7 +714,7 @@ try {
             $rawSessions = (int)$stats['billed_sessions'];
             $rawSingleSessions = (int)($stats['single_sessions'] ?? $rawSessions);
             $rawPairedSessions = (int)($stats['paired_sessions'] ?? 0);
-            $carryoverApplied = min((int)($outstandingBeforeByMonth[$month] ?? 0), $rawSessions);
+            $carryoverApplied = athleteDashboardResolveCarryoverApplied($stats, (int)($outstandingBeforeByMonth[$month] ?? 0));
             $billableSingle = max(0, $rawSingleSessions - $carryoverApplied);
             $remainingCarryover = max(0, $carryoverApplied - $rawSingleSessions);
             $billablePaired = max(0, $rawPairedSessions - $remainingCarryover);
@@ -711,6 +729,37 @@ try {
             $amount = ($rate !== null && $pairedRate !== null)
                 ? (($billableSingle * $rate) + ($billablePaired * $pairedRate))
                 : null;
+
+            if ($paymentStatus === 'pending' && $rate !== null && $amount !== null) {
+                $pendingPlan = max(0, (int)($payment['planned_sessions'] ?? 0));
+                $pendingCarry = max(0, (int)($payment['carryover_used_sessions'] ?? 0));
+                $pendingAmount = (float)($payment['billed_amount'] ?? 0.0);
+                $pendingNeedsRefresh = $pendingPlan !== $billableSessions
+                    || $pendingCarry !== $carryoverApplied
+                    || abs($pendingAmount - (float)$amount) > 0.009;
+
+                if ($pendingNeedsRefresh) {
+                    try {
+                        athleteDashboardBackfillPendingSnapshot(
+                            $pdo,
+                            (int)$athlete['coach_id'],
+                            $athleteId,
+                            $month,
+                            $rate,
+                            $billableSessions,
+                            $carryoverApplied,
+                            (float)$amount
+                        );
+
+                        $payment['planned_sessions'] = $billableSessions;
+                        $payment['carryover_used_sessions'] = $carryoverApplied;
+                        $payment['billed_amount'] = (float)$amount;
+                    } catch (Throwable $e) {
+                        // Keep current snapshot values if refresh fails.
+                    }
+                }
+            }
+
             $displayAmount = ($payment && isset($payment['billed_amount']) && $payment['billed_amount'] !== null)
                 ? (float)$payment['billed_amount']
                 : $amount;

@@ -514,6 +514,20 @@ function computeBillableBreakdown(array $stats, int $carryoverUsed, ?float $sing
     ];
 }
 
+function resolveCarryoverUsageForStats(array $stats, int $outstandingCarryover): int
+{
+    $rawSessions = max(0, (int)($stats['billed_sessions'] ?? 0));
+    if ($rawSessions === 0) {
+        return 0;
+    }
+
+    $fromHistory = min(max(0, $outstandingCarryover), $rawSessions);
+    $fromTransferred = min(max(0, (int)($stats['transferred_sessions'] ?? 0)), $rawSessions);
+
+    // Sessions billed in a different month must never be charged again in the current month.
+    return max($fromHistory, $fromTransferred);
+}
+
 function fetchPaidHistoryBeforeMonth(PDO $pdo, int $coachId, string $beforeMonthSql): array
 {
     $stmt = $pdo->prepare(
@@ -800,8 +814,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $forfeitedByAthleteMonth = fetchForfeitedCarryoverByAthleteMonth($pdo, $coachId, $selectedMonthSql);
                         $outstandingByAthlete = computeOutstandingCarryoverByAthlete($paidHistoryRows, $actualByAthleteMonth, $forfeitedByAthleteMonth);
 
-                        $rawSessions = (int)$athleteStats['billed_sessions'];
-                        $carryoverUsedNow = min((int)($outstandingByAthlete[$athleteId] ?? 0), $rawSessions);
+                        $carryoverUsedNow = resolveCarryoverUsageForStats($athleteStats, (int)($outstandingByAthlete[$athleteId] ?? 0));
                         $billable = computeBillableBreakdown($athleteStats, $carryoverUsedNow, $rate, $pairedRate);
 
                         upsertAthleteMonthlyPayment(
@@ -909,8 +922,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $forfeitedByAthleteMonth = fetchForfeitedCarryoverByAthleteMonth($pdo, $coachId, $selectedMonthSql);
             $outstandingByAthlete = computeOutstandingCarryoverByAthlete($paidHistoryRows, $actualByAthleteMonth, $forfeitedByAthleteMonth);
 
-            $currentSessions = (int)$athleteStats['billed_sessions'];
-            $carryoverUsedNow = min((int)($outstandingByAthlete[$athleteId] ?? 0), $currentSessions);
+            $carryoverUsedNow = resolveCarryoverUsageForStats($athleteStats, (int)($outstandingByAthlete[$athleteId] ?? 0));
             $billable = computeBillableBreakdown($athleteStats, $carryoverUsedNow, $rate, $pairedRate);
             $billableSessions = (int)$billable['billable_sessions'];
             $currentAmount = (float)($billable['amount'] ?? 0.0);
@@ -1014,8 +1026,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $forfeitedByAthleteMonth = fetchForfeitedCarryoverByAthleteMonth($pdo, $coachId, $selectedMonthSql);
             $outstandingByAthlete = computeOutstandingCarryoverByAthlete($paidHistoryRows, $actualByAthleteMonth, $forfeitedByAthleteMonth);
 
-            $rawSessions = (int)$athleteStats['billed_sessions'];
-            $carryoverUsedNow = min((int)($outstandingByAthlete[$athleteId] ?? 0), $rawSessions);
+            $carryoverUsedNow = resolveCarryoverUsageForStats($athleteStats, (int)($outstandingByAthlete[$athleteId] ?? 0));
             $billable = computeBillableBreakdown($athleteStats, $carryoverUsedNow, $rate, $pairedRate);
             $plannedSessions = (int)$billable['billable_sessions'];
             $billedAmount = (float)($billable['amount'] ?? 0.0);
@@ -1137,8 +1148,7 @@ foreach ($athletes as $athlete) {
         ? (float)$athlete['paired_training_rate']
         : $rate;
 
-    $rawSessions = (int)$stats['billed_sessions'];
-    $carryoverUsedNow = min((int)($outstandingByAthlete[$athleteId] ?? 0), $rawSessions);
+    $carryoverUsedNow = resolveCarryoverUsageForStats($stats, (int)($outstandingByAthlete[$athleteId] ?? 0));
     $billable = computeBillableBreakdown($stats, $carryoverUsedNow, $rate, $pairedRate);
     $billableSessions = (int)$billable['billable_sessions'];
     $payment = $paymentsByAthlete[$athleteId] ?? null;
@@ -1282,7 +1292,7 @@ renderHeader('Platby', false, true);
                         $rawSingleSessions = (int)($stats['single_sessions'] ?? 0);
                         $rawPairedSessions = (int)($stats['paired_sessions'] ?? 0);
                         $forfeitedCompensations = (int)($forfeitedCurrentMonthByAthlete[$athleteId] ?? 0);
-                        $carryoverUsedNow = min((int)($outstandingByAthlete[$athleteId] ?? 0), $rawSessions);
+                        $carryoverUsedNow = resolveCarryoverUsageForStats($stats, (int)($outstandingByAthlete[$athleteId] ?? 0));
                         $billable = computeBillableBreakdown($stats, $carryoverUsedNow, $rate, $pairedRate);
                         $currentSessions = (int)$billable['billable_sessions'];
                         $currentAmount = $billable['amount'];
